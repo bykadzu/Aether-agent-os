@@ -1,6 +1,7 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { Agent } from '../../types';
-import { Wifi, Battery, Bot, FolderOpen, Globe, Terminal, Code, StickyNote, Cpu } from 'lucide-react';
+import { Wifi, Battery, Bot, FolderOpen, Globe, Terminal, Code, StickyNote, Cpu, Activity, File, Folder } from 'lucide-react';
+import { getKernelClient, KernelFileStat } from '../../services/kernelClient';
 
 // Simulated window within the virtual desktop
 const VirtualWindow: React.FC<{ title: string; children: React.ReactNode; x: number; y: number; width: string; height: string; active?: boolean }> = ({
@@ -43,6 +44,53 @@ interface VirtualDesktopProps {
 
 export const VirtualDesktop: React.FC<VirtualDesktopProps> = ({ agent, scale = 1, interactive = false }) => {
 
+    // Terminal output buffer (real kernel output)
+    const [ttyOutput, setTtyOutput] = useState<string[]>([]);
+
+    // File listing from kernel
+    const [fileList, setFileList] = useState<KernelFileStat[]>([]);
+    const [filesLoaded, setFilesLoaded] = useState(false);
+
+    // Subscribe to tty output for this agent
+    useEffect(() => {
+        if (!agent.ttyId) return;
+
+        const client = getKernelClient();
+        const unsub = client.on('tty.output', (data: any) => {
+            if (data.ttyId === agent.ttyId) {
+                setTtyOutput(prev => {
+                    const lines = [...prev, data.data];
+                    return lines.length > 50 ? lines.slice(-50) : lines;
+                });
+            }
+        });
+
+        return unsub;
+    }, [agent.ttyId]);
+
+    // Fetch file listing from kernel
+    useEffect(() => {
+        if (!agent.pid) return;
+
+        const client = getKernelClient();
+        if (!client.connected) return;
+
+        const agentUid = agent.id.replace('agent_', 'agent-');
+        const fetchFiles = async () => {
+            try {
+                const files = await client.listDir(`/home/${agentUid}`);
+                setFileList(files);
+                setFilesLoaded(true);
+            } catch {
+                setFilesLoaded(false);
+            }
+        };
+
+        fetchFiles();
+        const interval = setInterval(fetchFiles, 10000);
+        return () => clearInterval(interval);
+    }, [agent.pid, agent.id]);
+
     // Determine active windows based on agent logs/state
     const activeApp = useMemo(() => {
         const lastAction = agent.logs.filter(l => l.type === 'action').pop()?.message || '';
@@ -57,6 +105,16 @@ export const VirtualDesktop: React.FC<VirtualDesktopProps> = ({ agent, scale = 1
     const displayStatus = agent.phase || agent.status;
     const isActive = agent.status === 'working' || agent.status === 'thinking' ||
       agent.phase === 'executing' || agent.phase === 'thinking' || agent.phase === 'observing';
+
+    // Dock icon mapping for highlighting
+    const dockIcons = [
+        { Icon: Bot, id: 'agent' },
+        { Icon: FolderOpen, id: 'finder' },
+        { Icon: Globe, id: 'browser' },
+        { Icon: Terminal, id: 'terminal' },
+        { Icon: Code, id: 'code' },
+        { Icon: StickyNote, id: 'notes' },
+    ];
 
     return (
         <div
@@ -112,10 +170,45 @@ export const VirtualDesktop: React.FC<VirtualDesktopProps> = ({ agent, scale = 1
                     )}
                 </div>
 
+                {/* Activity Monitor Widget */}
+                {agent.pid && (
+                    <div className="absolute bottom-20 right-4 bg-black/50 backdrop-blur-xl border border-white/10 rounded-lg p-2 text-[8px] text-white/70 z-30 w-32">
+                        <div className="flex items-center gap-1 mb-1.5 text-white/90 font-semibold">
+                            <Activity size={8} />
+                            <span>Activity</span>
+                        </div>
+                        <div className="space-y-1">
+                            <div className="flex justify-between">
+                                <span>PID</span>
+                                <span className="font-mono text-cyan-300">{agent.pid}</span>
+                            </div>
+                            <div className="flex justify-between">
+                                <span>Phase</span>
+                                <span className={`font-mono ${isActive ? 'text-green-300' : 'text-gray-400'}`}>
+                                    {agent.phase || agent.status}
+                                </span>
+                            </div>
+                            <div className="flex justify-between">
+                                <span>Steps</span>
+                                <span className="font-mono text-blue-300">{agent.progress}</span>
+                            </div>
+                            {/* Mini progress bar */}
+                            <div className="mt-1">
+                                <div className="w-full h-1 bg-white/10 rounded-full overflow-hidden">
+                                    <div
+                                        className="h-full bg-gradient-to-r from-indigo-500 to-cyan-400 transition-all duration-500 rounded-full"
+                                        style={{ width: `${Math.min(100, (agent.progress / 50) * 100)}%` }}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {/* Windows Layer */}
                 <div className="relative w-full h-full">
 
-                    {/* Always present: Terminal (Agent Brain) */}
+                    {/* Terminal Window - shows real tty output or falls back to logs */}
                     <VirtualWindow
                         title={`Terminal - ${agent.role}${agent.pid ? ` (PID ${agent.pid})` : ''}`}
                         x={5} y={5} width="40%" height="45%"
@@ -126,22 +219,90 @@ export const VirtualDesktop: React.FC<VirtualDesktopProps> = ({ agent, scale = 1
                             <div className="opacity-50 mb-2">
                               {agent.pid ? `Process ${agent.pid} started in sandbox` : 'Initializing virtual environment...'}
                             </div>
-                            {agent.logs.slice(-6).map((log, i) => (
-                                <div key={i} className="mb-1">
-                                    <span className="text-gray-500">[{new Date(log.timestamp).toLocaleTimeString().split(' ')[0]}]</span>{' '}
-                                    <span className={
-                                      log.type === 'thought' ? 'text-purple-300' :
-                                      log.type === 'action' ? 'text-yellow-300' :
-                                      log.type === 'observation' ? 'text-cyan-300' :
-                                      'text-gray-300'
-                                    }>
-                                        {log.message}
-                                    </span>
-                                </div>
-                            ))}
+                            {/* Show real TTY output if available */}
+                            {agent.ttyId && ttyOutput.length > 0 ? (
+                                ttyOutput.slice(-8).map((line, i) => (
+                                    <div key={i} className="mb-0.5 text-gray-300 whitespace-pre-wrap break-all">
+                                        {line}
+                                    </div>
+                                ))
+                            ) : (
+                                /* Fall back to agent logs */
+                                agent.logs.slice(-6).map((log, i) => (
+                                    <div key={i} className="mb-1">
+                                        <span className="text-gray-500">[{new Date(log.timestamp).toLocaleTimeString().split(' ')[0]}]</span>{' '}
+                                        <span className={
+                                          log.type === 'thought' ? 'text-purple-300' :
+                                          log.type === 'action' ? 'text-yellow-300' :
+                                          log.type === 'observation' ? 'text-cyan-300' :
+                                          'text-gray-300'
+                                        }>
+                                            {log.message}
+                                        </span>
+                                    </div>
+                                ))
+                            )}
                             {(agent.status === 'thinking' || agent.phase === 'thinking') && <div className="animate-pulse">_</div>}
                         </div>
                     </VirtualWindow>
+
+                    {/* File Manager Window - shows real files when kernel connected */}
+                    {(activeApp === 'finder' || filesLoaded) && (
+                        <VirtualWindow
+                            title={`Finder - ${agent.role}`}
+                            x={48} y={5} width="45%" height="40%"
+                            active={activeApp === 'finder'}
+                        >
+                            <div className="h-full bg-white flex">
+                                {/* Sidebar */}
+                                <div className="w-1/4 bg-gray-50 border-r border-gray-200 p-1.5 text-[8px]">
+                                    <div className="text-gray-400 font-bold uppercase mb-1">Favorites</div>
+                                    <div className="flex items-center gap-1 text-gray-600 py-0.5 px-1 rounded bg-blue-50">
+                                        <FolderOpen size={8} className="text-blue-500" />
+                                        <span>Home</span>
+                                    </div>
+                                    <div className="flex items-center gap-1 text-gray-500 py-0.5 px-1">
+                                        <FolderOpen size={8} />
+                                        <span>Project</span>
+                                    </div>
+                                </div>
+                                {/* File List */}
+                                <div className="flex-1 p-1.5 text-[8px] overflow-y-auto">
+                                    {filesLoaded && fileList.length > 0 ? (
+                                        fileList.slice(0, 10).map((f, i) => (
+                                            <div key={i} className="flex items-center gap-1.5 py-0.5 px-1 hover:bg-blue-50 rounded">
+                                                {f.type === 'directory' ? (
+                                                    <Folder size={8} className="text-blue-400" />
+                                                ) : (
+                                                    <File size={8} className="text-gray-400" />
+                                                )}
+                                                <span className="text-gray-700 truncate">{f.name}</span>
+                                                <span className="ml-auto text-gray-400 text-[7px]">
+                                                    {f.type === 'file' ? `${(f.size / 1024).toFixed(1)}K` : '--'}
+                                                </span>
+                                            </div>
+                                        ))
+                                    ) : (
+                                        /* Mock file display */
+                                        <>
+                                            <div className="flex items-center gap-1.5 py-0.5 px-1 hover:bg-blue-50 rounded">
+                                                <Folder size={8} className="text-blue-400" />
+                                                <span className="text-gray-700">src/</span>
+                                            </div>
+                                            <div className="flex items-center gap-1.5 py-0.5 px-1 hover:bg-blue-50 rounded">
+                                                <File size={8} className="text-gray-400" />
+                                                <span className="text-gray-700">package.json</span>
+                                            </div>
+                                            <div className="flex items-center gap-1.5 py-0.5 px-1 hover:bg-blue-50 rounded">
+                                                <File size={8} className="text-gray-400" />
+                                                <span className="text-gray-700">README.md</span>
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+                        </VirtualWindow>
+                    )}
 
                     {/* Conditional: Browser Window */}
                     {(agent.currentUrl || activeApp === 'browser') && (
@@ -200,13 +361,25 @@ export const VirtualDesktop: React.FC<VirtualDesktopProps> = ({ agent, scale = 1
                 </div>
             </div>
 
-            {/* Dock */}
+            {/* Dock with active app highlighting */}
             <div className="absolute bottom-2 left-1/2 -translate-x-1/2 w-auto bg-white/20 backdrop-blur-xl border border-white/20 px-2 py-1.5 rounded-xl flex items-end gap-2 z-50">
-                {[Bot, FolderOpen, Globe, Terminal, Code, StickyNote].map((Icon, i) => (
-                    <div key={i} className="w-6 h-6 rounded-lg bg-gray-400/20 flex items-center justify-center text-white border border-white/10 shadow-sm">
-                        <Icon size={12} />
-                    </div>
-                ))}
+                {dockIcons.map(({ Icon, id }, i) => {
+                    const isActiveIcon = activeApp === id;
+                    return (
+                        <div
+                            key={i}
+                            className={`w-6 h-6 rounded-lg flex items-center justify-center border shadow-sm transition-all duration-300
+                                ${isActiveIcon
+                                    ? 'bg-indigo-500/40 border-indigo-400/50 text-white ring-1 ring-indigo-400/30 scale-110'
+                                    : 'bg-gray-400/20 border-white/10 text-white'
+                                }
+                                ${isActiveIcon && isActive ? 'animate-pulse' : ''}
+                            `}
+                        >
+                            <Icon size={12} />
+                        </div>
+                    );
+                })}
             </div>
 
             {/* Overlay for non-interactive mode */}
