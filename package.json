@@ -1,10 +1,12 @@
 {
   "name": "aether-os",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:kernel": "cd server && npx tsx src/index.ts",
+    "dev:full": "npm run dev:kernel & npm run dev",
     "build": "vite build",
     "preview": "vite preview"
   },

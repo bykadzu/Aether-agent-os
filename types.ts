@@ -51,26 +51,61 @@ export interface ChatMessage {
   timestamp: number;
 }
 
-// Agent System Types
+// Agent System Types (legacy mock types, kept for backward compat)
 export type AgentStatus = 'idle' | 'thinking' | 'working' | 'waiting_approval' | 'completed' | 'error';
 
 export interface AgentLog {
   timestamp: number;
-  type: 'thought' | 'action' | 'system';
+  type: 'thought' | 'action' | 'observation' | 'system';
   message: string;
 }
 
 export interface Agent {
   id: string;
+  pid?: number;          // Kernel process ID (set when using real kernel)
   name: string;
-  role: string; // e.g., "Researcher", "Coder"
+  role: string;
   goal: string;
   status: AgentStatus;
-  thumbnailUrl?: string; // Snapshot of their "screen"
+  phase?: string;        // Kernel AgentPhase (more granular than status)
+  thumbnailUrl?: string;
   logs: AgentLog[];
-  currentUrl?: string; // If browsing
-  currentCode?: string; // If coding
+  currentUrl?: string;
+  currentCode?: string;
   progress: number;
-  isWaiting?: boolean; // Prevents double-firing API calls
-  githubSync?: boolean; // Mock GitHub connection
+  ttyId?: string;        // Terminal session ID (set when using real kernel)
+  isWaiting?: boolean;
+  githubSync?: boolean;
+}
+
+// Runtime mode - determines if we use mock or real kernel
+export type RuntimeMode = 'mock' | 'kernel';
+
+/**
+ * Map kernel phase to legacy AgentStatus for UI compatibility.
+ */
+export function phaseToStatus(phase: string, state: string): AgentStatus {
+  if (state === 'zombie' || state === 'dead') {
+    return phase === 'completed' ? 'completed' : 'error';
+  }
+  if (state === 'stopped') return 'idle';
+
+  switch (phase) {
+    case 'booting':
+    case 'thinking':
+    case 'observing':
+      return 'thinking';
+    case 'executing':
+      return 'working';
+    case 'waiting':
+      return 'waiting_approval';
+    case 'idle':
+      return 'idle';
+    case 'completed':
+      return 'completed';
+    case 'failed':
+      return 'error';
+    default:
+      return 'working';
+  }
 }

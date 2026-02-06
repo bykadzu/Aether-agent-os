@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { AppID, WindowState, Agent, AgentStatus } from './types';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { AppID, WindowState, Agent, AgentStatus, RuntimeMode, phaseToStatus } from './types';
 import { Window } from './components/os/Window';
 import { Dock } from './components/os/Dock';
 import { SmartBar } from './components/apps/SmartBar';
@@ -17,9 +17,10 @@ import { AgentDashboard } from './components/apps/AgentDashboard';
 import { AgentVM } from './components/apps/AgentVM';
 import { DesktopWidgets } from './components/os/DesktopWidgets';
 import { ContextMenu } from './components/os/ContextMenu';
-import { Battery, Wifi, Search, Command, RefreshCw, FolderPlus, Monitor, Image as ImageIcon } from 'lucide-react';
+import { Battery, Wifi, Search, Command, RefreshCw, FolderPlus, Monitor, Image as ImageIcon, Server } from 'lucide-react';
 import { FileSystemItem, mockFileSystem } from './data/mockFileSystem';
 import { generateText, GeminiModel, getAgentDecision } from './services/geminiService';
+import { useKernel, AgentProcess } from './services/useKernel';
 
 const App: React.FC = () => {
   const [windows, setWindows] = useState<WindowState[]>([]);
@@ -34,11 +35,49 @@ const App: React.FC = () => {
   // Context Menu State
   const [contextMenu, setContextMenu] = useState<{ isOpen: boolean; x: number; y: number } | null>(null);
 
-  // Agent System State
-  const [agents, setAgents] = useState<Agent[]>([]);
-  
-  // ---- REAL AI AGENT LOOP ----
+  // Runtime mode: 'kernel' when server is available, 'mock' as fallback
+  const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>('mock');
+
+  // Kernel connection (real backend)
+  const kernel = useKernel();
+
+  // Detect kernel availability
   useEffect(() => {
+    if (kernel.connected) {
+      setRuntimeMode('kernel');
+    }
+  }, [kernel.connected]);
+
+  // Bridge kernel processes to Agent type for UI compatibility
+  const kernelAgents: Agent[] = useMemo(() => {
+    return kernel.processes.map((proc: AgentProcess): Agent => ({
+      id: `agent_${proc.pid}`,
+      pid: proc.pid,
+      name: proc.name,
+      role: proc.role,
+      goal: proc.goal,
+      status: phaseToStatus(proc.phase, proc.state),
+      phase: proc.phase,
+      logs: proc.logs,
+      currentUrl: proc.currentUrl,
+      currentCode: proc.currentCode,
+      progress: proc.progress.step,
+      ttyId: proc.ttyId,
+      isWaiting: false,
+    }));
+  }, [kernel.processes]);
+
+  // Agent System State (mock mode fallback)
+  const [mockAgents, setMockAgents] = useState<Agent[]>([]);
+
+  // Unified agent list depending on runtime mode
+  const agents = runtimeMode === 'kernel' ? kernelAgents : mockAgents;
+  const setAgents = setMockAgents; // Only used in mock mode
+
+  // ---- MOCK AI AGENT LOOP (only runs when kernel is not connected) ----
+  useEffect(() => {
+    if (runtimeMode === 'kernel') return; // Skip mock loop when real kernel is connected
+
     const runAgentStep = async (agent: Agent) => {
         // If agent is busy, skip
         if (agent.isWaiting) return;
@@ -124,9 +163,7 @@ const App: React.FC = () => {
     }, 4000); // Check every 4 seconds to be polite to the API
 
     return () => clearInterval(interval);
-  }, [agents, files]); 
-  // Dependency on 'agents' might cause too many re-renders if not careful, 
-  // but since we only update 'isWaiting' inside runAgentStep initially, it should be stable enough for this demo.
+  }, [mockAgents, files, runtimeMode]);
 
 
   // Boot Effect
@@ -275,8 +312,18 @@ const App: React.FC = () => {
     }));
   };
 
-  // Agent Management
+  // Agent Management - routes to kernel or mock depending on runtime mode
   const launchAgent = async (role: string, goal: string) => {
+      if (runtimeMode === 'kernel') {
+        try {
+          await kernel.spawnAgent({ role, goal });
+        } catch (err) {
+          console.error('Failed to spawn agent via kernel:', err);
+        }
+        return;
+      }
+
+      // Mock mode fallback
       const id = `agent_${Date.now()}`;
       const newAgent: Agent = {
           id,
@@ -288,28 +335,43 @@ const App: React.FC = () => {
           logs: [{ timestamp: Date.now(), type: 'system', message: `Agent ${id} initialized.` }]
       };
       setAgents(prev => [...prev, newAgent]);
-
-      // Trigger initial Gemini thought to kickstart simulation
-      // We don't set status to 'working' immediately, let the loop pick it up
       setTimeout(() => {
           setAgents(prev => prev.map(a => a.id === id ? { ...a, status: 'working' } : a));
       }, 500);
   };
 
   const stopAgent = (id: string) => {
+      if (runtimeMode === 'kernel') {
+        const agent = agents.find(a => a.id === id);
+        if (agent?.pid) kernel.killProcess(agent.pid);
+        return;
+      }
       setAgents(prev => prev.map(a => a.id === id ? { ...a, status: 'error', logs: [...a.logs, { timestamp: Date.now(), type: 'system', message: 'Process terminated by user.' }] } : a));
   };
 
   const approveAgent = (id: string) => {
+      if (runtimeMode === 'kernel') {
+        const agent = agents.find(a => a.id === id);
+        if (agent?.pid) kernel.approveAction(agent.pid);
+        return;
+      }
       setAgents(prev => prev.map(a => a.id === id ? { ...a, status: 'working', logs: [...a.logs, { timestamp: Date.now(), type: 'system', message: 'Action approved by user.' }] } : a));
   };
 
   const rejectAgent = (id: string) => {
+      if (runtimeMode === 'kernel') {
+        const agent = agents.find(a => a.id === id);
+        if (agent?.pid) kernel.rejectAction(agent.pid);
+        return;
+      }
       setAgents(prev => prev.map(a => a.id === id ? { ...a, status: 'thinking', logs: [...a.logs, { timestamp: Date.now(), type: 'system', message: 'Action denied. Re-evaluating strategy...' }] } : a));
   };
 
   const syncGithub = (id: string) => {
-      setAgents(prev => prev.map(a => a.id === id ? { ...a, githubSync: !a.githubSync, logs: [...a.logs, { timestamp: Date.now(), type: 'system', message: !a.githubSync ? 'Connected to GitHub repository.' : 'Disconnected from GitHub.' }] } : a));
+      // GitHub sync is a UI-only toggle for now in both modes
+      if (runtimeMode === 'mock') {
+        setAgents(prev => prev.map(a => a.id === id ? { ...a, githubSync: !a.githubSync, logs: [...a.logs, { timestamp: Date.now(), type: 'system', message: !a.githubSync ? 'Connected to GitHub repository.' : 'Disconnected from GitHub.' }] } : a));
+      }
   };
 
   const renderAppContent = (windowState: WindowState) => {
@@ -402,7 +464,12 @@ const App: React.FC = () => {
           <span className="hidden sm:inline opacity-70 hover:opacity-100 cursor-pointer">Help</span>
         </div>
         <div className="flex items-center gap-4">
-           <button 
+           {/* Kernel Status Indicator */}
+           <div className="flex items-center gap-1.5" title={kernel.connected ? `Kernel v${kernel.version} connected` : 'Kernel disconnected (mock mode)'}>
+             <div className={`w-1.5 h-1.5 rounded-full ${kernel.connected ? 'bg-green-400' : 'bg-orange-400'}`} />
+             <span className="text-[10px] opacity-60">{kernel.connected ? 'Kernel' : 'Mock'}</span>
+           </div>
+           <button
              onClick={(e) => { e.stopPropagation(); setIsSmartBarOpen(true); }}
              className="flex items-center gap-1 bg-white/10 hover:bg-white/20 px-2 py-0.5 rounded transition-colors"
            >
