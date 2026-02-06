@@ -6,28 +6,51 @@
  *
  * Supports two modes:
  * - Docker mode: terminal sessions run inside containers via ContainerManager
- * - Process mode: direct child_process spawning (fallback when Docker unavailable)
+ *   (uses child_process since docker exec handles its own PTY)
+ * - Process mode: uses node-pty for proper pseudo-terminal support
+ *   (SIGWINCH, job control, interactive programs)
  *
  * The PTY output is streamed over the event bus and forwarded to the UI
  * via WebSocket.
  */
 
 import { spawn, ChildProcess } from 'node:child_process';
+import * as pty from 'node-pty';
 import { EventBus } from './EventBus.js';
 import { ContainerManager } from './ContainerManager.js';
 import { PID, DEFAULT_TTY_COLS, DEFAULT_TTY_ROWS } from '@aether/shared';
 
-export interface PTYSession {
+/**
+ * A local PTY session backed by node-pty.
+ */
+export interface LocalPTYSession {
   id: string;
   pid: PID;
+  ptyProcess: pty.IPty;
+  process: null;
+  cols: number;
+  rows: number;
+  cwd: string;
+  createdAt: number;
+  containerized: false;
+}
+
+/**
+ * A container PTY session backed by child_process (docker exec).
+ */
+export interface ContainerPTYSession {
+  id: string;
+  pid: PID;
+  ptyProcess: null;
   process: ChildProcess;
   cols: number;
   rows: number;
   cwd: string;
   createdAt: number;
-  /** Whether this session runs inside a Docker container */
-  containerized: boolean;
+  containerized: true;
 }
+
+export type PTYSession = LocalPTYSession | ContainerPTYSession;
 
 export class PTYManager {
   private sessions = new Map<string, PTYSession>();
@@ -49,7 +72,7 @@ export class PTYManager {
   /**
    * Open a new terminal session for a process.
    * Uses Docker container shell if a container exists for the process,
-   * otherwise falls back to direct child_process.
+   * otherwise uses node-pty for a real pseudo-terminal.
    */
   open(pid: PID, options: {
     cwd?: string;
@@ -64,9 +87,6 @@ export class PTYManager {
     const cwd = options.cwd || '/tmp';
     const shell = options.shell || '/bin/bash';
 
-    let proc: ChildProcess;
-    let containerized = false;
-
     // Try to use container shell if ContainerManager has a container for this PID
     if (this.containerManager) {
       const containerProc = this.containerManager.spawnShell(pid, {
@@ -74,24 +94,95 @@ export class PTYManager {
         env: options.env,
       });
       if (containerProc) {
-        proc = containerProc;
-        containerized = true;
-      } else {
-        proc = this.spawnLocalShell(shell, cwd, cols, rows, options.env);
+        return this.setupContainerSession(id, pid, containerProc, cols, rows, cwd);
       }
-    } else {
-      proc = this.spawnLocalShell(shell, cwd, cols, rows, options.env);
     }
 
-    const session: PTYSession = {
+    // Use node-pty for local shell
+    return this.setupLocalSession(id, pid, shell, cwd, cols, rows, options.env);
+  }
+
+  /**
+   * Set up a local PTY session using node-pty.
+   * Provides proper SIGWINCH, job control, and interactive program support.
+   */
+  private setupLocalSession(
+    id: string,
+    pid: PID,
+    shell: string,
+    cwd: string,
+    cols: number,
+    rows: number,
+    env?: Record<string, string>,
+  ): LocalPTYSession {
+    const ptyProcess = pty.spawn(shell, ['--login'], {
+      name: 'xterm-256color',
+      cols,
+      rows,
+      cwd,
+      env: {
+        ...process.env,
+        ...env,
+        TERM: 'xterm-256color',
+        PS1: '\\u@aether:\\w\\$ ',
+      } as { [key: string]: string },
+    });
+
+    const session: LocalPTYSession = {
       id,
       pid,
+      ptyProcess,
+      process: null,
+      cols,
+      rows,
+      cwd,
+      createdAt: Date.now(),
+      containerized: false,
+    };
+
+    // node-pty emits a single merged data stream (stdout+stderr)
+    ptyProcess.onData((data: string) => {
+      this.bus.emit('tty.output', {
+        ttyId: id,
+        pid,
+        data,
+      });
+    });
+
+    // Handle process exit
+    ptyProcess.onExit(({ exitCode, signal }) => {
+      this.bus.emit('tty.closed', { ttyId: id, pid, code: exitCode, signal });
+      this.sessions.delete(id);
+    });
+
+    this.sessions.set(id, session);
+    this.bus.emit('tty.opened', { ttyId: id, pid });
+
+    return session;
+  }
+
+  /**
+   * Set up a container PTY session using child_process (docker exec).
+   * Docker exec handles its own PTY allocation.
+   */
+  private setupContainerSession(
+    id: string,
+    pid: PID,
+    proc: ChildProcess,
+    cols: number,
+    rows: number,
+    cwd: string,
+  ): ContainerPTYSession {
+    const session: ContainerPTYSession = {
+      id,
+      pid,
+      ptyProcess: null,
       process: proc,
       cols,
       rows,
       cwd,
       createdAt: Date.now(),
-      containerized,
+      containerized: true,
     };
 
     // Forward stdout
@@ -133,37 +224,19 @@ export class PTYManager {
   }
 
   /**
-   * Spawn a local shell process (fallback when no container).
-   */
-  private spawnLocalShell(
-    shell: string,
-    cwd: string,
-    cols: number,
-    rows: number,
-    env?: Record<string, string>,
-  ): ChildProcess {
-    return spawn(shell, ['--login'], {
-      cwd,
-      env: {
-        ...process.env,
-        ...env,
-        TERM: 'xterm-256color',
-        COLUMNS: String(cols),
-        LINES: String(rows),
-        PS1: '\\u@aether:\\w\\$ ',
-      },
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-  }
-
-  /**
    * Send input to a terminal session.
    */
   write(ttyId: string, data: string): boolean {
     const session = this.sessions.get(ttyId);
-    if (!session || !session.process.stdin?.writable) return false;
+    if (!session) return false;
 
-    session.process.stdin.write(data);
+    if (session.containerized) {
+      if (!session.process.stdin?.writable) return false;
+      session.process.stdin.write(data);
+    } else {
+      session.ptyProcess.write(data);
+    }
+
     return true;
   }
 
@@ -230,6 +303,8 @@ export class PTYManager {
 
   /**
    * Resize a terminal session.
+   * For local sessions, sends SIGWINCH via node-pty.
+   * For container sessions, updates stored dimensions only.
    */
   resize(ttyId: string, cols: number, rows: number): boolean {
     const session = this.sessions.get(ttyId);
@@ -238,8 +313,11 @@ export class PTYManager {
     session.cols = cols;
     session.rows = rows;
 
-    // Note: without node-pty, we can't send SIGWINCH properly.
-    // We update env vars which some programs respect.
+    if (!session.containerized) {
+      // node-pty sends SIGWINCH automatically
+      session.ptyProcess.resize(cols, rows);
+    }
+
     return true;
   }
 
@@ -250,12 +328,16 @@ export class PTYManager {
     const session = this.sessions.get(ttyId);
     if (!session) return;
 
-    session.process.kill('SIGTERM');
-    setTimeout(() => {
-      if (!session.process.killed) {
-        session.process.kill('SIGKILL');
-      }
-    }, 3000);
+    if (session.containerized) {
+      session.process.kill('SIGTERM');
+      setTimeout(() => {
+        if (!session.process.killed) {
+          session.process.kill('SIGKILL');
+        }
+      }, 3000);
+    } else {
+      session.ptyProcess.kill();
+    }
 
     this.sessions.delete(ttyId);
   }
