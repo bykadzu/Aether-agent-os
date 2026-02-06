@@ -111,10 +111,20 @@ export function createToolSet(): ToolDefinition[] {
     // ----- Shell Execution -----
     {
       name: 'run_command',
-      description: 'Execute a shell command in the agent terminal',
-      requiresApproval: false, // Can be set to true for destructive commands
+      description: 'Execute a shell command in the agent terminal (runs inside container if sandboxed)',
+      requiresApproval: false,
       execute: async (args, ctx) => {
         try {
+          // Try container execution first via ContainerManager
+          if (ctx.kernel.containers?.isDockerAvailable()) {
+            const containerInfo = ctx.kernel.containers.get(ctx.pid);
+            if (containerInfo) {
+              const output = await ctx.kernel.containers.exec(ctx.pid, args.command);
+              return { success: true, output };
+            }
+          }
+
+          // Fallback to PTY execution
           const ttys = ctx.kernel.pty.getByPid(ctx.pid);
           if (ttys.length === 0) {
             return { success: false, output: 'No terminal session available' };
@@ -174,6 +184,88 @@ export function createToolSet(): ToolDefinition[] {
           return { success: true, output: plainText };
         } catch (err: any) {
           return { success: false, output: `Failed to fetch ${args.url}: ${err.message}` };
+        }
+      },
+    },
+
+    // ----- Agent-to-Agent IPC -----
+    {
+      name: 'list_agents',
+      description: 'List all currently running agents (for IPC discovery)',
+      execute: async (_args, ctx) => {
+        try {
+          const agents = ctx.kernel.processes.listRunningAgents();
+          if (agents.length === 0) {
+            return { success: true, output: 'No other agents are currently running.' };
+          }
+          const listing = agents
+            .filter(a => a.pid !== ctx.pid) // Exclude self
+            .map(a => `PID ${a.pid}: ${a.name} (${a.role}) - ${a.state}/${a.agentPhase || 'unknown'}`)
+            .join('\n');
+          return {
+            success: true,
+            output: listing || 'No other agents are currently running.',
+          };
+        } catch (err: any) {
+          return { success: false, output: `Error: ${err.message}` };
+        }
+      },
+    },
+
+    {
+      name: 'send_message',
+      description: 'Send a message to another running agent by PID. The message will be delivered to the target agent as an observation.',
+      execute: async (args, ctx) => {
+        try {
+          const toPid = Number(args.pid);
+          if (isNaN(toPid)) {
+            return { success: false, output: 'Invalid PID: must be a number' };
+          }
+          if (toPid === ctx.pid) {
+            return { success: false, output: 'Cannot send a message to yourself' };
+          }
+
+          const channel = args.channel || 'default';
+          const payload = args.message || args.payload;
+          if (!payload) {
+            return { success: false, output: 'Message content is required (use "message" or "payload" arg)' };
+          }
+
+          const message = ctx.kernel.processes.sendMessage(ctx.pid, toPid, channel, payload);
+          if (!message) {
+            return { success: false, output: `Failed to send message: target PID ${toPid} not found or not alive` };
+          }
+
+          return {
+            success: true,
+            output: `Message sent to PID ${toPid} on channel "${channel}" (id: ${message.id})`,
+          };
+        } catch (err: any) {
+          return { success: false, output: `Error: ${err.message}` };
+        }
+      },
+    },
+
+    {
+      name: 'check_messages',
+      description: 'Check for incoming IPC messages from other agents',
+      execute: async (_args, ctx) => {
+        try {
+          const messages = ctx.kernel.processes.drainMessages(ctx.pid);
+          if (messages.length === 0) {
+            return { success: true, output: 'No new messages.' };
+          }
+
+          const formatted = messages.map(m =>
+            `[${new Date(m.timestamp).toISOString()}] From PID ${m.fromPid} (${m.fromUid}) on "${m.channel}":\n${typeof m.payload === 'string' ? m.payload : JSON.stringify(m.payload)}`
+          ).join('\n---\n');
+
+          return {
+            success: true,
+            output: `${messages.length} message(s) received:\n${formatted}`,
+          };
+        } catch (err: any) {
+          return { success: false, output: `Error: ${err.message}` };
         }
       },
     },

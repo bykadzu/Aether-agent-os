@@ -5,6 +5,8 @@
  * - ProcessManager: lifecycle of agent processes
  * - VirtualFS: sandboxed filesystem per agent
  * - PTYManager: terminal sessions
+ * - ContainerManager: Docker container sandboxing
+ * - StateStore: SQLite persistence for history and metrics
  * - EventBus: inter-component communication
  *
  * The kernel processes commands from the UI (via the server's WebSocket
@@ -20,6 +22,8 @@ import { EventBus } from './EventBus.js';
 import { ProcessManager } from './ProcessManager.js';
 import { VirtualFS } from './VirtualFS.js';
 import { PTYManager } from './PTYManager.js';
+import { ContainerManager } from './ContainerManager.js';
+import { StateStore } from './StateStore.js';
 import {
   KernelCommand,
   KernelEvent,
@@ -33,15 +37,19 @@ export class Kernel {
   readonly processes: ProcessManager;
   readonly fs: VirtualFS;
   readonly pty: PTYManager;
+  readonly containers: ContainerManager;
+  readonly state: StateStore;
 
   private startTime: number;
   private running = false;
 
-  constructor(options: { fsRoot?: string } = {}) {
+  constructor(options: { fsRoot?: string; dbPath?: string } = {}) {
     this.bus = new EventBus();
     this.processes = new ProcessManager(this.bus);
     this.fs = new VirtualFS(this.bus, options.fsRoot);
+    this.containers = new ContainerManager(this.bus);
     this.pty = new PTYManager(this.bus);
+    this.state = new StateStore(this.bus, options.dbPath);
     this.startTime = Date.now();
   }
 
@@ -56,6 +64,15 @@ export class Kernel {
     // Initialize filesystem
     await this.fs.init();
     console.log('[Kernel] Filesystem initialized');
+
+    // Initialize container manager (detects Docker availability)
+    await this.containers.init();
+    console.log(`[Kernel] Container manager initialized (Docker: ${this.containers.isDockerAvailable() ? 'available' : 'unavailable, using process fallback'})`);
+
+    // Wire container manager into PTY manager
+    this.pty.setContainerManager(this.containers);
+
+    console.log('[Kernel] State store initialized (SQLite)');
 
     this.running = true;
     this.startTime = Date.now();
@@ -85,6 +102,17 @@ export class Kernel {
           // Create home directory for the agent
           await this.fs.createHome(proc.info.uid);
 
+          // If sandbox type is 'container' and Docker is available, create container
+          const sandbox = cmd.config.sandbox;
+          if (sandbox?.type === 'container' && this.containers.isDockerAvailable()) {
+            const hostVolume = this.fs.getRealRoot() + proc.info.cwd;
+            const containerInfo = await this.containers.create(pid, hostVolume, sandbox);
+            if (containerInfo) {
+              proc.info.containerId = containerInfo.containerId;
+              proc.info.containerStatus = 'running';
+            }
+          }
+
           // Open a terminal for the agent
           const tty = this.pty.open(pid, {
             cwd: this.fs.getRealRoot() + proc.info.cwd,
@@ -98,7 +126,7 @@ export class Kernel {
           events.push({
             type: 'response.ok',
             id: cmd.id,
-            data: { pid, ttyId: tty.id },
+            data: { pid, ttyId: tty.id, containerId: proc.info.containerId },
           });
           events.push({
             type: 'process.spawned',
@@ -110,6 +138,12 @@ export class Kernel {
 
         case 'process.signal': {
           const success = this.processes.signal(cmd.pid, cmd.signal);
+
+          // If killing a process, also clean up its container
+          if (success && (cmd.signal === 'SIGTERM' || cmd.signal === 'SIGKILL')) {
+            this.containers.remove(cmd.pid).catch(() => {});
+          }
+
           events.push({
             type: success ? 'response.ok' : 'response.error',
             id: cmd.id,
@@ -308,6 +342,35 @@ export class Kernel {
           break;
         }
 
+        // ----- IPC Commands -----
+        case 'ipc.send': {
+          const message = this.processes.sendMessage(cmd.fromPid, cmd.toPid, cmd.channel, cmd.payload);
+          if (message) {
+            events.push({
+              type: 'response.ok',
+              id: cmd.id,
+              data: { messageId: message.id },
+            });
+          } else {
+            events.push({
+              type: 'response.error',
+              id: cmd.id,
+              error: 'Failed to send IPC message: source or target process not found',
+            });
+          }
+          break;
+        }
+
+        case 'ipc.list_agents': {
+          const agents = this.processes.listRunningAgents();
+          events.push({
+            type: 'response.ok',
+            id: cmd.id,
+            data: agents,
+          });
+          break;
+        }
+
         // ----- System Commands -----
         case 'kernel.status': {
           events.push({
@@ -317,6 +380,8 @@ export class Kernel {
               version: this.version,
               uptime: Date.now() - this.startTime,
               processes: this.processes.getCounts(),
+              docker: this.containers.isDockerAvailable(),
+              containers: this.containers.getAll().length,
             },
           });
           break;
@@ -361,9 +426,24 @@ export class Kernel {
     console.log('[Kernel] Shutting down...');
 
     this.running = false;
+
+    // Record final metrics before shutdown
+    try {
+      const counts = this.processes.getCounts();
+      this.state.recordMetric({
+        timestamp: Date.now(),
+        processCount: counts.running + counts.sleeping + counts.created,
+        cpuPercent: 0,
+        memoryMB: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+        containerCount: this.containers.getAll().length,
+      });
+    } catch { /* ignore metric errors during shutdown */ }
+
     await this.pty.shutdown();
+    await this.containers.shutdown();
     await this.processes.shutdown();
     await this.fs.shutdown();
+    this.state.close();
     this.bus.off();
 
     console.log('[Kernel] Shutdown complete');

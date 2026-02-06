@@ -2,10 +2,11 @@
  * Aether Kernel - PTY Manager
  *
  * Manages pseudo-terminal sessions for agent processes. Each agent can
- * have a terminal that connects to a real shell on the host.
+ * have a terminal that connects to a real shell.
  *
- * Uses Node.js child_process with a shell, providing real command execution.
- * In future, this will connect to sandboxed containers instead.
+ * Supports two modes:
+ * - Docker mode: terminal sessions run inside containers via ContainerManager
+ * - Process mode: direct child_process spawning (fallback when Docker unavailable)
  *
  * The PTY output is streamed over the event bus and forwarded to the UI
  * via WebSocket.
@@ -13,6 +14,7 @@
 
 import { spawn, ChildProcess } from 'node:child_process';
 import { EventBus } from './EventBus.js';
+import { ContainerManager } from './ContainerManager.js';
 import { PID, DEFAULT_TTY_COLS, DEFAULT_TTY_ROWS } from '@aether/shared';
 
 export interface PTYSession {
@@ -23,18 +25,31 @@ export interface PTYSession {
   rows: number;
   cwd: string;
   createdAt: number;
+  /** Whether this session runs inside a Docker container */
+  containerized: boolean;
 }
 
 export class PTYManager {
   private sessions = new Map<string, PTYSession>();
   private bus: EventBus;
+  private containerManager?: ContainerManager;
 
-  constructor(bus: EventBus) {
+  constructor(bus: EventBus, containerManager?: ContainerManager) {
     this.bus = bus;
+    this.containerManager = containerManager;
+  }
+
+  /**
+   * Set the container manager (called during kernel boot after ContainerManager init).
+   */
+  setContainerManager(cm: ContainerManager): void {
+    this.containerManager = cm;
   }
 
   /**
    * Open a new terminal session for a process.
+   * Uses Docker container shell if a container exists for the process,
+   * otherwise falls back to direct child_process.
    */
   open(pid: PID, options: {
     cwd?: string;
@@ -49,19 +64,24 @@ export class PTYManager {
     const cwd = options.cwd || '/tmp';
     const shell = options.shell || '/bin/bash';
 
-    // Spawn a real shell process
-    const proc = spawn(shell, ['--login'], {
-      cwd,
-      env: {
-        ...process.env,
-        ...options.env,
-        TERM: 'xterm-256color',
-        COLUMNS: String(cols),
-        LINES: String(rows),
-        PS1: '\\u@aether:\\w\\$ ',
-      },
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    let proc: ChildProcess;
+    let containerized = false;
+
+    // Try to use container shell if ContainerManager has a container for this PID
+    if (this.containerManager) {
+      const containerProc = this.containerManager.spawnShell(pid, {
+        cwd: '/home/agent',
+        env: options.env,
+      });
+      if (containerProc) {
+        proc = containerProc;
+        containerized = true;
+      } else {
+        proc = this.spawnLocalShell(shell, cwd, cols, rows, options.env);
+      }
+    } else {
+      proc = this.spawnLocalShell(shell, cwd, cols, rows, options.env);
+    }
 
     const session: PTYSession = {
       id,
@@ -71,6 +91,7 @@ export class PTYManager {
       rows,
       cwd,
       createdAt: Date.now(),
+      containerized,
     };
 
     // Forward stdout
@@ -112,6 +133,30 @@ export class PTYManager {
   }
 
   /**
+   * Spawn a local shell process (fallback when no container).
+   */
+  private spawnLocalShell(
+    shell: string,
+    cwd: string,
+    cols: number,
+    rows: number,
+    env?: Record<string, string>,
+  ): ChildProcess {
+    return spawn(shell, ['--login'], {
+      cwd,
+      env: {
+        ...process.env,
+        ...env,
+        TERM: 'xterm-256color',
+        COLUMNS: String(cols),
+        LINES: String(rows),
+        PS1: '\\u@aether:\\w\\$ ',
+      },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+  }
+
+  /**
    * Send input to a terminal session.
    */
   write(ttyId: string, data: string): boolean {
@@ -124,9 +169,28 @@ export class PTYManager {
 
   /**
    * Execute a command in a terminal session and return the output.
-   * Useful for agent tool execution.
+   * For containerized sessions, optionally uses `docker exec` directly
+   * for cleaner command execution.
    */
   exec(ttyId: string, command: string): Promise<string> {
+    const session = this.sessions.get(ttyId);
+    if (!session) {
+      return Promise.reject(new Error(`TTY ${ttyId} not found`));
+    }
+
+    // For containerized sessions with a ContainerManager, use docker exec directly
+    if (session.containerized && this.containerManager) {
+      return this.containerManager.exec(session.pid, command);
+    }
+
+    // Fallback: pipe through the shell session
+    return this.execViaShell(ttyId, command);
+  }
+
+  /**
+   * Execute a command by piping through the shell session (marker-based).
+   */
+  private execViaShell(ttyId: string, command: string): Promise<string> {
     return new Promise((resolve, reject) => {
       const session = this.sessions.get(ttyId);
       if (!session) {

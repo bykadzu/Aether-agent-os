@@ -10,6 +10,8 @@
  *
  * Unlike a traditional OS, our "processes" are agent loops rather than
  * native executables. But the abstraction is the same: spawn, signal, wait.
+ *
+ * Includes per-process message queues for IPC between agents.
  */
 
 import { EventBus } from './EventBus.js';
@@ -20,6 +22,9 @@ import {
   ProcessInfo,
   AgentConfig,
   Signal,
+  IPCMessage,
+  createMessageId,
+  IPC_QUEUE_MAX_LENGTH,
 } from '@aether/shared';
 import { MAX_PROCESSES } from '@aether/shared';
 
@@ -29,6 +34,8 @@ export interface ManagedProcess {
   abortController: AbortController;
   /** The actual execution handle - set by the runtime */
   handle?: any;
+  /** IPC message queue for this process */
+  messageQueue: IPCMessage[];
 }
 
 export class ProcessManager {
@@ -96,6 +103,7 @@ export class ProcessManager {
       info,
       agentConfig: config,
       abortController: new AbortController(),
+      messageQueue: [],
     };
 
     this.processes.set(pid, proc);
@@ -174,6 +182,7 @@ export class ProcessManager {
     const proc = this.processes.get(pid);
     if (!proc) return;
     proc.info.state = 'dead';
+    proc.messageQueue = []; // Clear IPC queue
     this.bus.emit('process.reaped', { pid });
   }
 
@@ -241,6 +250,86 @@ export class ProcessManager {
     if (!proc) return;
     proc.info.cpuPercent = cpu;
     proc.info.memoryMB = memMB;
+  }
+
+  // ---------------------------------------------------------------------------
+  // IPC - Inter-Process Communication
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Send an IPC message from one process to another.
+   * The message is queued and the receiving agent gets it on their next step.
+   */
+  sendMessage(fromPid: PID, toPid: PID, channel: string, payload: any): IPCMessage | null {
+    const fromProc = this.processes.get(fromPid);
+    const toProc = this.processes.get(toPid);
+
+    if (!fromProc || fromProc.info.state === 'dead') return null;
+    if (!toProc || toProc.info.state === 'dead') return null;
+
+    const message: IPCMessage = {
+      id: createMessageId(),
+      fromPid,
+      toPid,
+      fromUid: fromProc.info.uid,
+      toUid: toProc.info.uid,
+      channel,
+      payload,
+      timestamp: Date.now(),
+      delivered: false,
+    };
+
+    // Enforce queue limit
+    if (toProc.messageQueue.length >= IPC_QUEUE_MAX_LENGTH) {
+      toProc.messageQueue.shift(); // Drop oldest
+    }
+
+    toProc.messageQueue.push(message);
+
+    this.bus.emit('ipc.message', { message });
+
+    return message;
+  }
+
+  /**
+   * Drain (consume) all pending IPC messages for a process.
+   * Marks them as delivered and removes from queue.
+   */
+  drainMessages(pid: PID): IPCMessage[] {
+    const proc = this.processes.get(pid);
+    if (!proc) return [];
+
+    const messages = proc.messageQueue.splice(0);
+    for (const msg of messages) {
+      msg.delivered = true;
+      this.bus.emit('ipc.delivered', { messageId: msg.id, toPid: pid });
+    }
+    return messages;
+  }
+
+  /**
+   * Peek at pending messages without consuming them.
+   */
+  peekMessages(pid: PID): IPCMessage[] {
+    const proc = this.processes.get(pid);
+    if (!proc) return [];
+    return [...proc.messageQueue];
+  }
+
+  /**
+   * List all active running agents (for /proc discovery).
+   */
+  listRunningAgents(): Array<{ pid: PID; uid: string; name: string; role: string; state: ProcessState; agentPhase?: AgentPhase }> {
+    return this.getActive()
+      .filter(p => p.info.state === 'running' || p.info.state === 'sleeping')
+      .map(p => ({
+        pid: p.info.pid,
+        uid: p.info.uid,
+        name: p.info.name,
+        role: p.info.env.AETHER_ROLE || 'unknown',
+        state: p.info.state,
+        agentPhase: p.info.agentPhase,
+      }));
   }
 
   /**
