@@ -20,6 +20,7 @@ import {
   AgentLogEntry,
   FileMetadataRecord,
   KernelMetricRecord,
+  SnapshotInfo,
   STATE_DB_PATH,
 } from '@aether/shared';
 
@@ -44,6 +45,18 @@ export class StateStore {
     insertMetric: Database.Statement;
     getMetrics: Database.Statement;
     getLatestMetrics: Database.Statement;
+    insertSnapshot: Database.Statement;
+    getAllSnapshots: Database.Statement;
+    getSnapshotsByPid: Database.Statement;
+    getSnapshotById: Database.Statement;
+    deleteSnapshot: Database.Statement;
+    insertSharedMount: Database.Statement;
+    getSharedMount: Database.Statement;
+    getAllSharedMounts: Database.Statement;
+    addMountedBy: Database.Statement;
+    removeMountedBy: Database.Statement;
+    getMountedBy: Database.Statement;
+    deleteSharedMount: Database.Statement;
   };
 
   constructor(bus: EventBus, dbPath?: string) {
@@ -116,6 +129,34 @@ export class StateStore {
       );
 
       CREATE INDEX IF NOT EXISTS idx_kernel_metrics_time ON kernel_metrics(timestamp);
+
+      CREATE TABLE IF NOT EXISTS snapshots (
+        id TEXT PRIMARY KEY,
+        pid INTEGER NOT NULL,
+        timestamp INTEGER NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        file_path TEXT NOT NULL,
+        tarball_path TEXT NOT NULL,
+        process_info TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL DEFAULT 0
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_snapshots_pid ON snapshots(pid);
+
+      CREATE TABLE IF NOT EXISTS shared_mounts (
+        name TEXT PRIMARY KEY,
+        path TEXT NOT NULL,
+        owner_pid INTEGER NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS shared_mount_members (
+        name TEXT NOT NULL,
+        pid INTEGER NOT NULL,
+        mount_point TEXT NOT NULL,
+        PRIMARY KEY (name, pid),
+        FOREIGN KEY (name) REFERENCES shared_mounts(name)
+      );
     `);
   }
 
@@ -186,6 +227,49 @@ export class StateStore {
                memory_mb as memoryMB, container_count as containerCount
         FROM kernel_metrics ORDER BY timestamp DESC LIMIT ?
       `),
+      insertSnapshot: this.db.prepare(`
+        INSERT INTO snapshots (id, pid, timestamp, description, file_path, tarball_path, process_info, size_bytes)
+        VALUES (@id, @pid, @timestamp, @description, @filePath, @tarballPath, @processInfo, @sizeBytes)
+      `),
+      getAllSnapshots: this.db.prepare(`
+        SELECT id, pid, timestamp, description, file_path as filePath, tarball_path as tarballPath,
+               process_info as processInfo, size_bytes as sizeBytes
+        FROM snapshots ORDER BY timestamp DESC
+      `),
+      getSnapshotsByPid: this.db.prepare(`
+        SELECT id, pid, timestamp, description, file_path as filePath, tarball_path as tarballPath,
+               process_info as processInfo, size_bytes as sizeBytes
+        FROM snapshots WHERE pid = ? ORDER BY timestamp DESC
+      `),
+      getSnapshotById: this.db.prepare(`
+        SELECT id, pid, timestamp, description, file_path as filePath, tarball_path as tarballPath,
+               process_info as processInfo, size_bytes as sizeBytes
+        FROM snapshots WHERE id = ?
+      `),
+      deleteSnapshot: this.db.prepare(`DELETE FROM snapshots WHERE id = ?`),
+      insertSharedMount: this.db.prepare(`
+        INSERT OR REPLACE INTO shared_mounts (name, path, owner_pid, created_at)
+        VALUES (@name, @path, @ownerPid, @createdAt)
+      `),
+      getSharedMount: this.db.prepare(`
+        SELECT name, path, owner_pid as ownerPid, created_at as createdAt
+        FROM shared_mounts WHERE name = ?
+      `),
+      getAllSharedMounts: this.db.prepare(`
+        SELECT name, path, owner_pid as ownerPid, created_at as createdAt
+        FROM shared_mounts ORDER BY name
+      `),
+      addMountedBy: this.db.prepare(`
+        INSERT OR REPLACE INTO shared_mount_members (name, pid, mount_point)
+        VALUES (@name, @pid, @mountPoint)
+      `),
+      removeMountedBy: this.db.prepare(`
+        DELETE FROM shared_mount_members WHERE name = ? AND pid = ?
+      `),
+      getMountedBy: this.db.prepare(`
+        SELECT pid, mount_point as mountPoint FROM shared_mount_members WHERE name = ?
+      `),
+      deleteSharedMount: this.db.prepare(`DELETE FROM shared_mounts WHERE name = ?`),
     };
   }
 
@@ -384,6 +468,71 @@ export class StateStore {
 
   getLatestMetrics(limit: number = 100): KernelMetricRecord[] {
     return this.stmts.getLatestMetrics.all(limit) as KernelMetricRecord[];
+  }
+
+  // ---------------------------------------------------------------------------
+  // Snapshots
+  // ---------------------------------------------------------------------------
+
+  recordSnapshot(record: {
+    id: string;
+    pid: PID;
+    timestamp: number;
+    description: string;
+    filePath: string;
+    tarballPath: string;
+    processInfo: string;
+    sizeBytes: number;
+  }): void {
+    this.stmts.insertSnapshot.run(record);
+  }
+
+  getAllSnapshots(): Array<{ id: string; pid: PID; timestamp: number; description: string; filePath: string; tarballPath: string; processInfo: string; sizeBytes: number }> {
+    return this.stmts.getAllSnapshots.all() as any[];
+  }
+
+  getSnapshotsByPid(pid: PID): Array<{ id: string; pid: PID; timestamp: number; description: string; filePath: string; tarballPath: string; processInfo: string; sizeBytes: number }> {
+    return this.stmts.getSnapshotsByPid.all(pid) as any[];
+  }
+
+  getSnapshotById(id: string): { id: string; pid: PID; timestamp: number; description: string; filePath: string; tarballPath: string; processInfo: string; sizeBytes: number } | undefined {
+    return this.stmts.getSnapshotById.get(id) as any;
+  }
+
+  deleteSnapshotRecord(id: string): void {
+    this.stmts.deleteSnapshot.run(id);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Shared Mounts
+  // ---------------------------------------------------------------------------
+
+  recordSharedMount(record: { name: string; path: string; ownerPid: PID; createdAt: number }): void {
+    this.stmts.insertSharedMount.run(record);
+  }
+
+  getSharedMount(name: string): { name: string; path: string; ownerPid: PID; createdAt: number } | undefined {
+    return this.stmts.getSharedMount.get(name) as any;
+  }
+
+  getAllSharedMounts(): Array<{ name: string; path: string; ownerPid: PID; createdAt: number }> {
+    return this.stmts.getAllSharedMounts.all() as any[];
+  }
+
+  addMountMember(name: string, pid: PID, mountPoint: string): void {
+    this.stmts.addMountedBy.run({ name, pid, mountPoint });
+  }
+
+  removeMountMember(name: string, pid: PID): void {
+    this.stmts.removeMountedBy.run(name, pid);
+  }
+
+  getMountMembers(name: string): Array<{ pid: PID; mountPoint: string }> {
+    return this.stmts.getMountedBy.all(name) as any[];
+  }
+
+  deleteSharedMount(name: string): void {
+    this.stmts.deleteSharedMount.run(name);
   }
 
   // ---------------------------------------------------------------------------

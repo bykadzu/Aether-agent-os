@@ -18,7 +18,7 @@ import * as fs from 'node:fs/promises';
 import * as fsSync from 'node:fs';
 import * as path from 'node:path';
 import { EventBus } from './EventBus.js';
-import { FileStat, FileType, FileMode, AETHER_ROOT } from '@aether/shared';
+import { FileStat, FileType, FileMode, SharedMountInfo, PID, AETHER_ROOT } from '@aether/shared';
 
 const DEFAULT_MODE: FileMode = {
   owner: { read: true, write: true, execute: false },
@@ -30,6 +30,8 @@ export class VirtualFS {
   private root: string;
   private bus: EventBus;
   private watchers = new Map<string, ReturnType<typeof fsSync.watch>>();
+  /** Tracks shared mounts: name → { realPath, ownerPid, mountedBy: Map<pid, mountPoint> } */
+  private sharedMounts = new Map<string, { realPath: string; ownerPid: PID; mountedBy: Map<PID, string> }>();
 
   constructor(bus: EventBus, root?: string) {
     this.bus = bus;
@@ -46,6 +48,7 @@ export class VirtualFS {
       path.join(this.root, 'tmp'),
       path.join(this.root, 'etc'),
       path.join(this.root, 'var', 'log'),
+      path.join(this.root, 'shared'),
     ];
 
     for (const dir of dirs) {
@@ -104,7 +107,7 @@ export class VirtualFS {
 
   /**
    * Resolve a virtual path to a real filesystem path.
-   * Prevents path traversal attacks.
+   * Prevents path traversal attacks, including through symlinks.
    */
   private resolvePath(virtualPath: string): string {
     // Normalize and resolve the path
@@ -118,6 +121,20 @@ export class VirtualFS {
     const resolvedRoot = path.resolve(this.root);
     if (!resolved.startsWith(resolvedRoot)) {
       throw new Error(`Access denied: path traversal detected (${virtualPath})`);
+    }
+
+    // If the path exists and might be a symlink, also check the real path
+    try {
+      const realResolved = fsSync.realpathSync(resolved);
+      if (!realResolved.startsWith(resolvedRoot)) {
+        throw new Error(`Access denied: symlink target outside aether root (${virtualPath})`);
+      }
+    } catch (err: any) {
+      // ENOENT is fine - the path doesn't exist yet
+      if (err.code !== 'ENOENT') {
+        // Re-throw access denied errors
+        if (err.message?.includes('Access denied')) throw err;
+      }
     }
 
     return resolved;
@@ -317,6 +334,160 @@ export class VirtualFS {
       watcher.close();
       this.watchers.delete(virtualPath);
     }
+  }
+
+  // -----------------------------------------------------------------------
+  // Shared Mounts
+  // -----------------------------------------------------------------------
+
+  /**
+   * Create a shared directory that multiple agents can access.
+   */
+  async createSharedMount(name: string, ownerPid: PID): Promise<SharedMountInfo> {
+    // Validate name (alphanumeric, hyphens, underscores only)
+    if (!/^[a-zA-Z0-9_-]+$/.test(name)) {
+      throw new Error('Shared mount name must be alphanumeric (hyphens and underscores allowed)');
+    }
+
+    const sharedDir = path.join(this.root, 'shared', name);
+    await fs.mkdir(sharedDir, { recursive: true });
+
+    const mount = {
+      realPath: sharedDir,
+      ownerPid,
+      mountedBy: new Map<PID, string>(),
+    };
+    this.sharedMounts.set(name, mount);
+
+    this.bus.emit('fs.sharedCreated', {
+      mount: {
+        name,
+        path: `/shared/${name}`,
+        ownerPid,
+        mountedBy: [],
+      },
+    });
+
+    return {
+      name,
+      path: `/shared/${name}`,
+      ownerPid,
+      mountedBy: [],
+    };
+  }
+
+  /**
+   * Mount a shared directory into an agent's home.
+   * Creates a symlink at ~/shared/{name} (or custom mountPoint).
+   */
+  async mountShared(pid: PID, name: string, mountPoint?: string): Promise<void> {
+    const mount = this.sharedMounts.get(name);
+    if (!mount) {
+      // Try to find the directory on disk even if not in memory
+      const sharedDir = path.join(this.root, 'shared', name);
+      try {
+        await fs.access(sharedDir);
+      } catch {
+        throw new Error(`Shared mount "${name}" does not exist`);
+      }
+      // Recreate in-memory record
+      this.sharedMounts.set(name, {
+        realPath: sharedDir,
+        ownerPid: 0,
+        mountedBy: new Map(),
+      });
+    }
+
+    const sharedDir = path.join(this.root, 'shared', name);
+    const agentUid = `agent_${pid}`;
+    const homeDir = path.join(this.root, 'home', agentUid);
+    const relativeMountPoint = mountPoint || `shared/${name}`;
+    const linkPath = path.join(homeDir, relativeMountPoint);
+
+    // Ensure parent directory exists
+    await fs.mkdir(path.dirname(linkPath), { recursive: true });
+
+    // Verify the link path stays within the aether root
+    const resolvedLink = path.resolve(linkPath);
+    const resolvedRoot = path.resolve(this.root);
+    if (!resolvedLink.startsWith(resolvedRoot)) {
+      throw new Error('Access denied: mount point path traversal detected');
+    }
+
+    // Remove existing symlink if present
+    try {
+      const existingStat = await fs.lstat(linkPath);
+      if (existingStat.isSymbolicLink()) {
+        await fs.unlink(linkPath);
+      }
+    } catch { /* doesn't exist yet */ }
+
+    // Create symlink
+    await fs.symlink(sharedDir, linkPath);
+
+    // Track the mount
+    const mountRecord = this.sharedMounts.get(name);
+    if (mountRecord) {
+      mountRecord.mountedBy.set(pid, relativeMountPoint);
+    }
+  }
+
+  /**
+   * Unmount a shared directory from an agent's home.
+   */
+  async unmountShared(pid: PID, name: string): Promise<void> {
+    const mount = this.sharedMounts.get(name);
+    if (!mount) return;
+
+    const mountPoint = mount.mountedBy.get(pid);
+    if (!mountPoint) return;
+
+    const agentUid = `agent_${pid}`;
+    const linkPath = path.join(this.root, 'home', agentUid, mountPoint);
+
+    try {
+      const stat = await fs.lstat(linkPath);
+      if (stat.isSymbolicLink()) {
+        await fs.unlink(linkPath);
+      }
+    } catch { /* link doesn't exist */ }
+
+    mount.mountedBy.delete(pid);
+  }
+
+  /**
+   * List all shared mounts and which agents have them mounted.
+   */
+  async listSharedMounts(): Promise<SharedMountInfo[]> {
+    const result: SharedMountInfo[] = [];
+
+    // Also scan the shared directory for mounts not in memory
+    const sharedRoot = path.join(this.root, 'shared');
+    try {
+      const entries = await fs.readdir(sharedRoot, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          if (!this.sharedMounts.has(entry.name)) {
+            this.sharedMounts.set(entry.name, {
+              realPath: path.join(sharedRoot, entry.name),
+              ownerPid: 0,
+              mountedBy: new Map(),
+            });
+          }
+        }
+      }
+    } catch { /* shared dir may not exist yet */ }
+
+    for (const [name, mount] of this.sharedMounts) {
+      result.push({
+        name,
+        path: `/shared/${name}`,
+        ownerPid: mount.ownerPid,
+        mountedBy: Array.from(mount.mountedBy.keys()),
+      });
+    }
+
+    return result;
   }
 
   // -----------------------------------------------------------------------

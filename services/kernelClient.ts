@@ -414,6 +414,47 @@ export class KernelClient {
   }
 
   // -----------------------------------------------------------------------
+  // History API (REST - fetches from HTTP endpoints)
+  // -----------------------------------------------------------------------
+
+  /**
+   * Get agent log history for a specific PID.
+   */
+  async getAgentHistory(pid: number): Promise<Array<{
+    id: number;
+    pid: number;
+    step: number;
+    phase: string;
+    tool?: string;
+    content: string;
+    timestamp: number;
+  }>> {
+    const res = await fetch(`http://localhost:3001/api/history/logs/${pid}`);
+    if (!res.ok) throw new Error(`Failed to fetch agent history: ${res.statusText}`);
+    return res.json();
+  }
+
+  /**
+   * Get process history (all spawned agents).
+   */
+  async getProcessHistory(): Promise<Array<{
+    pid: number;
+    uid: string;
+    name: string;
+    role: string;
+    goal: string;
+    state: string;
+    agentPhase?: string;
+    exitCode?: number;
+    createdAt: number;
+    exitedAt?: number;
+  }>> {
+    const res = await fetch('http://localhost:3001/api/history/processes');
+    if (!res.ok) throw new Error(`Failed to fetch process history: ${res.statusText}`);
+    return res.json();
+  }
+
+  // -----------------------------------------------------------------------
   // System API
   // -----------------------------------------------------------------------
 

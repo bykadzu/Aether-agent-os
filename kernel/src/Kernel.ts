@@ -24,6 +24,7 @@ import { VirtualFS } from './VirtualFS.js';
 import { PTYManager } from './PTYManager.js';
 import { ContainerManager } from './ContainerManager.js';
 import { PluginManager } from './PluginManager.js';
+import { SnapshotManager } from './SnapshotManager.js';
 import { StateStore } from './StateStore.js';
 import {
   KernelCommand,
@@ -40,6 +41,7 @@ export class Kernel {
   readonly pty: PTYManager;
   readonly containers: ContainerManager;
   readonly plugins: PluginManager;
+  readonly snapshots: SnapshotManager;
   readonly state: StateStore;
 
   private startTime: number;
@@ -53,6 +55,7 @@ export class Kernel {
     this.pty = new PTYManager(this.bus);
     this.plugins = new PluginManager(this.bus, options.fsRoot);
     this.state = new StateStore(this.bus, options.dbPath);
+    this.snapshots = new SnapshotManager(this.bus, this.processes, this.state, options.fsRoot);
     this.startTime = Date.now();
   }
 
@@ -74,6 +77,10 @@ export class Kernel {
 
     // Wire container manager into PTY manager
     this.pty.setContainerManager(this.containers);
+
+    // Initialize snapshot manager
+    await this.snapshots.init();
+    console.log('[Kernel] Snapshot manager initialized');
 
     console.log('[Kernel] State store initialized (SQLite)');
 
@@ -386,6 +393,132 @@ export class Kernel {
             type: 'plugins.list',
             pid: cmd.pid,
             plugins: pluginInfos,
+          } as KernelEvent);
+          break;
+        }
+
+        // ----- Snapshot Commands -----
+        case 'snapshot.create': {
+          const snapshot = await this.snapshots.createSnapshot(cmd.pid, cmd.description);
+          events.push({
+            type: 'response.ok',
+            id: cmd.id,
+            data: snapshot,
+          });
+          events.push({
+            type: 'snapshot.created',
+            snapshot,
+          } as KernelEvent);
+          break;
+        }
+
+        case 'snapshot.list': {
+          const snapshots = await this.snapshots.listSnapshots(cmd.pid);
+          events.push({
+            type: 'response.ok',
+            id: cmd.id,
+            data: snapshots,
+          });
+          events.push({
+            type: 'snapshot.list',
+            snapshots,
+          } as KernelEvent);
+          break;
+        }
+
+        case 'snapshot.restore': {
+          const newPid = await this.snapshots.restoreSnapshot(cmd.snapshotId);
+          events.push({
+            type: 'response.ok',
+            id: cmd.id,
+            data: { newPid },
+          });
+          events.push({
+            type: 'snapshot.restored',
+            snapshotId: cmd.snapshotId,
+            newPid,
+          } as KernelEvent);
+          break;
+        }
+
+        case 'snapshot.delete': {
+          await this.snapshots.deleteSnapshot(cmd.snapshotId);
+          events.push({
+            type: 'response.ok',
+            id: cmd.id,
+          });
+          events.push({
+            type: 'snapshot.deleted',
+            snapshotId: cmd.snapshotId,
+          } as KernelEvent);
+          break;
+        }
+
+        // ----- Shared Filesystem Commands -----
+        case 'fs.createShared': {
+          const mount = await this.fs.createSharedMount(cmd.name, cmd.ownerPid);
+          this.state.recordSharedMount({
+            name: cmd.name,
+            path: mount.path,
+            ownerPid: cmd.ownerPid,
+            createdAt: Date.now(),
+          });
+          events.push({
+            type: 'response.ok',
+            id: cmd.id,
+            data: mount,
+          });
+          events.push({
+            type: 'fs.sharedCreated',
+            mount,
+          } as KernelEvent);
+          break;
+        }
+
+        case 'fs.mountShared': {
+          await this.fs.mountShared(cmd.pid, cmd.name, cmd.mountPoint);
+          const proc = this.processes.get(cmd.pid);
+          const mountPoint = cmd.mountPoint || `shared/${cmd.name}`;
+          if (proc) {
+            this.state.addMountMember(cmd.name, cmd.pid, mountPoint);
+          }
+          events.push({
+            type: 'response.ok',
+            id: cmd.id,
+          });
+          events.push({
+            type: 'fs.sharedMounted',
+            pid: cmd.pid,
+            name: cmd.name,
+          } as KernelEvent);
+          break;
+        }
+
+        case 'fs.unmountShared': {
+          await this.fs.unmountShared(cmd.pid, cmd.name);
+          this.state.removeMountMember(cmd.name, cmd.pid);
+          events.push({
+            type: 'response.ok',
+            id: cmd.id,
+          });
+          events.push({
+            type: 'fs.sharedUnmounted',
+            pid: cmd.pid,
+            name: cmd.name,
+          } as KernelEvent);
+          break;
+        }
+
+        case 'fs.listShared': {
+          const mounts = await this.fs.listSharedMounts();
+          events.push({
+            type: 'response.ok',
+            id: cmd.id,
+            data: mounts,
+          });
+          events.push({
+            type: 'fs.sharedList',
+            mounts,
           } as KernelEvent);
           break;
         }

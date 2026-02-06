@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Terminal, AlertTriangle, Check, StopCircle, Github, ChevronRight, Layout, Cpu, HardDrive, Activity } from 'lucide-react';
+import { Terminal, AlertTriangle, Check, StopCircle, Github, ChevronRight, Layout, Cpu, HardDrive, Activity, Clock } from 'lucide-react';
 import { Agent } from '../../types';
 import { VirtualDesktop } from '../os/VirtualDesktop';
 import { getKernelClient } from '../../services/kernelClient';
 import { XTerminal } from '../os/XTerminal';
+import { AgentTimeline } from './AgentTimeline';
 
 interface AgentVMProps {
   agent: Agent;
@@ -15,7 +16,7 @@ interface AgentVMProps {
 
 export const AgentVM: React.FC<AgentVMProps> = ({ agent, onApprove, onReject, onStop, onSyncGithub }) => {
   const [isSidebarOpen, setSidebarOpen] = useState(true);
-  const [activeTab, setActiveTab] = useState<'logs' | 'terminal'>('logs');
+  const [activeTab, setActiveTab] = useState<'logs' | 'terminal' | 'timeline'>('logs');
   const logEndRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll logs
@@ -137,6 +138,14 @@ export const AgentVM: React.FC<AgentVMProps> = ({ agent, onApprove, onReject, on
             <Terminal size={10} /> Terminal
             {agent.ttyId && <div className="w-1 h-1 rounded-full bg-green-500" />}
           </button>
+          <button
+            onClick={() => setActiveTab('timeline')}
+            className={`flex-1 p-2.5 text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 transition-colors ${
+              activeTab === 'timeline' ? 'text-white border-b-2 border-orange-500' : 'text-gray-500 hover:text-gray-300'
+            }`}
+          >
+            <Clock size={10} /> Timeline
+          </button>
         </div>
 
         {/* Sidebar close button */}
@@ -181,6 +190,21 @@ export const AgentVM: React.FC<AgentVMProps> = ({ agent, onApprove, onReject, on
                 <Terminal size={24} />
                 <span className="text-[10px]">No terminal session</span>
                 <span className="text-[9px]">Connect to kernel for live terminal</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Timeline Tab */}
+        {activeTab === 'timeline' && (
+          <div className="flex-1 overflow-hidden relative">
+            {agent.pid ? (
+              <AgentTimeline pid={agent.pid} />
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full text-gray-600 gap-2 p-3">
+                <Clock size={24} />
+                <span className="text-[10px]">No timeline available</span>
+                <span className="text-[9px]">Connect to kernel for agent history</span>
               </div>
             )}
           </div>

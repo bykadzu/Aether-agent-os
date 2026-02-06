@@ -42,7 +42,7 @@ await kernel.boot();
 const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
   // CORS headers for Vite dev server
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') {
@@ -239,6 +239,173 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
     return;
   }
 
+  // ----- Snapshot Endpoints -----
+
+  // List all snapshots
+  if (url.pathname === '/api/snapshots' && req.method === 'GET') {
+    try {
+      const snapshots = await kernel.snapshots.listSnapshots();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(snapshots));
+    } catch (err: any) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
+  // Create snapshot for a PID or list snapshots for a PID
+  if (url.pathname.match(/^\/api\/snapshots\/\d+$/) && (req.method === 'GET' || req.method === 'POST')) {
+    const pidStr = url.pathname.split('/').pop();
+    const pid = parseInt(pidStr || '', 10);
+    if (isNaN(pid)) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid PID' }));
+      return;
+    }
+
+    if (req.method === 'GET') {
+      try {
+        const snapshots = await kernel.snapshots.listSnapshots(pid);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(snapshots));
+      } catch (err: any) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+      return;
+    }
+
+    // POST — create snapshot
+    let body = '';
+    for await (const chunk of req) {
+      body += chunk;
+    }
+    try {
+      const { description } = body ? JSON.parse(body) : {};
+      const snapshot = await kernel.snapshots.createSnapshot(pid, description);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(snapshot));
+    } catch (err: any) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
+  // Restore snapshot
+  if (url.pathname.match(/^\/api\/snapshots\/[^/]+\/restore$/) && req.method === 'POST') {
+    const parts = url.pathname.split('/');
+    const snapshotId = parts[3];
+    try {
+      const newPid = await kernel.snapshots.restoreSnapshot(snapshotId);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ newPid }));
+    } catch (err: any) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
+  // Delete snapshot
+  if (url.pathname.match(/^\/api\/snapshots\/[^/]+$/) && req.method === 'DELETE') {
+    const snapshotId = url.pathname.split('/').pop()!;
+    try {
+      await kernel.snapshots.deleteSnapshot(snapshotId);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+    } catch (err: any) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
+  // ----- Shared Filesystem Endpoints -----
+
+  // List all shared mounts
+  if (url.pathname === '/api/shared' && req.method === 'GET') {
+    try {
+      const mounts = await kernel.fs.listSharedMounts();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(mounts));
+    } catch (err: any) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
+  // Create shared mount
+  if (url.pathname === '/api/shared' && req.method === 'POST') {
+    let body = '';
+    for await (const chunk of req) {
+      body += chunk;
+    }
+    try {
+      const { name, ownerPid } = JSON.parse(body);
+      if (!name || ownerPid === undefined) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'name and ownerPid are required' }));
+        return;
+      }
+      const mount = await kernel.fs.createSharedMount(name, ownerPid);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(mount));
+    } catch (err: any) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
+  // Mount shared dir for an agent
+  if (url.pathname === '/api/shared/mount' && req.method === 'POST') {
+    let body = '';
+    for await (const chunk of req) {
+      body += chunk;
+    }
+    try {
+      const { pid, name, mountPoint } = JSON.parse(body);
+      if (!name || pid === undefined) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'name and pid are required' }));
+        return;
+      }
+      await kernel.fs.mountShared(pid, name, mountPoint);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+    } catch (err: any) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
+  // Unmount shared dir
+  if (url.pathname === '/api/shared/unmount' && req.method === 'POST') {
+    let body = '';
+    for await (const chunk of req) {
+      body += chunk;
+    }
+    try {
+      const { pid, name } = JSON.parse(body);
+      if (!name || pid === undefined) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'name and pid are required' }));
+        return;
+      }
+      await kernel.fs.unmountShared(pid, name);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+    } catch (err: any) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
   // 404
   res.writeHead(404, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ error: 'Not found' }));
@@ -356,6 +523,12 @@ const BROADCAST_EVENTS = [
   'tty.closed',
   'plugin.loaded',
   'plugin.error',
+  'snapshot.created',
+  'snapshot.restored',
+  'snapshot.deleted',
+  'fs.sharedCreated',
+  'fs.sharedMounted',
+  'fs.sharedUnmounted',
   'kernel.metrics',
 ];
 

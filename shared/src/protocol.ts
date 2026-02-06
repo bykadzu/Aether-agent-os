@@ -210,6 +210,29 @@ export interface KernelMetricRecord {
 }
 
 // ---------------------------------------------------------------------------
+// Snapshot Types
+// ---------------------------------------------------------------------------
+
+export interface SnapshotInfo {
+  id: string;
+  pid: PID;
+  timestamp: number;
+  size: number;
+  description: string;
+}
+
+// ---------------------------------------------------------------------------
+// Shared Filesystem Types
+// ---------------------------------------------------------------------------
+
+export interface SharedMountInfo {
+  name: string;
+  path: string;
+  ownerPid: PID;
+  mountedBy: PID[];
+}
+
+// ---------------------------------------------------------------------------
 // UI -> Kernel Commands (what the frontend sends)
 // ---------------------------------------------------------------------------
 
@@ -246,6 +269,18 @@ export type KernelCommand =
 
   // Plugins
   | { type: 'plugins.list'; id: string; pid: PID }
+
+  // Snapshots
+  | { type: 'snapshot.create'; id: string; pid: PID; description?: string }
+  | { type: 'snapshot.list'; id: string; pid?: PID }
+  | { type: 'snapshot.restore'; id: string; snapshotId: string }
+  | { type: 'snapshot.delete'; id: string; snapshotId: string }
+
+  // Shared Filesystem
+  | { type: 'fs.createShared'; id: string; name: string; ownerPid: PID }
+  | { type: 'fs.mountShared'; id: string; pid: PID; name: string; mountPoint?: string }
+  | { type: 'fs.unmountShared'; id: string; pid: PID; name: string }
+  | { type: 'fs.listShared'; id: string }
 
   // System
   | { type: 'kernel.status'; id: string }
@@ -303,6 +338,18 @@ export type KernelEvent =
   | { type: 'plugin.loaded'; pid: PID; name: string; version: string; tools: string[] }
   | { type: 'plugin.error'; pid: PID; plugin: string; error: string }
   | { type: 'plugins.list'; pid: PID; plugins: PluginInfo[] }
+
+  // Snapshot events
+  | { type: 'snapshot.created'; snapshot: SnapshotInfo }
+  | { type: 'snapshot.restored'; snapshotId: string; newPid: PID }
+  | { type: 'snapshot.list'; snapshots: SnapshotInfo[] }
+  | { type: 'snapshot.deleted'; snapshotId: string }
+
+  // Shared filesystem events
+  | { type: 'fs.sharedCreated'; mount: SharedMountInfo }
+  | { type: 'fs.sharedMounted'; pid: PID; name: string }
+  | { type: 'fs.sharedUnmounted'; pid: PID; name: string }
+  | { type: 'fs.sharedList'; mounts: SharedMountInfo[] }
 
   // System events
   | { type: 'kernel.ready'; version: string; uptime: number }

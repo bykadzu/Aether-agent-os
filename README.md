@@ -169,6 +169,9 @@ booting → thinking → executing → observing → thinking → ... → comple
 | `list_agents` | Discover other running agents |
 | `send_message` | Send a message to another agent |
 | `check_messages` | Read messages from other agents |
+| `create_shared_workspace` | Create a shared directory for collaboration |
+| `mount_workspace` | Mount an existing shared directory |
+| `list_workspaces` | List available shared workspaces |
 | `complete` | Mark the task as done |
 
 ### Agent Plugin System
@@ -340,8 +343,64 @@ The host OS itself is a full desktop environment:
 - [x] Agent plugin system for custom tool discovery
 - [ ] GPU passthrough for agents running ML workloads
 - [ ] Distributed kernel across multiple hosts
-- [ ] Snapshot/restore for agent process state (like VM checkpoints)
-- [ ] Shared filesystem mounts between cooperating agents
+- [x] Snapshot/restore for agent process state (like VM checkpoints)
+- [x] Shared filesystem mounts between cooperating agents
+- [x] Agent history timeline in Mission Control
+
+## Snapshots (Agent Checkpoints)
+
+Agents can be snapshotted and restored, similar to VM checkpoints. A snapshot captures the agent's full state: process info, home directory, logs, and IPC queue.
+
+**How it works:**
+- Snapshots pause the agent (SIGSTOP), capture state + tarball the home directory, then resume (SIGCONT)
+- Stored at `/tmp/aether/var/snapshots/` as JSON metadata + `.tar.gz` filesystem archive
+- Restoring creates a new process with a new PID, extracts the saved filesystem, and carries over configuration
+
+**API (HTTP):**
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/snapshots` | List all snapshots |
+| `GET` | `/api/snapshots/:pid` | List snapshots for a specific agent |
+| `POST` | `/api/snapshots/:pid` | Create a snapshot (body: `{ description? }`) |
+| `POST` | `/api/snapshots/:id/restore` | Restore from a snapshot (returns `{ newPid }`) |
+| `DELETE` | `/api/snapshots/:id` | Delete a snapshot |
+
+**WebSocket commands:** `snapshot.create`, `snapshot.list`, `snapshot.restore`, `snapshot.delete`
+
+## Shared Filesystem Mounts
+
+Cooperating agents can share directories. Shared mounts live at `/tmp/aether/shared/` and are symlinked into each agent's home directory.
+
+**How it works:**
+- An agent creates a shared workspace (e.g., `project-data`)
+- Other agents mount it into their home at `~/shared/project-data`
+- Uses `fs.symlink()` for simplicity; path traversal checks resolve symlinks to ensure safety
+
+**Agent tools:**
+| Tool | Description |
+|------|-------------|
+| `create_shared_workspace` | Create a new shared directory |
+| `mount_workspace` | Mount an existing shared dir into `~/shared/{name}` |
+| `list_workspaces` | Show all shared workspaces and which agents have them mounted |
+
+**API (HTTP):**
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/shared` | List all shared mounts |
+| `POST` | `/api/shared` | Create a shared mount (body: `{ name, ownerPid }`) |
+| `POST` | `/api/shared/mount` | Mount for an agent (body: `{ pid, name, mountPoint? }`) |
+| `POST` | `/api/shared/unmount` | Unmount from an agent (body: `{ pid, name }`) |
+
+**WebSocket commands:** `fs.createShared`, `fs.mountShared`, `fs.unmountShared`, `fs.listShared`
+
+## Agent History Timeline
+
+Mission Control now includes a full history timeline for agent decisions, accessible from two places:
+
+- **AgentVM sidebar**: A "Timeline" tab alongside "Agent Logs" and "Terminal" shows a chronological vertical timeline of all agent thoughts, actions, and observations with color-coded phase icons
+- **Mission Control dashboard**: A "History" button reveals an archive of all past (completed/failed) agent runs. Clicking any past agent opens its full timeline
+
+The timeline loads historical data from `GET /api/history/logs/:pid` and subscribes to live events for real-time updates.
 
 ## License
 
