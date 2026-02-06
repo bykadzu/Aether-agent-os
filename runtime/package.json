@@ -1,0 +1,12 @@
+{
+  "name": "@aether/runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "dependencies": {
+    "@aether/kernel": "file:../kernel",
+    "@aether/shared": "file:../shared",
+    "@google/genai": "^1.30.0"
+  }
+}

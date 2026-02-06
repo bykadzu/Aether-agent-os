@@ -1,0 +1,443 @@
+/**
+ * Aether OS - Kernel Client
+ *
+ * The frontend's connection to the kernel server. Manages WebSocket
+ * communication, reconnection, and provides a typed API for all
+ * kernel operations.
+ *
+ * This replaces the mock agent loop and simulated file system
+ * with real kernel-backed operations.
+ *
+ * Usage:
+ *   const kernel = new KernelClient('ws://localhost:3001/kernel');
+ *   kernel.on('process.spawned', (data) => { ... });
+ *   await kernel.spawnAgent({ role: 'Coder', goal: 'Build a web app' });
+ */
+
+// Types inlined to avoid import issues with Vite's module resolution
+// These mirror @aether/shared exactly
+
+type PID = number;
+type Signal = 'SIGTERM' | 'SIGKILL' | 'SIGSTOP' | 'SIGCONT' | 'SIGINT' | 'SIGUSR1' | 'SIGUSR2';
+type ProcessState = 'created' | 'running' | 'sleeping' | 'stopped' | 'zombie' | 'dead';
+type AgentPhase = 'booting' | 'thinking' | 'executing' | 'waiting' | 'observing' | 'idle' | 'completed' | 'failed';
+
+export interface KernelProcessInfo {
+  pid: PID;
+  ppid: PID;
+  uid: string;
+  name: string;
+  command: string;
+  state: ProcessState;
+  agentPhase?: AgentPhase;
+  cwd: string;
+  env: Record<string, string>;
+  createdAt: number;
+  cpuPercent: number;
+  memoryMB: number;
+  ttyId?: string;
+}
+
+export interface KernelAgentConfig {
+  role: string;
+  goal: string;
+  model?: string;
+  tools?: string[];
+  maxSteps?: number;
+}
+
+export interface KernelFileStat {
+  path: string;
+  name: string;
+  type: 'file' | 'directory' | 'symlink' | 'pipe' | 'device';
+  size: number;
+  uid: string;
+  createdAt: number;
+  modifiedAt: number;
+  isHidden: boolean;
+}
+
+// Default connection settings
+const DEFAULT_WS_URL = 'ws://localhost:3001/kernel';
+const RECONNECT_DELAY = 2000;
+const MAX_RECONNECT_ATTEMPTS = 10;
+const HEARTBEAT_INTERVAL = 30000;
+
+type EventHandler = (data: any) => void;
+
+interface PendingRequest {
+  resolve: (data: any) => void;
+  reject: (error: Error) => void;
+  timeout: ReturnType<typeof setTimeout>;
+}
+
+export class KernelClient {
+  private ws: WebSocket | null = null;
+  private url: string;
+  private listeners = new Map<string, Set<EventHandler>>();
+  private pendingRequests = new Map<string, PendingRequest>();
+  private reconnectAttempts = 0;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private _connected = false;
+  private _version: string = '';
+
+  constructor(url?: string) {
+    this.url = url || DEFAULT_WS_URL;
+  }
+
+  // -----------------------------------------------------------------------
+  // Connection Management
+  // -----------------------------------------------------------------------
+
+  /**
+   * Connect to the kernel server.
+   */
+  connect(): void {
+    if (this.ws?.readyState === WebSocket.OPEN) return;
+
+    try {
+      this.ws = new WebSocket(this.url);
+
+      this.ws.onopen = () => {
+        this._connected = true;
+        this.reconnectAttempts = 0;
+        this.startHeartbeat();
+        this.emit('connection', { connected: true });
+        console.log('[KernelClient] Connected to kernel');
+      };
+
+      this.ws.onmessage = (event: MessageEvent) => {
+        try {
+          const data = JSON.parse(event.data);
+          this.handleEvent(data);
+        } catch (err) {
+          console.error('[KernelClient] Failed to parse message:', err);
+        }
+      };
+
+      this.ws.onclose = (event: CloseEvent) => {
+        this._connected = false;
+        this.stopHeartbeat();
+        this.emit('connection', { connected: false, code: event.code });
+        console.log('[KernelClient] Disconnected from kernel');
+
+        // Auto-reconnect unless intentionally closed
+        if (event.code !== 1000) {
+          this.scheduleReconnect();
+        }
+      };
+
+      this.ws.onerror = () => {
+        // Error is followed by close event, so we handle reconnection there
+      };
+    } catch (err) {
+      console.error('[KernelClient] Connection failed:', err);
+      this.scheduleReconnect();
+    }
+  }
+
+  /**
+   * Disconnect from the kernel server.
+   */
+  disconnect(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.stopHeartbeat();
+
+    if (this.ws) {
+      this.ws.close(1000, 'Client disconnecting');
+      this.ws = null;
+    }
+    this._connected = false;
+  }
+
+  get connected(): boolean {
+    return this._connected;
+  }
+
+  get version(): string {
+    return this._version;
+  }
+
+  private scheduleReconnect(): void {
+    if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      console.error('[KernelClient] Max reconnect attempts reached');
+      this.emit('connection', { connected: false, error: 'Max reconnect attempts reached' });
+      return;
+    }
+
+    const delay = RECONNECT_DELAY * Math.pow(1.5, this.reconnectAttempts);
+    this.reconnectAttempts++;
+
+    console.log(`[KernelClient] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
+    this.reconnectTimer = setTimeout(() => this.connect(), delay);
+  }
+
+  private startHeartbeat(): void {
+    this.heartbeatTimer = setInterval(() => {
+      if (this.ws?.readyState === WebSocket.OPEN) {
+        this.send({ type: 'kernel.status', id: `hb_${Date.now()}` });
+      }
+    }, HEARTBEAT_INTERVAL);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Message Handling
+  // -----------------------------------------------------------------------
+
+  private send(data: any): void {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(data));
+    }
+  }
+
+  /**
+   * Send a command and wait for its response.
+   */
+  private request<T = any>(cmd: any, timeout = 30000): Promise<T> {
+    return new Promise((resolve, reject) => {
+      const id = `cmd_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      cmd.id = id;
+
+      const timer = setTimeout(() => {
+        this.pendingRequests.delete(id);
+        reject(new Error(`Request timeout: ${cmd.type}`));
+      }, timeout);
+
+      this.pendingRequests.set(id, { resolve, reject, timeout: timer });
+      this.send(cmd);
+    });
+  }
+
+  private handleEvent(event: any): void {
+    // Handle responses to pending requests
+    if (event.type === 'response.ok' || event.type === 'response.error') {
+      const pending = this.pendingRequests.get(event.id);
+      if (pending) {
+        clearTimeout(pending.timeout);
+        this.pendingRequests.delete(event.id);
+
+        if (event.type === 'response.ok') {
+          pending.resolve(event.data);
+        } else {
+          pending.reject(new Error(event.error));
+        }
+      }
+    }
+
+    // Track kernel version
+    if (event.type === 'kernel.ready') {
+      this._version = event.version;
+    }
+
+    // Emit the event to all listeners
+    this.emit(event.type, event);
+  }
+
+  // -----------------------------------------------------------------------
+  // Event System
+  // -----------------------------------------------------------------------
+
+  on(event: string, handler: EventHandler): () => void {
+    if (!this.listeners.has(event)) {
+      this.listeners.set(event, new Set());
+    }
+    this.listeners.get(event)!.add(handler);
+    return () => this.listeners.get(event)?.delete(handler);
+  }
+
+  off(event: string, handler?: EventHandler): void {
+    if (handler) {
+      this.listeners.get(event)?.delete(handler);
+    } else {
+      this.listeners.delete(event);
+    }
+  }
+
+  private emit(event: string, data: any): void {
+    const handlers = this.listeners.get(event);
+    if (handlers) {
+      for (const handler of handlers) {
+        try { handler(data); } catch (err) {
+          console.error(`[KernelClient] Error in handler for '${event}':`, err);
+        }
+      }
+    }
+    // Wildcard listeners
+    const wildcardHandlers = this.listeners.get('*');
+    if (wildcardHandlers) {
+      for (const handler of wildcardHandlers) {
+        try { handler({ type: event, ...data }); } catch {}
+      }
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Process API
+  // -----------------------------------------------------------------------
+
+  /**
+   * Spawn a new agent process.
+   */
+  async spawnAgent(config: KernelAgentConfig): Promise<{ pid: PID; ttyId: string }> {
+    return this.request({ type: 'process.spawn', config });
+  }
+
+  /**
+   * Send a signal to a process.
+   */
+  async signalProcess(pid: PID, signal: Signal): Promise<void> {
+    return this.request({ type: 'process.signal', pid, signal });
+  }
+
+  /**
+   * Kill a process (SIGTERM).
+   */
+  async killProcess(pid: PID): Promise<void> {
+    return this.signalProcess(pid, 'SIGTERM');
+  }
+
+  /**
+   * List all active processes.
+   */
+  async listProcesses(): Promise<KernelProcessInfo[]> {
+    return this.request({ type: 'process.list' });
+  }
+
+  /**
+   * Get info about a specific process.
+   */
+  async getProcessInfo(pid: PID): Promise<KernelProcessInfo> {
+    return this.request({ type: 'process.info', pid });
+  }
+
+  /**
+   * Approve a pending agent action.
+   */
+  async approveAction(pid: PID): Promise<void> {
+    return this.request({ type: 'process.approve', pid });
+  }
+
+  /**
+   * Reject a pending agent action.
+   */
+  async rejectAction(pid: PID, reason?: string): Promise<void> {
+    return this.request({ type: 'process.reject', pid, reason });
+  }
+
+  // -----------------------------------------------------------------------
+  // Filesystem API
+  // -----------------------------------------------------------------------
+
+  /**
+   * Read a file.
+   */
+  async readFile(path: string): Promise<{ content: string; size: number }> {
+    return this.request({ type: 'fs.read', path });
+  }
+
+  /**
+   * Write a file.
+   */
+  async writeFile(path: string, content: string): Promise<void> {
+    return this.request({ type: 'fs.write', path, content });
+  }
+
+  /**
+   * List directory contents.
+   */
+  async listDir(path: string): Promise<KernelFileStat[]> {
+    return this.request({ type: 'fs.ls', path });
+  }
+
+  /**
+   * Get file stats.
+   */
+  async statFile(path: string): Promise<KernelFileStat> {
+    return this.request({ type: 'fs.stat', path });
+  }
+
+  /**
+   * Create a directory.
+   */
+  async mkdir(path: string): Promise<void> {
+    return this.request({ type: 'fs.mkdir', path, recursive: true });
+  }
+
+  /**
+   * Delete a file or directory.
+   */
+  async rm(path: string, recursive = false): Promise<void> {
+    return this.request({ type: 'fs.rm', path, recursive });
+  }
+
+  // -----------------------------------------------------------------------
+  // Terminal API
+  // -----------------------------------------------------------------------
+
+  /**
+   * Open a terminal session for a process.
+   */
+  async openTerminal(pid: PID, cols?: number, rows?: number): Promise<{ ttyId: string }> {
+    return this.request({ type: 'tty.open', pid, cols, rows });
+  }
+
+  /**
+   * Send input to a terminal.
+   */
+  sendTerminalInput(ttyId: string, data: string): void {
+    this.send({ type: 'tty.input', id: `tty_${Date.now()}`, ttyId, data });
+  }
+
+  /**
+   * Resize a terminal.
+   */
+  resizeTerminal(ttyId: string, cols: number, rows: number): void {
+    this.send({ type: 'tty.resize', id: `tty_${Date.now()}`, ttyId, cols, rows });
+  }
+
+  /**
+   * Close a terminal session.
+   */
+  closeTerminal(ttyId: string): void {
+    this.send({ type: 'tty.close', id: `tty_${Date.now()}`, ttyId });
+  }
+
+  // -----------------------------------------------------------------------
+  // System API
+  // -----------------------------------------------------------------------
+
+  /**
+   * Get kernel status.
+   */
+  async getStatus(): Promise<{ version: string; uptime: number; processes: Record<string, number> }> {
+    return this.request({ type: 'kernel.status' });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Singleton Instance
+// ---------------------------------------------------------------------------
+
+let _instance: KernelClient | null = null;
+
+/**
+ * Get the global KernelClient instance.
+ * Connects automatically on first call.
+ */
+export function getKernelClient(url?: string): KernelClient {
+  if (!_instance) {
+    _instance = new KernelClient(url);
+  }
+  return _instance;
+}

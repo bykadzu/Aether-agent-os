@@ -1,19 +1,18 @@
 import React, { useMemo } from 'react';
 import { Agent } from '../../types';
-import { Wifi, Battery, Bot, FolderOpen, Globe, Terminal, Code, StickyNote, Image, MessageSquare, Calculator } from 'lucide-react';
-import { WindowChromeStyle } from './Window';
+import { Wifi, Battery, Bot, FolderOpen, Globe, Terminal, Code, StickyNote, Cpu } from 'lucide-react';
 
-// Simulated Apps
-const VirtualWindow: React.FC<{ title: string; children: React.ReactNode; x: number; y: number; width: string; height: string; active?: boolean }> = ({ 
-    title, children, x, y, width, height, active 
+// Simulated window within the virtual desktop
+const VirtualWindow: React.FC<{ title: string; children: React.ReactNode; x: number; y: number; width: string; height: string; active?: boolean }> = ({
+    title, children, x, y, width, height, active
 }) => {
     return (
-        <div 
+        <div
             className={`absolute flex flex-col rounded-lg overflow-hidden shadow-2xl transition-all duration-300 ${active ? 'z-20 ring-1 ring-white/20' : 'z-10 opacity-90'}`}
-            style={{ 
-                left: `${x}%`, 
-                top: `${y}%`, 
-                width: width, 
+            style={{
+                left: `${x}%`,
+                top: `${y}%`,
+                width: width,
                 height: height,
                 backgroundColor: 'rgba(255, 255, 255, 0.85)',
                 backdropFilter: 'blur(12px)'
@@ -43,36 +42,48 @@ interface VirtualDesktopProps {
 }
 
 export const VirtualDesktop: React.FC<VirtualDesktopProps> = ({ agent, scale = 1, interactive = false }) => {
-    
+
     // Determine active windows based on agent logs/state
     const activeApp = useMemo(() => {
         const lastAction = agent.logs.filter(l => l.type === 'action').pop()?.message || '';
-        if (lastAction.includes('Browsing') || agent.currentUrl) return 'browser';
-        if (lastAction.includes('file') || lastAction.includes('code') || agent.currentCode) return 'code';
-        if (agent.status === 'thinking') return 'terminal';
+        if (lastAction.includes('Browsing') || lastAction.includes('browse') || agent.currentUrl) return 'browser';
+        if (lastAction.includes('file') || lastAction.includes('write_file') || lastAction.includes('code') || agent.currentCode) return 'code';
+        if (agent.status === 'thinking' || agent.phase === 'thinking') return 'terminal';
+        if (lastAction.includes('run_command')) return 'terminal';
         return 'finder';
-    }, [agent.logs, agent.currentUrl, agent.currentCode, agent.status]);
+    }, [agent.logs, agent.currentUrl, agent.currentCode, agent.status, agent.phase]);
+
+    // Status display - use phase if available (kernel mode), otherwise status
+    const displayStatus = agent.phase || agent.status;
+    const isActive = agent.status === 'working' || agent.status === 'thinking' ||
+      agent.phase === 'executing' || agent.phase === 'thinking' || agent.phase === 'observing';
 
     return (
-        <div 
+        <div
             className="relative w-full h-full bg-cover bg-center overflow-hidden font-sans select-none"
-            style={{ 
+            style={{
                 backgroundImage: `url('https://images.unsplash.com/photo-1550684848-fac1c5b4e853?q=80&w=2670&auto=format&fit=crop')`,
             }}
         >
             {/* Menu Bar */}
             <div className="h-6 bg-black/40 backdrop-blur-md flex items-center justify-between px-3 text-[10px] text-white/90 z-50 absolute top-0 left-0 right-0">
                 <div className="flex gap-3">
-                    <span className="font-bold"></span>
-                    <span className="font-semibold">Agent OS</span>
+                    <span className="font-bold"></span>
+                    <span className="font-semibold">Aether OS</span>
                     <span>File</span>
                     <span>Edit</span>
                     <span>View</span>
                 </div>
                 <div className="flex gap-3">
+                    {agent.pid && (
+                      <div className="flex items-center gap-1 text-[9px] opacity-50">
+                        <Cpu size={8} />
+                        <span>PID {agent.pid}</span>
+                      </div>
+                    )}
                     <div className="flex items-center gap-1">
-                        <div className={`w-1.5 h-1.5 rounded-full ${agent.status === 'working' ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`}></div>
-                        <span>{agent.status}</span>
+                        <div className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`}></div>
+                        <span>{displayStatus}</span>
                     </div>
                     <Wifi size={10} />
                     <Battery size={10} />
@@ -82,7 +93,7 @@ export const VirtualDesktop: React.FC<VirtualDesktopProps> = ({ agent, scale = 1
 
             {/* Desktop Area */}
             <div className="absolute inset-0 pt-6 pb-16 p-4">
-                
+
                 {/* Background Icons */}
                 <div className="absolute top-8 right-4 flex flex-col gap-4 items-center opacity-80">
                     <div className="flex flex-col items-center gap-1">
@@ -103,33 +114,40 @@ export const VirtualDesktop: React.FC<VirtualDesktopProps> = ({ agent, scale = 1
 
                 {/* Windows Layer */}
                 <div className="relative w-full h-full">
-                    
-                    {/* Always present: Terminal (Agent Brain) - positioned nicely */}
-                    <VirtualWindow 
-                        title={`Terminal - ${agent.role}`} 
-                        x={5} y={5} width="40%" height="45%" 
+
+                    {/* Always present: Terminal (Agent Brain) */}
+                    <VirtualWindow
+                        title={`Terminal - ${agent.role}${agent.pid ? ` (PID ${agent.pid})` : ''}`}
+                        x={5} y={5} width="40%" height="45%"
                         active={activeApp === 'terminal'}
                     >
                         <div className="h-full bg-[#1a1b26] p-2 font-mono text-[9px] text-blue-200 overflow-hidden leading-relaxed">
                             <div className="text-green-400 mb-1">$ agent-init --role="{agent.role}"</div>
-                            <div className="opacity-50 mb-2">Initializing virtual environment...</div>
+                            <div className="opacity-50 mb-2">
+                              {agent.pid ? `Process ${agent.pid} started in sandbox` : 'Initializing virtual environment...'}
+                            </div>
                             {agent.logs.slice(-6).map((log, i) => (
                                 <div key={i} className="mb-1">
                                     <span className="text-gray-500">[{new Date(log.timestamp).toLocaleTimeString().split(' ')[0]}]</span>{' '}
-                                    <span className={log.type === 'thought' ? 'text-purple-300' : log.type === 'action' ? 'text-yellow-300' : 'text-gray-300'}>
+                                    <span className={
+                                      log.type === 'thought' ? 'text-purple-300' :
+                                      log.type === 'action' ? 'text-yellow-300' :
+                                      log.type === 'observation' ? 'text-cyan-300' :
+                                      'text-gray-300'
+                                    }>
                                         {log.message}
                                     </span>
                                 </div>
                             ))}
-                            {agent.status === 'thinking' && <div className="animate-pulse">_</div>}
+                            {(agent.status === 'thinking' || agent.phase === 'thinking') && <div className="animate-pulse">_</div>}
                         </div>
                     </VirtualWindow>
 
                     {/* Conditional: Browser Window */}
                     {(agent.currentUrl || activeApp === 'browser') && (
-                        <VirtualWindow 
-                            title="Safari - Agent View" 
-                            x={30} y={15} width="60%" height="70%" 
+                        <VirtualWindow
+                            title="Safari - Agent View"
+                            x={30} y={15} width="60%" height="70%"
                             active={activeApp === 'browser'}
                         >
                             <div className="h-full flex flex-col bg-white">
@@ -139,19 +157,18 @@ export const VirtualDesktop: React.FC<VirtualDesktopProps> = ({ agent, scale = 1
                                     </div>
                                 </div>
                                 <div className="flex-1 p-4 overflow-hidden relative">
-                                    {/* Mock Web Content */}
                                     <div className="w-1/3 h-2 bg-gray-800 rounded mb-2"></div>
                                     <div className="w-full h-1 bg-gray-200 rounded mb-1"></div>
                                     <div className="w-5/6 h-1 bg-gray-200 rounded mb-4"></div>
-                                    
+
                                     <div className="grid grid-cols-2 gap-2">
                                         <div className="h-20 bg-gray-100 rounded"></div>
                                         <div className="h-20 bg-gray-100 rounded"></div>
                                     </div>
-                                    
+
                                     {agent.currentUrl && (
                                         <div className="mt-4 p-2 bg-blue-50 border border-blue-100 rounded text-[9px] text-blue-800">
-                                            {agent.logs.findLast(l => l.type === 'action' && l.message.includes('Browsing'))?.message || 'Page Content Loaded'}
+                                            {agent.logs.findLast(l => l.type === 'action' && (l.message.includes('Browsing') || l.message.includes('browse')))?.message || 'Page Content Loaded'}
                                         </div>
                                     )}
                                 </div>
@@ -161,9 +178,9 @@ export const VirtualDesktop: React.FC<VirtualDesktopProps> = ({ agent, scale = 1
 
                     {/* Conditional: Code Editor Window */}
                     {(agent.currentCode || activeApp === 'code') && (
-                        <VirtualWindow 
-                            title={`VS Code - ${agent.role}`} 
-                            x={45} y={25} width="50%" height="65%" 
+                        <VirtualWindow
+                            title={`VS Code - ${agent.role}`}
+                            x={45} y={25} width="50%" height="65%"
                             active={activeApp === 'code'}
                         >
                             <div className="h-full flex bg-[#1e1e1e]">
