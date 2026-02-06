@@ -23,6 +23,7 @@ import { ProcessManager } from './ProcessManager.js';
 import { VirtualFS } from './VirtualFS.js';
 import { PTYManager } from './PTYManager.js';
 import { ContainerManager } from './ContainerManager.js';
+import { PluginManager } from './PluginManager.js';
 import { StateStore } from './StateStore.js';
 import {
   KernelCommand,
@@ -38,6 +39,7 @@ export class Kernel {
   readonly fs: VirtualFS;
   readonly pty: PTYManager;
   readonly containers: ContainerManager;
+  readonly plugins: PluginManager;
   readonly state: StateStore;
 
   private startTime: number;
@@ -49,6 +51,7 @@ export class Kernel {
     this.fs = new VirtualFS(this.bus, options.fsRoot);
     this.containers = new ContainerManager(this.bus);
     this.pty = new PTYManager(this.bus);
+    this.plugins = new PluginManager(this.bus, options.fsRoot);
     this.state = new StateStore(this.bus, options.dbPath);
     this.startTime = Date.now();
   }
@@ -368,6 +371,22 @@ export class Kernel {
             id: cmd.id,
             data: agents,
           });
+          break;
+        }
+
+        // ----- Plugin Commands -----
+        case 'plugins.list': {
+          const pluginInfos = this.plugins.getPluginInfos(cmd.pid);
+          events.push({
+            type: 'response.ok',
+            id: cmd.id,
+            data: pluginInfos,
+          });
+          events.push({
+            type: 'plugins.list',
+            pid: cmd.pid,
+            plugins: pluginInfos,
+          } as KernelEvent);
           break;
         }
 

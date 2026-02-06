@@ -1,0 +1,25 @@
+{
+  "name": "sample-weather",
+  "version": "1.0.0",
+  "description": "A sample plugin that returns fake weather data. Use this as a template for building your own plugins.",
+  "tools": [
+    {
+      "name": "get_weather",
+      "description": "Get the current weather for a city. Returns temperature, conditions, humidity, and wind speed.",
+      "parameters": {
+        "city": {
+          "type": "string",
+          "description": "The city name to get weather for (e.g., 'San Francisco')",
+          "required": true
+        },
+        "units": {
+          "type": "string",
+          "description": "Temperature units: 'celsius' or 'fahrenheit' (default: celsius)",
+          "required": false
+        }
+      },
+      "handler": "handler.js",
+      "requiresApproval": false
+    }
+  ]
+}
