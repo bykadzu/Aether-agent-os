@@ -69,6 +69,34 @@ export interface KernelAgentConfig {
   model?: string;
   tools?: string[];
   maxSteps?: number;
+  sandbox?: {
+    type?: 'process' | 'container' | 'vm';
+    graphical?: boolean;
+    gpu?: { enabled: boolean; count?: number; deviceIds?: string[] };
+    networkAccess?: boolean;
+    memoryLimitMB?: number;
+    cpuLimit?: number;
+    image?: string;
+  };
+}
+
+export interface VNCInfo {
+  pid: number;
+  wsPort: number;
+  display: string;
+}
+
+export interface GPUInfo {
+  id: number;
+  name: string;
+  memoryTotal: number;
+  memoryFree: number;
+  utilization: number;
+}
+
+export interface GPUStats extends GPUInfo {
+  temperature: number;
+  powerUsage: number;
 }
 
 export interface KernelFileStat {
@@ -441,6 +469,50 @@ export class KernelClient {
    */
   closeTerminal(ttyId: string): void {
     this.send({ type: 'tty.close', id: `tty_${Date.now()}`, ttyId });
+  }
+
+  // -----------------------------------------------------------------------
+  // VNC API
+  // -----------------------------------------------------------------------
+
+  /**
+   * Get VNC proxy info for a graphical agent.
+   */
+  async getVNCInfo(pid: number): Promise<VNCInfo | null> {
+    try {
+      return await this.request({ type: 'vnc.info', pid });
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Execute a graphical command inside an agent's container.
+   */
+  async execGraphical(pid: number, command: string): Promise<void> {
+    return this.request({ type: 'vnc.exec', pid, command });
+  }
+
+  // -----------------------------------------------------------------------
+  // GPU API
+  // -----------------------------------------------------------------------
+
+  /**
+   * List available GPUs and allocations.
+   */
+  async getGPUs(): Promise<{ gpus: GPUInfo[]; allocations: Array<{ pid: number; gpuIds: number[] }> }> {
+    const res = await fetch('http://localhost:3001/api/gpu');
+    if (!res.ok) throw new Error(`Failed to fetch GPUs: ${res.statusText}`);
+    return res.json();
+  }
+
+  /**
+   * Get real-time GPU stats.
+   */
+  async getGPUStats(): Promise<GPUStats[]> {
+    const res = await fetch('http://localhost:3001/api/gpu/stats');
+    if (!res.ok) throw new Error(`Failed to fetch GPU stats: ${res.statusText}`);
+    return res.json();
   }
 
   // -----------------------------------------------------------------------

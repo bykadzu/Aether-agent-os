@@ -114,6 +114,8 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
       processes: kernel.processes.getCounts(),
       docker: kernel.containers.isDockerAvailable(),
       containers: kernel.containers.getAll().length,
+      gpu: kernel.containers.isGPUAvailable(),
+      gpuCount: kernel.containers.getGPUs().length,
     }));
     return;
   }
@@ -507,6 +509,52 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
     return;
   }
 
+  // ----- VNC Endpoints -----
+
+  // Get VNC info for an agent
+  if (url.pathname.match(/^\/api\/vnc\/\d+$/) && req.method === 'GET') {
+    const pidStr = url.pathname.split('/').pop();
+    const pid = parseInt(pidStr || '', 10);
+    if (isNaN(pid)) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid PID' }));
+      return;
+    }
+    const proxyInfo = kernel.vnc.getProxyInfo(pid);
+    if (proxyInfo) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ pid, wsPort: proxyInfo.wsPort, display: ':99' }));
+    } else {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: `No VNC proxy for PID ${pid}` }));
+    }
+    return;
+  }
+
+  // ----- GPU Endpoints -----
+
+  // List GPUs and allocations
+  if (url.pathname === '/api/gpu' && req.method === 'GET') {
+    const gpus = kernel.containers.getGPUs();
+    const allocations = kernel.containers.getAllGPUAllocations();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ gpus, allocations, available: kernel.containers.isGPUAvailable() }));
+    return;
+  }
+
+  // Get real-time GPU stats
+  if (url.pathname === '/api/gpu/stats' && req.method === 'GET') {
+    try {
+      const stats = await kernel.containers.getGPUStats();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(stats));
+    } catch (err: any) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
   // 404
   res.writeHead(404, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ error: 'Not found' }));
@@ -732,6 +780,10 @@ const BROADCAST_EVENTS = [
   'fs.sharedCreated',
   'fs.sharedMounted',
   'fs.sharedUnmounted',
+  'vnc.started',
+  'vnc.stopped',
+  'gpu.allocated',
+  'gpu.released',
   'kernel.metrics',
   // Cluster events
   'cluster.nodeJoined',
@@ -840,6 +892,7 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`  ║  WebSocket:  ws://0.0.0.0:${String(PORT).padEnd(11)}║`);
   console.log(`  ║  Path:       ${DEFAULT_WS_PATH.padEnd(24)}║`);
   console.log(`  ║  Docker:     ${(kernel.containers.isDockerAvailable() ? 'Available' : 'Unavailable').padEnd(24)}║`);
+  console.log(`  ║  GPU:        ${(kernel.containers.isGPUAvailable() ? `${kernel.containers.getGPUs().length} GPU(s)` : 'Not available').padEnd(24)}║`);
   console.log(`  ║  SQLite:     ${'Enabled'.padEnd(24)}║`);
   console.log(`  ║  Auth:       ${'Enabled'.padEnd(24)}║`);
   console.log(`  ║  Cluster:    ${clusterRole.padEnd(24)}║`);

@@ -342,10 +342,10 @@ The host OS itself is a full desktop environment:
 ## Roadmap
 
 - [x] Full node-pty integration for proper SIGWINCH and terminal resizing
-- [ ] VNC/noVNC for rendering real graphical applications inside agent desktops
+- [x] VNC/noVNC for rendering real graphical applications inside agent desktops
 - [x] Multi-user authentication and per-user agent pools
 - [x] Agent plugin system for custom tool discovery
-- [ ] GPU passthrough for agents running ML workloads
+- [x] GPU passthrough for agents running ML workloads
 - [x] Distributed kernel foundation (hub-and-spoke clustering)
 - [x] Snapshot/restore for agent process state (like VM checkpoints)
 - [x] Shared filesystem mounts between cooperating agents
@@ -405,6 +405,116 @@ Mission Control now includes a full history timeline for agent decisions, access
 - **Mission Control dashboard**: A "History" button reveals an archive of all past (completed/failed) agent runs. Clicking any past agent opens its full timeline
 
 The timeline loads historical data from `GET /api/history/logs/:pid` and subscribes to live events for real-time updates.
+
+## Graphical Desktops (VNC/noVNC)
+
+Agents can run graphical applications (browsers, IDEs, file managers) inside their Docker containers. The graphical output is streamed to the browser via VNC.
+
+**How it works:**
+- Graphical agents run Xvfb (virtual framebuffer) on display `:99` and x11vnc inside their container
+- The kernel's VNCManager creates a WebSocket-to-TCP proxy for each graphical agent
+- The UI renders the remote desktop using the noVNC RFB client in the VNCViewer component
+- When VNC is active, the VNC stream replaces the simulated windows in the agent's virtual desktop
+
+**Requirements:**
+- Docker must be available on the host
+- The container image must include `Xvfb`, `x11vnc`, and basic X11 utilities
+- Use `aether-desktop:latest` or provide a custom image with `sandbox.image`
+- Install noVNC in the frontend: `npm install @novnc/novnc`
+
+**Building the graphical container image:**
+```dockerfile
+FROM ubuntu:22.04
+RUN apt-get update && apt-get install -y \
+    xvfb x11vnc x11-utils xterm \
+    && rm -rf /var/lib/apt/lists/*
+```
+```bash
+docker build -t aether-desktop:latest .
+```
+
+**Spawning a graphical agent (WebSocket):**
+```json
+{
+  "type": "process.spawn",
+  "id": "msg_1",
+  "config": {
+    "role": "Designer",
+    "goal": "Create UI mockups",
+    "sandbox": {
+      "type": "container",
+      "graphical": true,
+      "networkAccess": true
+    }
+  }
+}
+```
+
+**Running graphical commands:**
+```json
+{ "type": "vnc.exec", "id": "msg_2", "pid": 1, "command": "xterm &" }
+```
+
+**API (HTTP):**
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/vnc/:pid` | Get VNC proxy info (wsPort, display) for an agent |
+
+**WebSocket commands:** `vnc.info`, `vnc.exec`
+**WebSocket events:** `vnc.started`, `vnc.stopped`
+
+## GPU Support
+
+Agents running ML workloads can access NVIDIA GPUs inside their Docker containers via `nvidia-container-toolkit`.
+
+**Requirements:**
+- NVIDIA GPU(s) on the host
+- [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) installed
+- `nvidia-smi` accessible from the host
+
+**How it works:**
+- On kernel boot, ContainerManager runs `nvidia-smi` to detect available GPUs
+- When spawning an agent with `sandbox.gpu.enabled = true`, the `--gpus` flag is passed to `docker run`
+- GPU allocations are tracked per-process to prevent over-allocation
+- GPU stats (utilization, temperature, power) are available via REST API
+
+**Spawning a GPU-enabled agent (WebSocket):**
+```json
+{
+  "type": "process.spawn",
+  "id": "msg_1",
+  "config": {
+    "role": "Coder",
+    "goal": "Train a neural network",
+    "sandbox": {
+      "type": "container",
+      "gpu": { "enabled": true },
+      "networkAccess": true,
+      "image": "nvidia/cuda:12.0-base"
+    }
+  }
+}
+```
+
+**GPU allocation options:**
+- `gpu.enabled: true` — use all available GPUs (`--gpus all`)
+- `gpu.count: 2` — use N GPUs (`--gpus 2`)
+- `gpu.deviceIds: ["0", "1"]` — use specific GPU devices (`--gpus "device=0,1"`)
+
+**API (HTTP):**
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/gpu` | List GPUs, allocations, and availability |
+| `GET` | `/api/gpu/stats` | Real-time GPU utilization, temperature, power |
+
+**WebSocket commands:** `gpu.list`, `gpu.stats`
+**WebSocket events:** `gpu.allocated`, `gpu.released`
+
+**UI integration:**
+- Mission Control metrics bar shows GPU count when GPUs are detected
+- Deploy Agent modal shows a "GPU Enabled" toggle when GPUs are available
+- Activity monitor widget shows GPU allocation per agent
+- A "Graphical Desktop" toggle enables VNC for the new agent
 
 ## Authentication
 
