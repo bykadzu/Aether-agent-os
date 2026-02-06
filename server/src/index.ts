@@ -5,6 +5,8 @@
  * It provides:
  * - WebSocket server for real-time kernel communication
  * - HTTP endpoints for initial state loading, health checks, and history queries
+ * - Authentication middleware (JWT tokens via AuthManager)
+ * - Cluster node WebSocket endpoint (/cluster)
  * - CORS support for the Vite dev server
  *
  * This is intentionally minimal. The kernel does the real work.
@@ -18,6 +20,7 @@ import { runAgentLoop } from '@aether/runtime';
 import {
   KernelCommand,
   KernelEvent,
+  UserInfo,
   DEFAULT_PORT,
   DEFAULT_WS_PATH,
   AETHER_VERSION,
@@ -36,6 +39,52 @@ const kernel = new Kernel({
 await kernel.boot();
 
 // ---------------------------------------------------------------------------
+// Auth Helpers
+// ---------------------------------------------------------------------------
+
+/** Extract token from HTTP request (Authorization header or cookie) */
+function extractHttpToken(req: IncomingMessage): string | null {
+  // Check Authorization header
+  const authHeader = req.headers['authorization'];
+  if (authHeader?.startsWith('Bearer ')) {
+    return authHeader.substring(7);
+  }
+
+  // Check cookie
+  const cookies = req.headers['cookie'];
+  if (cookies) {
+    const match = cookies.match(/aether_token=([^;]+)/);
+    if (match) return match[1];
+  }
+
+  return null;
+}
+
+/** Validate token and return user info, or null */
+function authenticateRequest(req: IncomingMessage): UserInfo | null {
+  const token = extractHttpToken(req);
+  if (!token) return null;
+  return kernel.auth.validateToken(token);
+}
+
+/** Check if a path is public (no auth required) */
+function isPublicPath(pathname: string, method: string): boolean {
+  if (pathname === '/health') return true;
+  if (pathname === '/api/auth/login' && method === 'POST') return true;
+  if (pathname === '/api/auth/register' && method === 'POST') return true;
+  return false;
+}
+
+/** Read request body */
+async function readBody(req: IncomingMessage): Promise<string> {
+  let body = '';
+  for await (const chunk of req) {
+    body += chunk;
+  }
+  return body;
+}
+
+// ---------------------------------------------------------------------------
 // HTTP Server
 // ---------------------------------------------------------------------------
 
@@ -43,7 +92,7 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
   // CORS headers for Vite dev server
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
@@ -52,6 +101,8 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
   }
 
   const url = new URL(req.url || '/', `http://localhost:${PORT}`);
+
+  // ----- Public Endpoints (no auth required) -----
 
   // Health check
   if (url.pathname === '/health') {
@@ -67,9 +118,71 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
     return;
   }
 
+  // Login
+  if (url.pathname === '/api/auth/login' && req.method === 'POST') {
+    const body = await readBody(req);
+    try {
+      const { username, password } = JSON.parse(body);
+      if (!username || !password) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'username and password are required' }));
+        return;
+      }
+      const result = await kernel.auth.authenticateUser(username, password);
+      if (result) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ token: result.token, user: result.user }));
+      } else {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid credentials' }));
+      }
+    } catch (err: any) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
+  // Register
+  if (url.pathname === '/api/auth/register' && req.method === 'POST') {
+    if (!kernel.auth.isRegistrationOpen()) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Registration is closed' }));
+      return;
+    }
+    const body = await readBody(req);
+    try {
+      const { username, password, displayName } = JSON.parse(body);
+      if (!username || !password) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'username and password are required' }));
+        return;
+      }
+      await kernel.auth.createUser(username, password, displayName);
+      const result = await kernel.auth.authenticateUser(username, password);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ token: result!.token, user: result!.user }));
+    } catch (err: any) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
+  // ----- Auth Middleware for all other routes -----
+  const user = authenticateRequest(req);
+  if (!user) {
+    res.writeHead(401, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Authentication required. Provide a Bearer token or aether_token cookie.' }));
+    return;
+  }
+
+  // ----- Protected Endpoints -----
+
   // Process list (REST fallback)
   if (url.pathname === '/api/processes') {
-    const processes = kernel.processes.getActive().map(p => ({ ...p.info }));
+    const isAdmin = user.role === 'admin';
+    const processes = kernel.processes.getActiveByOwner(user.id, isAdmin).map(p => ({ ...p.info }));
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(processes));
     return;
@@ -85,6 +198,16 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
       docker: kernel.containers.isDockerAvailable(),
       containers: kernel.containers.getAll().length,
     }));
+    return;
+  }
+
+  // Cluster info
+  if (url.pathname === '/api/cluster' && req.method === 'GET') {
+    const counts = kernel.processes.getCounts();
+    kernel.cluster.updateLocalLoad(counts.running + counts.sleeping + counts.created);
+    const clusterInfo = kernel.cluster.getClusterInfo();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(clusterInfo));
     return;
   }
 
@@ -205,12 +328,7 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
       return;
     }
 
-    // Read request body
-    let body = '';
-    for await (const chunk of req) {
-      body += chunk;
-    }
-
+    const body = await readBody(req);
     try {
       const { manifest, handlers } = JSON.parse(body);
       if (!manifest || !handlers) {
@@ -227,7 +345,6 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
       }
 
       const pluginDir = kernel.plugins.installPlugin(pid, proc.info.uid, manifest, handlers);
-      // Reload plugins for this agent
       await kernel.plugins.loadPluginsForAgent(pid, proc.info.uid);
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -277,10 +394,7 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
     }
 
     // POST — create snapshot
-    let body = '';
-    for await (const chunk of req) {
-      body += chunk;
-    }
+    const body = await readBody(req);
     try {
       const { description } = body ? JSON.parse(body) : {};
       const snapshot = await kernel.snapshots.createSnapshot(pid, description);
@@ -324,7 +438,6 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
 
   // ----- Shared Filesystem Endpoints -----
 
-  // List all shared mounts
   if (url.pathname === '/api/shared' && req.method === 'GET') {
     try {
       const mounts = await kernel.fs.listSharedMounts();
@@ -337,12 +450,8 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
     return;
   }
 
-  // Create shared mount
   if (url.pathname === '/api/shared' && req.method === 'POST') {
-    let body = '';
-    for await (const chunk of req) {
-      body += chunk;
-    }
+    const body = await readBody(req);
     try {
       const { name, ownerPid } = JSON.parse(body);
       if (!name || ownerPid === undefined) {
@@ -360,12 +469,8 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
     return;
   }
 
-  // Mount shared dir for an agent
   if (url.pathname === '/api/shared/mount' && req.method === 'POST') {
-    let body = '';
-    for await (const chunk of req) {
-      body += chunk;
-    }
+    const body = await readBody(req);
     try {
       const { pid, name, mountPoint } = JSON.parse(body);
       if (!name || pid === undefined) {
@@ -383,12 +488,8 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
     return;
   }
 
-  // Unmount shared dir
   if (url.pathname === '/api/shared/unmount' && req.method === 'POST') {
-    let body = '';
-    for await (const chunk of req) {
-      body += chunk;
-    }
+    const body = await readBody(req);
     try {
       const { pid, name } = JSON.parse(body);
       if (!name || pid === undefined) {
@@ -412,7 +513,7 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
 });
 
 // ---------------------------------------------------------------------------
-// WebSocket Server
+// WebSocket Server (UI clients)
 // ---------------------------------------------------------------------------
 
 const wss = new WebSocketServer({
@@ -420,12 +521,26 @@ const wss = new WebSocketServer({
   path: DEFAULT_WS_PATH,
 });
 
-/** Track connected clients */
-const clients = new Set<WebSocket>();
+/** Track connected UI clients with their authenticated user */
+interface AuthenticatedClient {
+  ws: WebSocket;
+  user: UserInfo | null;
+}
 
-wss.on('connection', (ws: WebSocket) => {
-  clients.add(ws);
-  console.log(`[Server] Client connected (${clients.size} total)`);
+const clients = new Map<WebSocket, AuthenticatedClient>();
+
+wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
+  // Authenticate via query param token
+  const url = new URL(req.url || '/', `http://localhost:${PORT}`);
+  const token = url.searchParams.get('token');
+  let user: UserInfo | null = null;
+
+  if (token) {
+    user = kernel.auth.validateToken(token);
+  }
+
+  clients.set(ws, { ws, user });
+  console.log(`[Server] Client connected (${clients.size} total)${user ? ` as ${user.username}` : ' (unauthenticated)'}`);
 
   // Send kernel ready event
   sendEvent(ws, {
@@ -434,8 +549,9 @@ wss.on('connection', (ws: WebSocket) => {
     uptime: kernel.getUptime(),
   });
 
-  // Send current process list
-  const processes = kernel.processes.getActive().map(p => ({ ...p.info }));
+  // Send current process list (filtered by user)
+  const isAdmin = !user || user.role === 'admin';
+  const processes = kernel.processes.getActiveByOwner(user?.id, isAdmin).map(p => ({ ...p.info }));
   sendEvent(ws, {
     type: 'process.list',
     processes,
@@ -455,10 +571,35 @@ wss.on('connection', (ws: WebSocket) => {
       return;
     }
 
+    // Allow auth commands without authentication
+    const isAuthCmd = cmd.type === 'auth.login' || cmd.type === 'auth.register' || cmd.type === 'auth.validate';
+
+    // Get the latest user info for this client
+    const clientInfo = clients.get(ws);
+    const currentUser = clientInfo?.user || null;
+
+    // For non-auth commands, require authentication
+    if (!isAuthCmd && !currentUser) {
+      sendEvent(ws, {
+        type: 'response.error',
+        id: (cmd as any).id || 'auth_required',
+        error: 'Authentication required',
+      });
+      return;
+    }
+
     // Process the command through the kernel
-    const events = await kernel.handleCommand(cmd);
+    const events = await kernel.handleCommand(cmd, currentUser || undefined);
     for (const event of events) {
       sendEvent(ws, event);
+    }
+
+    // If auth.login or auth.register succeeded, update the client's user
+    if ((cmd.type === 'auth.login' || cmd.type === 'auth.register') && clientInfo) {
+      const okEvent = events.find(e => e.type === 'response.ok') as any;
+      if (okEvent?.data?.token) {
+        clientInfo.user = kernel.auth.validateToken(okEvent.data.token);
+      }
     }
 
     // If a process was spawned, start the agent loop
@@ -487,6 +628,68 @@ wss.on('connection', (ws: WebSocket) => {
   ws.on('error', (err) => {
     console.error('[Server] WebSocket error:', err.message);
     clients.delete(ws);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cluster WebSocket Server (node connections)
+// ---------------------------------------------------------------------------
+
+const clusterWss = new WebSocketServer({
+  server: httpServer,
+  path: '/cluster',
+});
+
+clusterWss.on('connection', (ws: WebSocket) => {
+  console.log('[Cluster] Node connected');
+
+  let nodeId: string | null = null;
+
+  ws.on('message', (raw: Buffer) => {
+    try {
+      const msg = JSON.parse(raw.toString());
+
+      switch (msg.type) {
+        case 'cluster.register':
+          nodeId = msg.node?.id;
+          kernel.cluster.registerNode(ws, msg.node);
+          break;
+
+        case 'cluster.heartbeat':
+          if (msg.nodeId) {
+            kernel.cluster.handleNodeHeartbeat(msg.nodeId, {
+              load: msg.load || 0,
+              capacity: msg.capacity || 16,
+              gpuAvailable: msg.gpuAvailable,
+              dockerAvailable: msg.dockerAvailable,
+            });
+          }
+          break;
+
+        case 'cluster.response':
+          // Response from a node for a forwarded command
+          if (msg.nodeId && msg.cmdId && msg.events) {
+            kernel.cluster.handleNodeResponse(msg.nodeId, msg.cmdId, msg.events);
+          }
+          break;
+      }
+    } catch (err) {
+      console.error('[Cluster] Error handling node message:', err);
+    }
+  });
+
+  ws.on('close', () => {
+    if (nodeId) {
+      kernel.cluster.unregisterNode(nodeId);
+    }
+    console.log('[Cluster] Node disconnected');
+  });
+
+  ws.on('error', (err) => {
+    console.error('[Cluster] Node WebSocket error:', err.message);
+    if (nodeId) {
+      kernel.cluster.unregisterNode(nodeId);
+    }
   });
 });
 
@@ -530,6 +733,13 @@ const BROADCAST_EVENTS = [
   'fs.sharedMounted',
   'fs.sharedUnmounted',
   'kernel.metrics',
+  // Cluster events
+  'cluster.nodeJoined',
+  'cluster.nodeLeft',
+  'cluster.nodeOffline',
+  // Auth events
+  'user.created',
+  'user.deleted',
 ];
 
 for (const eventType of BROADCAST_EVENTS) {
@@ -546,9 +756,9 @@ function sendEvent(ws: WebSocket, event: KernelEvent): void {
 
 function broadcast(event: KernelEvent): void {
   const msg = JSON.stringify(event);
-  for (const client of clients) {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(msg);
+  for (const [, client] of clients) {
+    if (client.ws.readyState === WebSocket.OPEN) {
+      client.ws.send(msg);
     }
   }
 }
@@ -562,6 +772,9 @@ setInterval(() => {
   const containerCount = kernel.containers.getAll().length;
   const memoryMB = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
   const processCount = counts.running + counts.sleeping + counts.created;
+
+  // Update cluster local load
+  kernel.cluster.updateLocalLoad(processCount);
 
   broadcast({
     type: 'kernel.metrics',
@@ -591,10 +804,11 @@ async function gracefulShutdown(signal: string) {
   console.log(`\n[Server] ${signal} received, shutting down...`);
 
   // Close all WebSocket connections
-  for (const client of clients) {
-    client.close(1001, 'Server shutting down');
+  for (const [, client] of clients) {
+    client.ws.close(1001, 'Server shutting down');
   }
   wss.close();
+  clusterWss.close();
 
   // Shutdown the kernel
   await kernel.shutdown();
@@ -616,6 +830,7 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 // ---------------------------------------------------------------------------
 
 httpServer.listen(PORT, '0.0.0.0', () => {
+  const clusterRole = kernel.cluster.getRole();
   console.log('');
   console.log('  ╔══════════════════════════════════════╗');
   console.log('  ║         Aether OS Kernel Server       ║');
@@ -626,6 +841,8 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`  ║  Path:       ${DEFAULT_WS_PATH.padEnd(24)}║`);
   console.log(`  ║  Docker:     ${(kernel.containers.isDockerAvailable() ? 'Available' : 'Unavailable').padEnd(24)}║`);
   console.log(`  ║  SQLite:     ${'Enabled'.padEnd(24)}║`);
+  console.log(`  ║  Auth:       ${'Enabled'.padEnd(24)}║`);
+  console.log(`  ║  Cluster:    ${clusterRole.padEnd(24)}║`);
   console.log('  ╚══════════════════════════════════════╝');
   console.log('');
 });

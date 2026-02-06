@@ -19,6 +19,9 @@
 /** Process ID - unique identifier for a running process */
 export type PID = number;
 
+/** Branded type for auth tokens */
+export type AuthToken = string & { readonly __brand: 'AuthToken' };
+
 /** File descriptor number */
 export type FD = number;
 
@@ -56,6 +59,17 @@ export interface FileMode {
 }
 
 // ---------------------------------------------------------------------------
+// User & Auth Types
+// ---------------------------------------------------------------------------
+
+export interface UserInfo {
+  id: string;
+  username: string;
+  displayName: string;
+  role: 'admin' | 'user';
+}
+
+// ---------------------------------------------------------------------------
 // Process Types
 // ---------------------------------------------------------------------------
 
@@ -63,6 +77,7 @@ export interface ProcessInfo {
   pid: PID;
   ppid: PID;                  // Parent process ID (0 = init)
   uid: string;                // Owner (agent ID or 'root')
+  ownerUid?: string;          // User who spawned the agent
   name: string;               // Process name
   command: string;             // Full command string
   state: ProcessState;
@@ -233,6 +248,34 @@ export interface SharedMountInfo {
 }
 
 // ---------------------------------------------------------------------------
+// Cluster Types
+// ---------------------------------------------------------------------------
+
+export type NodeStatus = 'online' | 'offline' | 'draining';
+
+export interface NodeInfo {
+  id: string;
+  host: string;
+  port: number;
+  capacity: number;
+  load: number;
+  gpuAvailable: boolean;
+  dockerAvailable: boolean;
+  status: NodeStatus;
+  lastHeartbeat?: number;
+}
+
+export type ClusterRole = 'hub' | 'node' | 'standalone';
+
+export interface ClusterInfo {
+  role: ClusterRole;
+  hubUrl?: string;
+  nodes: NodeInfo[];
+  totalCapacity: number;
+  totalLoad: number;
+}
+
+// ---------------------------------------------------------------------------
 // UI -> Kernel Commands (what the frontend sends)
 // ---------------------------------------------------------------------------
 
@@ -281,6 +324,18 @@ export type KernelCommand =
   | { type: 'fs.mountShared'; id: string; pid: PID; name: string; mountPoint?: string }
   | { type: 'fs.unmountShared'; id: string; pid: PID; name: string }
   | { type: 'fs.listShared'; id: string }
+
+  // Authentication
+  | { type: 'auth.login'; id: string; username: string; password: string }
+  | { type: 'auth.register'; id: string; username: string; password: string; displayName?: string }
+  | { type: 'auth.validate'; id: string; token: string }
+  | { type: 'user.list'; id: string }
+  | { type: 'user.delete'; id: string; userId: string }
+
+  // Cluster
+  | { type: 'cluster.status'; id: string }
+  | { type: 'cluster.nodes'; id: string }
+  | { type: 'cluster.drain'; id: string; nodeId: string }
 
   // System
   | { type: 'kernel.status'; id: string }
@@ -350,6 +405,18 @@ export type KernelEvent =
   | { type: 'fs.sharedMounted'; pid: PID; name: string }
   | { type: 'fs.sharedUnmounted'; pid: PID; name: string }
   | { type: 'fs.sharedList'; mounts: SharedMountInfo[] }
+
+  // Auth events
+  | { type: 'auth.success'; user: UserInfo; token: string }
+  | { type: 'auth.failure'; reason: string }
+  | { type: 'user.created'; user: UserInfo }
+  | { type: 'user.deleted'; userId: string }
+
+  // Cluster events
+  | { type: 'cluster.nodeJoined'; node: NodeInfo }
+  | { type: 'cluster.nodeLeft'; nodeId: string }
+  | { type: 'cluster.nodeOffline'; nodeId: string }
+  | { type: 'cluster.status'; info: ClusterInfo }
 
   // System events
   | { type: 'kernel.ready'; version: string; uptime: number }

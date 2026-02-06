@@ -17,10 +17,13 @@ import { AgentDashboard } from './components/apps/AgentDashboard';
 import { AgentVM } from './components/apps/AgentVM';
 import { DesktopWidgets } from './components/os/DesktopWidgets';
 import { ContextMenu } from './components/os/ContextMenu';
+import { LoginScreen } from './components/os/LoginScreen';
+import { UserMenu } from './components/os/UserMenu';
 import { Battery, Wifi, Search, Command, RefreshCw, FolderPlus, Monitor, Image as ImageIcon, Server } from 'lucide-react';
 import { FileSystemItem, mockFileSystem } from './data/mockFileSystem';
 import { generateText, GeminiModel, getAgentDecision } from './services/geminiService';
 import { useKernel, AgentProcess } from './services/useKernel';
+import { getKernelClient, UserInfo } from './services/kernelClient';
 
 const App: React.FC = () => {
   const [windows, setWindows] = useState<WindowState[]>([]);
@@ -35,11 +38,67 @@ const App: React.FC = () => {
   // Context Menu State
   const [contextMenu, setContextMenu] = useState<{ isOpen: boolean; x: number; y: number } | null>(null);
 
+  // Auth state
+  const [authUser, setAuthUser] = useState<UserInfo | null>(null);
+  const [authChecking, setAuthChecking] = useState(true);
+  const [authError, setAuthError] = useState<string | null>(null);
+
   // Runtime mode: 'kernel' when server is available, 'mock' as fallback
   const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>('mock');
 
   // Kernel connection (real backend)
   const kernel = useKernel();
+
+  // Check for stored token on mount
+  useEffect(() => {
+    const storedToken = localStorage.getItem('aether_token');
+    if (storedToken) {
+      const client = getKernelClient();
+      client.setToken(storedToken);
+      // Try to validate via HTTP
+      const baseUrl = 'http://localhost:3001';
+      fetch(`${baseUrl}/api/kernel`, {
+        headers: { 'Authorization': `Bearer ${storedToken}` },
+      }).then(res => {
+        if (res.ok) {
+          // Token is valid with server, now validate user from WS
+          // The WS connection will include the token automatically
+          client.connect();
+          // Try to decode user from token (will be validated server-side)
+          // We'll get the user info once the WS validates
+          // For now, parse the token payload
+          try {
+            const parts = storedToken.split('.');
+            if (parts.length === 3) {
+              const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+              if (payload.sub && payload.username && payload.exp > Date.now()) {
+                const user: UserInfo = {
+                  id: payload.sub,
+                  username: payload.username,
+                  displayName: payload.username,
+                  role: payload.role || 'user',
+                };
+                setAuthUser(user);
+                client.setCurrentUser(user);
+              }
+            }
+          } catch {
+            // Token decode failed, will need to re-login
+          }
+        } else {
+          // Token invalid, clear it
+          localStorage.removeItem('aether_token');
+          client.setToken(null);
+        }
+        setAuthChecking(false);
+      }).catch(() => {
+        // Server not available - might be mock mode
+        setAuthChecking(false);
+      });
+    } else {
+      setAuthChecking(false);
+    }
+  }, []);
 
   // Detect kernel availability
   useEffect(() => {
@@ -47,6 +106,46 @@ const App: React.FC = () => {
       setRuntimeMode('kernel');
     }
   }, [kernel.connected]);
+
+  // Auth handlers
+  const handleLogin = async (username: string, password: string): Promise<boolean> => {
+    try {
+      const client = getKernelClient();
+      const result = await client.loginHttp(username, password);
+      setAuthUser(result.user);
+      setAuthError(null);
+      // Reconnect WS with new token
+      client.disconnect();
+      client.connect();
+      return true;
+    } catch (err: any) {
+      setAuthError(err.message);
+      return false;
+    }
+  };
+
+  const handleRegister = async (username: string, password: string, displayName: string): Promise<boolean> => {
+    try {
+      const client = getKernelClient();
+      const result = await client.registerHttp(username, password, displayName);
+      setAuthUser(result.user);
+      setAuthError(null);
+      // Reconnect WS with new token
+      client.disconnect();
+      client.connect();
+      return true;
+    } catch (err: any) {
+      setAuthError(err.message);
+      return false;
+    }
+  };
+
+  const handleLogout = () => {
+    const client = getKernelClient();
+    client.logout();
+    client.disconnect();
+    setAuthUser(null);
+  };
 
   // Bridge kernel processes to Agent type for UI compatibility
   const kernelAgents: Agent[] = useMemo(() => {
@@ -435,7 +534,7 @@ const App: React.FC = () => {
     }
   };
 
-  if (isBooting) {
+  if (isBooting || authChecking) {
     return (
       <div className="w-screen h-screen bg-black flex flex-col items-center justify-center text-white">
         <div className="text-6xl mb-8"></div>
@@ -446,8 +545,20 @@ const App: React.FC = () => {
     );
   }
 
+  // Show login screen if not authenticated and kernel is available
+  if (!authUser && runtimeMode === 'kernel') {
+    return (
+      <LoginScreen
+        onLogin={handleLogin}
+        onRegister={handleRegister}
+        registrationOpen={true}
+        error={authError}
+      />
+    );
+  }
+
   return (
-    <div 
+    <div
       className="w-screen h-screen overflow-hidden bg-cover bg-center font-sans relative selection:bg-indigo-500/30"
       style={{ backgroundImage: `url('https://images.unsplash.com/photo-1550684848-fac1c5b4e853?q=80&w=2670&auto=format&fit=crop')` }} // Changed to a darker, more tech-focused wallpaper
       onContextMenu={(e) => { e.preventDefault(); setContextMenu({ isOpen: true, x: e.clientX, y: e.clientY }); }}
@@ -480,9 +591,28 @@ const App: React.FC = () => {
                  <span>K</span>
               </div>
            </button>
+           {/* Cluster Status Badge */}
+           {kernel.clusterInfo && kernel.clusterInfo.role !== 'standalone' && (
+             <div className="flex items-center gap-1 bg-white/5 px-2 py-0.5 rounded text-[10px]">
+               <Server size={10} className="text-indigo-400" />
+               <span className="opacity-60">
+                 {kernel.clusterInfo.role === 'hub'
+                   ? `Hub · ${kernel.clusterInfo.nodes.length} node${kernel.clusterInfo.nodes.length !== 1 ? 's' : ''}`
+                   : 'Node · Connected'}
+               </span>
+             </div>
+           )}
           <Wifi size={14} />
           <Battery size={14} />
           <span>{time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+          {/* User Menu */}
+          {authUser && (
+            <UserMenu
+              user={authUser}
+              onLogout={handleLogout}
+              onOpenSettings={() => openApp(AppID.SETTINGS)}
+            />
+          )}
         </div>
       </div>
 

@@ -26,9 +26,12 @@ import { ContainerManager } from './ContainerManager.js';
 import { PluginManager } from './PluginManager.js';
 import { SnapshotManager } from './SnapshotManager.js';
 import { StateStore } from './StateStore.js';
+import { AuthManager } from './AuthManager.js';
+import { ClusterManager } from './ClusterManager.js';
 import {
   KernelCommand,
   KernelEvent,
+  UserInfo,
   AETHER_VERSION,
   ProcessInfo,
 } from '@aether/shared';
@@ -43,6 +46,8 @@ export class Kernel {
   readonly plugins: PluginManager;
   readonly snapshots: SnapshotManager;
   readonly state: StateStore;
+  readonly auth: AuthManager;
+  readonly cluster: ClusterManager;
 
   private startTime: number;
   private running = false;
@@ -56,6 +61,8 @@ export class Kernel {
     this.plugins = new PluginManager(this.bus, options.fsRoot);
     this.state = new StateStore(this.bus, options.dbPath);
     this.snapshots = new SnapshotManager(this.bus, this.processes, this.state, options.fsRoot);
+    this.auth = new AuthManager(this.bus, this.state);
+    this.cluster = new ClusterManager(this.bus);
     this.startTime = Date.now();
   }
 
@@ -84,6 +91,15 @@ export class Kernel {
 
     console.log('[Kernel] State store initialized (SQLite)');
 
+    // Initialize auth
+    await this.auth.init();
+    console.log('[Kernel] Auth manager initialized');
+
+    // Initialize cluster
+    await this.cluster.init();
+    this.cluster.setLocalCapabilities(this.containers.isDockerAvailable(), false);
+    console.log(`[Kernel] Cluster manager initialized (role: ${this.cluster.getRole()})`);
+
     this.running = true;
     this.startTime = Date.now();
 
@@ -98,15 +114,23 @@ export class Kernel {
   /**
    * Handle a command from the UI.
    * Returns events to send back.
+   * @param user - The authenticated user making the request (if any)
    */
-  async handleCommand(cmd: KernelCommand): Promise<KernelEvent[]> {
+  async handleCommand(cmd: KernelCommand, user?: UserInfo): Promise<KernelEvent[]> {
     const events: KernelEvent[] = [];
 
     try {
       switch (cmd.type) {
         // ----- Process Commands -----
         case 'process.spawn': {
-          const proc = this.processes.spawn(cmd.config);
+          // Route via cluster if needed
+          const route = this.cluster.routeCommand(cmd);
+          if (!route.local && route.nodeId) {
+            const remoteEvents = await this.cluster.forwardCommand(route.nodeId, cmd);
+            return remoteEvents;
+          }
+
+          const proc = this.processes.spawn(cmd.config, 0, user?.id);
           const pid = proc.info.pid;
 
           // Create home directory for the agent
@@ -147,6 +171,12 @@ export class Kernel {
         }
 
         case 'process.signal': {
+          // Verify ownership
+          const isAdmin = !user || user.role === 'admin';
+          if (!this.processes.isOwner(cmd.pid, user?.id, isAdmin)) {
+            events.push({ type: 'response.error', id: cmd.id, error: 'Permission denied: you do not own this process' });
+            break;
+          }
           const success = this.processes.signal(cmd.pid, cmd.signal);
 
           // If killing a process, also clean up its container
@@ -163,7 +193,8 @@ export class Kernel {
         }
 
         case 'process.list': {
-          const processes = this.processes.getActive().map(p => ({ ...p.info }));
+          const isAdmin = !user || user.role === 'admin';
+          const processes = this.processes.getActiveByOwner(user?.id, isAdmin).map(p => ({ ...p.info }));
           events.push({
             type: 'response.ok',
             id: cmd.id,
@@ -523,6 +554,127 @@ export class Kernel {
           break;
         }
 
+        // ----- Auth Commands -----
+        case 'auth.login': {
+          const result = await this.auth.authenticateUser(cmd.username, cmd.password);
+          if (result) {
+            events.push({
+              type: 'response.ok',
+              id: cmd.id,
+              data: { token: result.token, user: result.user },
+            });
+          } else {
+            events.push({
+              type: 'response.error',
+              id: cmd.id,
+              error: 'Invalid credentials',
+            });
+          }
+          break;
+        }
+
+        case 'auth.register': {
+          if (!this.auth.isRegistrationOpen()) {
+            events.push({
+              type: 'response.error',
+              id: cmd.id,
+              error: 'Registration is closed',
+            });
+            break;
+          }
+          try {
+            const newUser = await this.auth.createUser(cmd.username, cmd.password, cmd.displayName);
+            const authResult = await this.auth.authenticateUser(cmd.username, cmd.password);
+            events.push({
+              type: 'response.ok',
+              id: cmd.id,
+              data: { token: authResult!.token, user: authResult!.user },
+            });
+          } catch (err: any) {
+            events.push({
+              type: 'response.error',
+              id: cmd.id,
+              error: err.message,
+            });
+          }
+          break;
+        }
+
+        case 'auth.validate': {
+          const validUser = this.auth.validateToken(cmd.token);
+          if (validUser) {
+            events.push({
+              type: 'response.ok',
+              id: cmd.id,
+              data: { user: validUser },
+            });
+          } else {
+            events.push({
+              type: 'response.error',
+              id: cmd.id,
+              error: 'Invalid or expired token',
+            });
+          }
+          break;
+        }
+
+        case 'user.list': {
+          if (user && user.role !== 'admin') {
+            events.push({ type: 'response.error', id: cmd.id, error: 'Admin access required' });
+            break;
+          }
+          const users = this.auth.listUsers();
+          events.push({ type: 'response.ok', id: cmd.id, data: users });
+          break;
+        }
+
+        case 'user.delete': {
+          if (user && user.role !== 'admin') {
+            events.push({ type: 'response.error', id: cmd.id, error: 'Admin access required' });
+            break;
+          }
+          try {
+            this.auth.deleteUser(cmd.userId);
+            events.push({ type: 'response.ok', id: cmd.id });
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        // ----- Cluster Commands -----
+        case 'cluster.status': {
+          const clusterInfo = this.cluster.getClusterInfo();
+          // Update local load
+          const activeCounts = this.processes.getCounts();
+          this.cluster.updateLocalLoad(activeCounts.running + activeCounts.sleeping + activeCounts.created);
+          events.push({
+            type: 'response.ok',
+            id: cmd.id,
+            data: this.cluster.getClusterInfo(),
+          });
+          break;
+        }
+
+        case 'cluster.nodes': {
+          events.push({
+            type: 'response.ok',
+            id: cmd.id,
+            data: this.cluster.getNodes(),
+          });
+          break;
+        }
+
+        case 'cluster.drain': {
+          if (user && user.role !== 'admin') {
+            events.push({ type: 'response.error', id: cmd.id, error: 'Admin access required' });
+            break;
+          }
+          this.cluster.drainNode(cmd.nodeId);
+          events.push({ type: 'response.ok', id: cmd.id });
+          break;
+        }
+
         // ----- System Commands -----
         case 'kernel.status': {
           events.push({
@@ -591,6 +743,7 @@ export class Kernel {
       });
     } catch { /* ignore metric errors during shutdown */ }
 
+    await this.cluster.shutdown();
     await this.pty.shutdown();
     await this.containers.shutdown();
     await this.processes.shutdown();
