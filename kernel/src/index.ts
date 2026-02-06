@@ -8,3 +8,5 @@ export { VNCManager } from './VNCManager.js';
 export { PluginManager } from './PluginManager.js';
 export { SnapshotManager } from './SnapshotManager.js';
 export { StateStore } from './StateStore.js';
+export { AuthManager } from './AuthManager.js';
+export { ClusterManager } from './ClusterManager.js';

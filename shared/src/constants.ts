@@ -48,6 +48,16 @@ export const VNC_DISPLAY = ':99';                     // Default Xvfb display nu
 // Persistence
 export const STATE_DB_PATH = '/tmp/aether/var/aether-state.db';
 
+// Authentication
+export const AUTH_TOKEN_EXPIRY = 24 * 60 * 60 * 1000;    // 24 hours in ms
+export const AUTH_DEFAULT_ADMIN_USER = 'admin';
+export const AUTH_DEFAULT_ADMIN_PASS = 'aether';
+
+// Cluster
+export const CLUSTER_HEARTBEAT_INTERVAL = 10_000;          // 10 seconds
+export const CLUSTER_HEARTBEAT_TIMEOUT = 35_000;            // 3.5 missed = offline
+export const CLUSTER_DEFAULT_CAPACITY = 16;                 // Max agents per node
+
 // Agent roles
 export const AGENT_ROLES = [
   'Researcher',

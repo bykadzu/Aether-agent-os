@@ -67,7 +67,7 @@ export class ProcessManager {
    * Returns the PID. The process starts in 'created' state.
    * The runtime is responsible for actually starting execution.
    */
-  spawn(config: AgentConfig, ppid: PID = 0): ManagedProcess {
+  spawn(config: AgentConfig, ppid: PID = 0, ownerUid?: string): ManagedProcess {
     if (this.getAll().filter(p => p.info.state !== 'dead').length >= MAX_PROCESSES) {
       throw new Error('Process table full');
     }
@@ -80,6 +80,7 @@ export class ProcessManager {
       pid,
       ppid,
       uid,
+      ownerUid: ownerUid || 'root',
       name: `${config.role} Agent`,
       command: `aether-agent --role="${config.role}" --goal="${config.goal}"`,
       state: 'created',
@@ -227,6 +228,26 @@ export class ProcessManager {
    */
   getActive(): ManagedProcess[] {
     return this.getAll().filter(p => p.info.state !== 'dead');
+  }
+
+  /**
+   * Get active processes filtered by owner user ID.
+   * Admin users (ownerUid undefined) see all processes.
+   */
+  getActiveByOwner(ownerUid?: string, isAdmin = false): ManagedProcess[] {
+    const active = this.getActive();
+    if (!ownerUid || isAdmin) return active;
+    return active.filter(p => p.info.ownerUid === ownerUid);
+  }
+
+  /**
+   * Check if a user owns a process (or is admin).
+   */
+  isOwner(pid: PID, ownerUid?: string, isAdmin = false): boolean {
+    if (!ownerUid || isAdmin) return true;
+    const proc = this.processes.get(pid);
+    if (!proc) return false;
+    return proc.info.ownerUid === ownerUid;
   }
 
   /**

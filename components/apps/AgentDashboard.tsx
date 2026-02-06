@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Bot, Monitor, List, Grid3x3, Filter, ExternalLink, Activity, Cpu, HardDrive, Clock, Zap, History, ChevronRight, Eye } from 'lucide-react';
+import { Plus, Bot, Monitor, List, Grid3x3, Filter, ExternalLink, Activity, Cpu, HardDrive, Clock, Zap, History, ChevronRight, Eye, Server } from 'lucide-react';
 import { Agent, AgentStatus } from '../../types';
 import { VirtualDesktop } from '../os/VirtualDesktop';
-import { getKernelClient, GPUInfo } from '../../services/kernelClient';
+import { getKernelClient, ClusterInfo, GPUInfo } from '../../services/kernelClient';
 import { AgentTimeline } from './AgentTimeline';
 
 type ViewMode = 'grid' | 'list';
@@ -40,6 +40,7 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
   }>>([]);
   const [selectedHistoryPid, setSelectedHistoryPid] = useState<number | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [clusterInfo, setClusterInfo] = useState<ClusterInfo | null>(null);
 
   // Subscribe to kernel metrics
   useEffect(() => {
@@ -67,6 +68,11 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
           count: data.gpus.length,
           gpus: data.gpus,
         });
+      }).catch(() => {});
+
+      // Fetch cluster info
+      client.getClusterInfo().then(info => {
+        setClusterInfo(info);
       }).catch(() => {});
     }
 
@@ -210,6 +216,22 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
               <Monitor size={12} className="text-yellow-400" />
               <span>GPU: <span className="text-yellow-400 font-mono">{gpuInfo.count}</span></span>
             </div>
+          )}
+          {clusterInfo && clusterInfo.role !== 'standalone' && (
+            <>
+              <div className="w-px h-4 bg-white/10" />
+              <div className="flex items-center gap-2 text-white/40">
+                <Server size={12} className="text-indigo-400" />
+                <span>
+                  {clusterInfo.role === 'hub'
+                    ? <><span className="text-indigo-400 font-medium">Hub</span> · {clusterInfo.nodes.length} node{clusterInfo.nodes.length !== 1 ? 's' : ''}</>
+                    : <span className="text-indigo-400 font-medium">Node</span>}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 text-white/40">
+                <span>Capacity: <span className="text-white/70 font-mono">{clusterInfo.totalLoad}/{clusterInfo.totalCapacity}</span></span>
+              </div>
+            </>
           )}
         </div>
       </div>

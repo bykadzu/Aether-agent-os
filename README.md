@@ -282,7 +282,9 @@ The host OS itself is a full desktop environment:
 │   │   ├── VirtualDesktop.tsx   # Agent desktop compositor
 │   │   ├── XTerminal.tsx        # xterm.js React wrapper (Tokyo Night theme)
 │   │   ├── DesktopWidgets.tsx   # Weather, calendar, music widgets
-│   │   └── ContextMenu.tsx      # Right-click menu
+│   │   ├── ContextMenu.tsx      # Right-click menu
+│   │   ├── LoginScreen.tsx      # Full-screen authentication UI
+│   │   └── UserMenu.tsx         # User dropdown menu in menu bar
 │   └── apps/
 │       ├── AgentDashboard.tsx   # Mission Control with metrics and filtering
 │       ├── AgentVM.tsx          # Full agent view with terminal + logs tabs
@@ -303,9 +305,11 @@ The host OS itself is a full desktop environment:
 │       ├── PTYManager.ts        # Terminal sessions (node-pty or docker exec)
 │       ├── ContainerManager.ts  # Docker container sandboxing
 │       ├── PluginManager.ts     # Agent plugin loading and management
+│       ├── AuthManager.ts       # User auth, JWT tokens, password hashing
+│       ├── ClusterManager.ts    # Hub-and-spoke distributed kernel
 │       ├── plugins/             # Sample plugins
 │       │   └── sample-weather/  # Template plugin with weather tool
-│       ├── StateStore.ts        # SQLite persistence
+│       ├── StateStore.ts        # SQLite persistence (processes, users, metrics)
 │       └── EventBus.ts          # Typed pub/sub IPC
 ├── runtime/
 │   └── src/
@@ -339,10 +343,10 @@ The host OS itself is a full desktop environment:
 
 - [x] Full node-pty integration for proper SIGWINCH and terminal resizing
 - [x] VNC/noVNC for rendering real graphical applications inside agent desktops
-- [ ] Multi-user authentication and per-user agent pools
+- [x] Multi-user authentication and per-user agent pools
 - [x] Agent plugin system for custom tool discovery
 - [x] GPU passthrough for agents running ML workloads
-- [ ] Distributed kernel across multiple hosts
+- [x] Distributed kernel foundation (hub-and-spoke clustering)
 - [x] Snapshot/restore for agent process state (like VM checkpoints)
 - [x] Shared filesystem mounts between cooperating agents
 - [x] Agent history timeline in Mission Control
@@ -511,6 +515,112 @@ Agents running ML workloads can access NVIDIA GPUs inside their Docker container
 - Deploy Agent modal shows a "GPU Enabled" toggle when GPUs are available
 - Activity monitor widget shows GPU allocation per agent
 - A "Graphical Desktop" toggle enables VNC for the new agent
+
+## Authentication
+
+Aether OS includes a multi-user authentication system. Multiple users can log in and manage their own isolated agent pools.
+
+### Default Admin Account
+
+On first boot (when no users exist), the kernel automatically creates a default admin account:
+
+- **Username:** `admin`
+- **Password:** `aether`
+
+Credentials are logged to the console at startup. **Change this password after first login.**
+
+### Login & Registration
+
+The UI displays a full-screen login page before the desktop loads. Users can:
+
+- **Log in** with username/password
+- **Register** a new account (if registration is open)
+
+Registration can be disabled by setting `AETHER_REGISTRATION_OPEN=false`.
+
+### Token System
+
+Authentication uses HMAC-SHA256 signed JWTs (implemented with Node.js `crypto`, no external dependencies):
+
+- Tokens expire after 24 hours
+- Tokens are stored in `localStorage` on the client
+- The signing secret comes from `AETHER_SECRET` env var, or is randomly generated at boot
+- WebSocket connections include the token as a query parameter
+- HTTP requests use `Authorization: Bearer <token>` header or `aether_token` cookie
+
+### API Endpoints
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `POST` | `/api/auth/login` | No | Login with `{ username, password }`, returns `{ token, user }` |
+| `POST` | `/api/auth/register` | No | Register with `{ username, password, displayName? }` |
+| `GET` | `/health` | No | Health check |
+| All others | `*` | Yes | Require valid Bearer token |
+
+### Per-User Isolation
+
+- Each user's spawned agents are tagged with `ownerUid`
+- Process listing filters by the requesting user (admins see all)
+- Signal sending verifies process ownership
+- Per-user directories exist at `/tmp/aether/users/{userId}/`
+
+## Clustering
+
+Aether OS supports distributing the kernel across multiple hosts using a hub-and-spoke model.
+
+### Architecture
+
+- **Hub**: The primary kernel that the UI connects to. Accepts node registrations and routes commands.
+- **Node**: A secondary kernel that registers with the hub and executes commands locally.
+- **Standalone**: Default mode. No clustering, single host.
+
+### Configuration
+
+| Env Variable | Values | Description |
+|-------------|--------|-------------|
+| `AETHER_CLUSTER_ROLE` | `hub`, `node`, `standalone` | Cluster role (default: `standalone`) |
+| `AETHER_HUB_URL` | `ws://host:port` | Hub WebSocket URL (required for nodes) |
+| `AETHER_NODE_HOST` | hostname/IP | This node's hostname for the hub to track |
+| `AETHER_NODE_CAPACITY` | number | Max processes on this node (default: 16) |
+
+### Hub Mode
+
+```bash
+AETHER_CLUSTER_ROLE=hub npm run dev:kernel
+```
+
+The hub:
+- Accepts node registrations on the `/cluster` WebSocket path
+- Monitors node health via heartbeats (every 10s, offline after 35s)
+- Routes `process.spawn` to the least-loaded node when local capacity is full
+- Proxies commands for remote processes to the appropriate node
+- Broadcasts cluster events (nodeJoined, nodeLeft, nodeOffline) to the UI
+
+### Node Mode
+
+```bash
+AETHER_CLUSTER_ROLE=node AETHER_HUB_URL=ws://hub-host:3001 npm run dev:kernel
+```
+
+The node:
+- Registers with the hub on boot
+- Sends heartbeat every 10s with load, capacity, and resource info
+- Receives and executes commands forwarded from the hub
+- Reports events back to the hub for UI broadcast
+
+### UI Integration
+
+When clustering is active:
+- **Menu bar**: Shows "Hub · N nodes" or "Node · Connected to hub" badge
+- **Agent Dashboard**: Displays cluster capacity and per-node breakdown in the metrics bar
+
+### API
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/cluster` | Returns `ClusterInfo` (role, nodes, capacity, load) |
+
+**WebSocket commands:** `cluster.status`, `cluster.nodes`, `cluster.drain`
 
 ## License
 

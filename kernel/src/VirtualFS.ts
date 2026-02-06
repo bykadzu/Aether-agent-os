@@ -38,6 +38,9 @@ export class VirtualFS {
     this.root = root || AETHER_ROOT;
   }
 
+  /** Maps virtual paths to the owning user uid for access control */
+  private fileOwners = new Map<string, string>();
+
   /**
    * Initialize the filesystem - create base directories.
    */
@@ -46,6 +49,7 @@ export class VirtualFS {
       this.root,
       path.join(this.root, 'home'),
       path.join(this.root, 'tmp'),
+      path.join(this.root, 'tmp', 'aether', 'users'),
       path.join(this.root, 'etc'),
       path.join(this.root, 'var', 'log'),
       path.join(this.root, 'shared'),
@@ -99,6 +103,58 @@ export class VirtualFS {
     }
 
     return `/home/${uid}`;
+  }
+
+  /**
+   * Create a per-user directory for user-scoped data.
+   */
+  async createUserDir(userId: string): Promise<string> {
+    const userDir = path.join(this.root, 'tmp', 'aether', 'users', userId);
+    await fs.mkdir(userDir, { recursive: true });
+    return `/tmp/aether/users/${userId}`;
+  }
+
+  /**
+   * Associate a file with a user for ownership tracking.
+   */
+  setFileOwner(virtualPath: string, ownerUid: string): void {
+    this.fileOwners.set(virtualPath, ownerUid);
+  }
+
+  /**
+   * Get the owner of a file path.
+   */
+  getFileOwner(virtualPath: string): string {
+    return this.fileOwners.get(virtualPath) || 'root';
+  }
+
+  /**
+   * Check if a user has access to a path.
+   * Users can access their own home, shared mounts, /tmp, /etc. Admin has full access.
+   */
+  checkAccess(virtualPath: string, userId?: string, isAdmin = false): boolean {
+    if (!userId || isAdmin) return true;
+
+    const normalized = path.posix.normalize(virtualPath);
+
+    // Everyone can access /tmp, /etc, /shared
+    if (normalized.startsWith('/tmp/') || normalized.startsWith('/etc/') || normalized.startsWith('/shared/')) {
+      return true;
+    }
+
+    // Users can access their own user dir
+    if (normalized.startsWith(`/tmp/aether/users/${userId}/`) || normalized === `/tmp/aether/users/${userId}`) {
+      return true;
+    }
+
+    // Users can access agent home dirs they own (agents spawned by them)
+    // This is checked at a higher level via process ownership
+    // Allow /home/ access generally since agents need it
+    if (normalized.startsWith('/home/')) {
+      return true;
+    }
+
+    return false;
   }
 
   // -----------------------------------------------------------------------
@@ -165,12 +221,17 @@ export class VirtualFS {
   /**
    * Write content to a file (creates if doesn't exist).
    */
-  async writeFile(virtualPath: string, content: string): Promise<void> {
+  async writeFile(virtualPath: string, content: string, ownerUid?: string): Promise<void> {
     const realPath = this.resolvePath(virtualPath);
 
     // Ensure parent directory exists
     await fs.mkdir(path.dirname(realPath), { recursive: true });
     await fs.writeFile(realPath, content, 'utf-8');
+
+    // Track file ownership
+    if (ownerUid) {
+      this.setFileOwner(virtualPath, ownerUid);
+    }
 
     this.bus.emit('fs.changed', {
       path: virtualPath,
@@ -222,7 +283,7 @@ export class VirtualFS {
           type: this.getFileType(entry),
           size: stat.size,
           mode: DEFAULT_MODE,
-          uid: 'root', // TODO: track per-file ownership
+          uid: this.getFileOwner(path.posix.join(virtualPath, entry.name)),
           createdAt: stat.birthtimeMs,
           modifiedAt: stat.mtimeMs,
           isHidden: entry.name.startsWith('.'),
@@ -254,7 +315,7 @@ export class VirtualFS {
       type: stat.isDirectory() ? 'directory' : stat.isSymbolicLink() ? 'symlink' : 'file',
       size: stat.size,
       mode: DEFAULT_MODE,
-      uid: 'root',
+      uid: this.getFileOwner(virtualPath),
       createdAt: stat.birthtimeMs,
       modifiedAt: stat.mtimeMs,
       isHidden: name.startsWith('.'),

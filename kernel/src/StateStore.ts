@@ -21,6 +21,7 @@ import {
   FileMetadataRecord,
   KernelMetricRecord,
   SnapshotInfo,
+  UserInfo,
   STATE_DB_PATH,
 } from '@aether/shared';
 
@@ -57,6 +58,15 @@ export class StateStore {
     removeMountedBy: Database.Statement;
     getMountedBy: Database.Statement;
     deleteSharedMount: Database.Statement;
+    // User management
+    insertUser: Database.Statement;
+    getUserById: Database.Statement;
+    getUserByUsername: Database.Statement;
+    getAllUsers: Database.Statement;
+    updateUser: Database.Statement;
+    updateUserLogin: Database.Statement;
+    deleteUser: Database.Statement;
+    getProcessesByOwner: Database.Statement;
   };
 
   constructor(bus: EventBus, dbPath?: string) {
@@ -157,6 +167,18 @@ export class StateStore {
         PRIMARY KEY (name, pid),
         FOREIGN KEY (name) REFERENCES shared_mounts(name)
       );
+
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        username TEXT UNIQUE NOT NULL,
+        display_name TEXT NOT NULL DEFAULT '',
+        password_hash TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'user',
+        created_at INTEGER NOT NULL,
+        last_login INTEGER
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
     `);
   }
 
@@ -270,6 +292,38 @@ export class StateStore {
         SELECT pid, mount_point as mountPoint FROM shared_mount_members WHERE name = ?
       `),
       deleteSharedMount: this.db.prepare(`DELETE FROM shared_mounts WHERE name = ?`),
+      // User management
+      insertUser: this.db.prepare(`
+        INSERT INTO users (id, username, display_name, password_hash, role, created_at)
+        VALUES (@id, @username, @displayName, @passwordHash, @role, @createdAt)
+      `),
+      getUserById: this.db.prepare(`
+        SELECT id, username, display_name as displayName, password_hash as passwordHash,
+               role, created_at as createdAt, last_login as lastLogin
+        FROM users WHERE id = ?
+      `),
+      getUserByUsername: this.db.prepare(`
+        SELECT id, username, display_name as displayName, password_hash as passwordHash,
+               role, created_at as createdAt, last_login as lastLogin
+        FROM users WHERE username = ?
+      `),
+      getAllUsers: this.db.prepare(`
+        SELECT id, username, display_name as displayName, role,
+               created_at as createdAt, last_login as lastLogin
+        FROM users ORDER BY created_at ASC
+      `),
+      updateUser: this.db.prepare(`
+        UPDATE users SET display_name = @displayName, role = @role WHERE id = @id
+      `),
+      updateUserLogin: this.db.prepare(`
+        UPDATE users SET last_login = ? WHERE id = ?
+      `),
+      deleteUser: this.db.prepare(`DELETE FROM users WHERE id = ?`),
+      getProcessesByOwner: this.db.prepare(`
+        SELECT pid, uid, name, role, goal, state, agent_phase as agentPhase,
+               exit_code as exitCode, created_at as createdAt, exited_at as exitedAt
+        FROM processes WHERE uid LIKE ? ORDER BY created_at DESC
+      `),
     };
   }
 
@@ -533,6 +587,53 @@ export class StateStore {
 
   deleteSharedMount(name: string): void {
     this.stmts.deleteSharedMount.run(name);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Users
+  // ---------------------------------------------------------------------------
+
+  createUser(record: { id: string; username: string; displayName: string; passwordHash: string; role: string; createdAt: number }): void {
+    this.stmts.insertUser.run(record);
+  }
+
+  getUserById(id: string): { id: string; username: string; displayName: string; passwordHash: string; role: string; createdAt: number; lastLogin?: number } | undefined {
+    return this.stmts.getUserById.get(id) as any;
+  }
+
+  getUserByUsername(username: string): { id: string; username: string; displayName: string; passwordHash: string; role: string; createdAt: number; lastLogin?: number } | undefined {
+    return this.stmts.getUserByUsername.get(username) as any;
+  }
+
+  getAllUsers(): Array<{ id: string; username: string; displayName: string; role: string; createdAt: number; lastLogin?: number }> {
+    return this.stmts.getAllUsers.all() as any[];
+  }
+
+  updateUser(id: string, updates: { displayName?: string; role?: string }): void {
+    const existing = this.getUserById(id);
+    if (!existing) return;
+    this.stmts.updateUser.run({
+      id,
+      displayName: updates.displayName ?? existing.displayName,
+      role: updates.role ?? existing.role,
+    });
+  }
+
+  updateUserLogin(id: string): void {
+    this.stmts.updateUserLogin.run(Date.now(), id);
+  }
+
+  deleteUser(id: string): void {
+    this.stmts.deleteUser.run(id);
+  }
+
+  getUserCount(): number {
+    const row = this.db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number };
+    return row.count;
+  }
+
+  updateUserPasswordHash(id: string, passwordHash: string): void {
+    this.db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(passwordHash, id);
   }
 
   // ---------------------------------------------------------------------------

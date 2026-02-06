@@ -26,6 +26,7 @@ export interface KernelProcessInfo {
   pid: PID;
   ppid: PID;
   uid: string;
+  ownerUid?: string;
   name: string;
   command: string;
   state: ProcessState;
@@ -36,6 +37,30 @@ export interface KernelProcessInfo {
   cpuPercent: number;
   memoryMB: number;
   ttyId?: string;
+}
+
+export interface UserInfo {
+  id: string;
+  username: string;
+  displayName: string;
+  role: 'admin' | 'user';
+}
+
+export interface ClusterInfo {
+  role: 'hub' | 'node' | 'standalone';
+  hubUrl?: string;
+  nodes: Array<{
+    id: string;
+    host: string;
+    port: number;
+    capacity: number;
+    load: number;
+    gpuAvailable: boolean;
+    dockerAvailable: boolean;
+    status: 'online' | 'offline' | 'draining';
+  }>;
+  totalCapacity: number;
+  totalLoad: number;
 }
 
 export interface KernelAgentConfig {
@@ -109,6 +134,8 @@ export class KernelClient {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private _connected = false;
   private _version: string = '';
+  private _token: string | null = null;
+  private _currentUser: UserInfo | null = null;
 
   constructor(url?: string) {
     this.url = url || DEFAULT_WS_URL;
@@ -125,7 +152,10 @@ export class KernelClient {
     if (this.ws?.readyState === WebSocket.OPEN) return;
 
     try {
-      this.ws = new WebSocket(this.url);
+      const wsUrl = this._token
+        ? `${this.url}?token=${encodeURIComponent(this._token)}`
+        : this.url;
+      this.ws = new WebSocket(wsUrl);
 
       this.ws.onopen = () => {
         this._connected = true;
@@ -492,6 +522,16 @@ export class KernelClient {
   /**
    * Get agent log history for a specific PID.
    */
+  private getRestHeaders(): Record<string, string> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (this._token) headers['Authorization'] = `Bearer ${this._token}`;
+    return headers;
+  }
+
+  private getBaseUrl(): string {
+    return this.url.replace('ws://', 'http://').replace('wss://', 'https://').replace('/kernel', '');
+  }
+
   async getAgentHistory(pid: number): Promise<Array<{
     id: number;
     pid: number;
@@ -501,7 +541,7 @@ export class KernelClient {
     content: string;
     timestamp: number;
   }>> {
-    const res = await fetch(`http://localhost:3001/api/history/logs/${pid}`);
+    const res = await fetch(`${this.getBaseUrl()}/api/history/logs/${pid}`, { headers: this.getRestHeaders() });
     if (!res.ok) throw new Error(`Failed to fetch agent history: ${res.statusText}`);
     return res.json();
   }
@@ -521,8 +561,143 @@ export class KernelClient {
     createdAt: number;
     exitedAt?: number;
   }>> {
-    const res = await fetch('http://localhost:3001/api/history/processes');
+    const res = await fetch(`${this.getBaseUrl()}/api/history/processes`, { headers: this.getRestHeaders() });
     if (!res.ok) throw new Error(`Failed to fetch process history: ${res.statusText}`);
+    return res.json();
+  }
+
+  // -----------------------------------------------------------------------
+  // Auth API
+  // -----------------------------------------------------------------------
+
+  /**
+   * Set the auth token. Reconnects if already connected.
+   */
+  setToken(token: string | null): void {
+    this._token = token;
+    if (token) {
+      localStorage.setItem('aether_token', token);
+    } else {
+      localStorage.removeItem('aether_token');
+      this._currentUser = null;
+    }
+
+    // Reconnect with new token
+    if (this._connected) {
+      this.disconnect();
+      this.connect();
+    }
+  }
+
+  getToken(): string | null {
+    return this._token;
+  }
+
+  /**
+   * Login via the kernel WebSocket.
+   */
+  async login(username: string, password: string): Promise<{ token: string; user: UserInfo }> {
+    const result = await this.request<{ token: string; user: UserInfo }>({
+      type: 'auth.login',
+      username,
+      password,
+    });
+    this._currentUser = result.user;
+    this.setToken(result.token);
+    return result;
+  }
+
+  /**
+   * Login via HTTP REST endpoint (useful before WS is connected).
+   */
+  async loginHttp(username: string, password: string): Promise<{ token: string; user: UserInfo }> {
+    const baseUrl = this.url.replace('ws://', 'http://').replace('wss://', 'https://').replace('/kernel', '');
+    const res = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({ error: 'Login failed' }));
+      throw new Error(data.error || 'Login failed');
+    }
+    const result = await res.json();
+    this._currentUser = result.user;
+    this.setToken(result.token);
+    return result;
+  }
+
+  /**
+   * Register via HTTP REST endpoint.
+   */
+  async registerHttp(username: string, password: string, displayName?: string): Promise<{ token: string; user: UserInfo }> {
+    const baseUrl = this.url.replace('ws://', 'http://').replace('wss://', 'https://').replace('/kernel', '');
+    const res = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password, displayName }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({ error: 'Registration failed' }));
+      throw new Error(data.error || 'Registration failed');
+    }
+    const result = await res.json();
+    this._currentUser = result.user;
+    this.setToken(result.token);
+    return result;
+  }
+
+  /**
+   * Validate the current stored token.
+   */
+  async validateToken(token: string): Promise<UserInfo | null> {
+    try {
+      const result = await this.request<{ user: UserInfo }>({
+        type: 'auth.validate',
+        token,
+      });
+      this._currentUser = result.user;
+      return result.user;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Get the currently authenticated user.
+   */
+  getCurrentUser(): UserInfo | null {
+    return this._currentUser;
+  }
+
+  /**
+   * Set current user (used when restoring from token validation).
+   */
+  setCurrentUser(user: UserInfo | null): void {
+    this._currentUser = user;
+  }
+
+  /**
+   * Logout - clear token and user.
+   */
+  logout(): void {
+    this._currentUser = null;
+    this.setToken(null);
+  }
+
+  // -----------------------------------------------------------------------
+  // Cluster API
+  // -----------------------------------------------------------------------
+
+  /**
+   * Get cluster status information.
+   */
+  async getClusterInfo(): Promise<ClusterInfo> {
+    const baseUrl = this.url.replace('ws://', 'http://').replace('wss://', 'https://').replace('/kernel', '');
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (this._token) headers['Authorization'] = `Bearer ${this._token}`;
+    const res = await fetch(`${baseUrl}/api/cluster`, { headers });
+    if (!res.ok) throw new Error('Failed to fetch cluster info');
     return res.json();
   }
 

@@ -9,7 +9,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { KernelClient, KernelProcessInfo, KernelAgentConfig, getKernelClient } from './kernelClient';
+import { KernelClient, KernelProcessInfo, KernelAgentConfig, UserInfo, ClusterInfo, getKernelClient } from './kernelClient';
 
 export interface AgentProcess {
   pid: number;
@@ -39,6 +39,8 @@ interface KernelState {
   version: string;
   processes: AgentProcess[];
   metrics: { processCount: number; cpuPercent: number; memoryMB: number };
+  user: UserInfo | null;
+  clusterInfo: ClusterInfo | null;
 }
 
 export function useKernel(wsUrl?: string) {
@@ -48,6 +50,8 @@ export function useKernel(wsUrl?: string) {
     version: '',
     processes: [],
     metrics: { processCount: 0, cpuPercent: 0, memoryMB: 0 },
+    user: null,
+    clusterInfo: null,
   });
 
   // Initialize client and connect
@@ -300,6 +304,38 @@ export function useKernel(wsUrl?: string) {
       }
     });
 
+    // Listen for cluster events
+    const unsubClusterJoined = client.on('cluster.nodeJoined', () => {
+      client.getClusterInfo().then(info => {
+        setState(prev => ({ ...prev, clusterInfo: info }));
+      }).catch(() => {});
+    });
+
+    const unsubClusterLeft = client.on('cluster.nodeLeft', () => {
+      client.getClusterInfo().then(info => {
+        setState(prev => ({ ...prev, clusterInfo: info }));
+      }).catch(() => {});
+    });
+
+    const unsubClusterOffline = client.on('cluster.nodeOffline', () => {
+      client.getClusterInfo().then(info => {
+        setState(prev => ({ ...prev, clusterInfo: info }));
+      }).catch(() => {});
+    });
+
+    // Fetch cluster info on connect
+    const unsubReady = client.on('kernel.ready', () => {
+      // Set user from client if already authenticated
+      const currentUser = client.getCurrentUser();
+      if (currentUser) {
+        setState(prev => ({ ...prev, user: currentUser }));
+      }
+
+      client.getClusterInfo().then(info => {
+        setState(prev => ({ ...prev, clusterInfo: info }));
+      }).catch(() => {});
+    });
+
     // Connect
     client.connect();
 
@@ -322,6 +358,10 @@ export function useKernel(wsUrl?: string) {
       unsubGpuReleased();
       unsubMetrics();
       unsubList();
+      unsubClusterJoined();
+      unsubClusterLeft();
+      unsubClusterOffline();
+      unsubReady();
     };
   }, [wsUrl]);
 
