@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { generateText, GeminiModel } from '../../services/geminiService';
 import { FileSystemItem } from '../../data/mockFileSystem';
+import { getKernelClient } from '../../services/kernelClient';
+import { XTerminal } from '../os/XTerminal';
 
 interface TerminalAppProps {
     files: FileSystemItem[];
@@ -8,6 +10,39 @@ interface TerminalAppProps {
 }
 
 export const TerminalApp: React.FC<TerminalAppProps> = ({ files, setFiles }) => {
+  const [kernelConnected, setKernelConnected] = useState(false);
+  const [kernelTtyId, setKernelTtyId] = useState<string | null>(null);
+
+  // Check kernel connection and open a terminal session
+  useEffect(() => {
+    const client = getKernelClient();
+
+    const checkConnection = () => {
+      setKernelConnected(client.connected);
+    };
+
+    const unsub = client.on('connection', (data: any) => {
+      setKernelConnected(data.connected);
+      if (!data.connected) {
+        setKernelTtyId(null);
+      }
+    });
+
+    checkConnection();
+
+    // If connected, open a user terminal
+    if (client.connected && !kernelTtyId) {
+      client.openTerminal(1, 80, 24).then(({ ttyId }) => {
+        setKernelTtyId(ttyId);
+      }).catch(() => {
+        // Fall back to mock terminal
+      });
+    }
+
+    return unsub;
+  }, [kernelConnected]);
+
+  // -- MOCK TERMINAL (when kernel not connected) --
   const [history, setHistory] = useState<string[]>(['Welcome to Aether Terminal v1.1.0', 'Type "help" for available commands.']);
   const [input, setInput] = useState('');
   const [currentDirId, setCurrentDirId] = useState('root');
@@ -70,10 +105,6 @@ export const TerminalApp: React.FC<TerminalAppProps> = ({ files, setFiles }) => 
         } else if (args === '..') {
             const currentDir = files.find(f => f.id === currentDirId);
             if (currentDir && currentDir.parentId && currentDir.parentId !== 'root') {
-                 // Simplified parent resolution for flat demo data
-                 // In real FS, we'd need to lookup parent object. 
-                 // Here 'root' has null parent.
-                 // We will just go back to root for safety in this flat mock structure if not found
                  const parent = files.find(f => f.id === currentDir.parentId);
                  if (parent) {
                     setCurrentDirId(parent.id);
@@ -171,7 +202,6 @@ export const TerminalApp: React.FC<TerminalAppProps> = ({ files, setFiles }) => 
               const targetIndex = files.findIndex(f => f.parentId === currentDirId && f.name === args);
               if (targetIndex !== -1) {
                   const target = files[targetIndex];
-                  // If it's a folder, technically we should recursively delete, but here we just filter it out
                   setFiles(prev => prev.filter(f => f.id !== target.id));
                   output = `Removed '${args}'`;
               } else {
@@ -198,11 +228,11 @@ export const TerminalApp: React.FC<TerminalAppProps> = ({ files, setFiles }) => 
                 const response = await generateText(args, GeminiModel.FLASH);
                 setHistory(prev => {
                     const newHist = [...prev];
-                    newHist.pop(); 
+                    newHist.pop();
                     return [...newHist, response];
                 });
                 setIsProcessing(false);
-                return; 
+                return;
             } catch (err) {
                 output = "Error connecting to AI.";
             }
@@ -217,6 +247,19 @@ export const TerminalApp: React.FC<TerminalAppProps> = ({ files, setFiles }) => 
     setIsProcessing(false);
   };
 
+  // If kernel is connected and we have a tty, render real terminal
+  if (kernelConnected && kernelTtyId) {
+    return (
+      <div className="h-full relative">
+        <XTerminal ttyId={kernelTtyId} className="h-full" />
+        <div className="absolute top-2 right-2 bg-green-500/20 text-green-400 text-[9px] font-bold px-2 py-0.5 rounded-full border border-green-500/30 backdrop-blur-sm">
+          KERNEL
+        </div>
+      </div>
+    );
+  }
+
+  // Mock terminal fallback
   return (
     <div className="h-full bg-[#1a1b26] text-[#a9b1d6] font-mono p-4 text-sm overflow-y-auto flex flex-col" onClick={() => inputRef.current?.focus()}>
       <div className="flex-1">

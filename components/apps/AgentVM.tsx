@@ -3,6 +3,7 @@ import { Terminal, AlertTriangle, Check, StopCircle, Github, ChevronRight, Layou
 import { Agent } from '../../types';
 import { VirtualDesktop } from '../os/VirtualDesktop';
 import { getKernelClient } from '../../services/kernelClient';
+import { XTerminal } from '../os/XTerminal';
 
 interface AgentVMProps {
   agent: Agent;
@@ -14,37 +15,13 @@ interface AgentVMProps {
 
 export const AgentVM: React.FC<AgentVMProps> = ({ agent, onApprove, onReject, onStop, onSyncGithub }) => {
   const [isSidebarOpen, setSidebarOpen] = useState(true);
-  const [ttyOutput, setTtyOutput] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<'logs' | 'terminal'>('logs');
   const logEndRef = useRef<HTMLDivElement>(null);
-  const ttyEndRef = useRef<HTMLDivElement>(null);
-
-  // Subscribe to terminal output when agent has a ttyId
-  useEffect(() => {
-    if (!agent.ttyId) return;
-
-    const client = getKernelClient();
-    const unsub = client.on('tty.output', (data: any) => {
-      if (data.ttyId === agent.ttyId) {
-        setTtyOutput(prev => {
-          const lines = [...prev, data.data];
-          // Keep last 500 lines
-          return lines.length > 500 ? lines.slice(-500) : lines;
-        });
-      }
-    });
-
-    return unsub;
-  }, [agent.ttyId]);
 
   // Auto-scroll logs
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [agent.logs.length]);
-
-  useEffect(() => {
-    ttyEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [ttyOutput.length]);
 
   const statusColor = agent.status === 'working' ? 'bg-green-500' :
     agent.status === 'thinking' ? 'bg-blue-500' :
@@ -196,22 +173,13 @@ export const AgentVM: React.FC<AgentVMProps> = ({ agent, onApprove, onReject, on
 
         {/* Terminal Tab */}
         {activeTab === 'terminal' && (
-          <div className="flex-1 overflow-y-auto p-3 font-mono text-[10px] bg-[#0a0b12]">
+          <div className="flex-1 overflow-hidden bg-[#0a0b12]">
             {agent.ttyId ? (
-              <>
-                <div className="text-green-400 mb-2">$ agent-shell --pid={agent.pid || '?'}</div>
-                {ttyOutput.map((line, idx) => (
-                  <span key={idx} className="text-gray-300 whitespace-pre-wrap">{line}</span>
-                ))}
-                {ttyOutput.length === 0 && (
-                  <div className="text-gray-600 italic">Waiting for terminal output...</div>
-                )}
-                <div ref={ttyEndRef} />
-              </>
+              <XTerminal ttyId={agent.ttyId} className="h-full" />
             ) : (
-              <div className="flex flex-col items-center justify-center h-full text-gray-600 gap-2">
+              <div className="flex flex-col items-center justify-center h-full text-gray-600 gap-2 p-3">
                 <Terminal size={24} />
-                <span>No terminal session</span>
+                <span className="text-[10px]">No terminal session</span>
                 <span className="text-[9px]">Connect to kernel for live terminal</span>
               </div>
             )}
