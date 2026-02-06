@@ -1,0 +1,8 @@
+{
+  "name": "Aether OS",
+  "description": "An AI-native web operating system featuring a glassmorphism design and deep Gemini integration for productivity and content creation.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
