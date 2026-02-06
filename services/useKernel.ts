@@ -24,6 +24,8 @@ export interface AgentProcess {
   currentUrl?: string;
   currentCode?: string;
   progress: { step: number; maxSteps: number; summary: string };
+  vncInfo?: { wsPort: number; display: string } | null;
+  gpuIds?: number[];
 }
 
 export interface AgentLog {
@@ -218,6 +220,52 @@ export function useKernel(wsUrl?: string) {
       }));
     });
 
+    // VNC events
+    const unsubVncStarted = client.on('vnc.started', (data: any) => {
+      setState(prev => ({
+        ...prev,
+        processes: prev.processes.map(p =>
+          p.pid === data.pid
+            ? { ...p, vncInfo: { wsPort: data.wsPort, display: data.display } }
+            : p
+        ),
+      }));
+    });
+
+    const unsubVncStopped = client.on('vnc.stopped', (data: any) => {
+      setState(prev => ({
+        ...prev,
+        processes: prev.processes.map(p =>
+          p.pid === data.pid
+            ? { ...p, vncInfo: null }
+            : p
+        ),
+      }));
+    });
+
+    // GPU events
+    const unsubGpuAllocated = client.on('gpu.allocated', (data: any) => {
+      setState(prev => ({
+        ...prev,
+        processes: prev.processes.map(p =>
+          p.pid === data.pid
+            ? { ...p, gpuIds: data.gpuIds }
+            : p
+        ),
+      }));
+    });
+
+    const unsubGpuReleased = client.on('gpu.released', (data: any) => {
+      setState(prev => ({
+        ...prev,
+        processes: prev.processes.map(p =>
+          p.pid === data.pid
+            ? { ...p, gpuIds: undefined }
+            : p
+        ),
+      }));
+    });
+
     // Metrics
     const unsubMetrics = client.on('kernel.metrics', (data: any) => {
       setState(prev => ({
@@ -268,6 +316,10 @@ export function useKernel(wsUrl?: string) {
       unsubFileCreated();
       unsubBrowsing();
       unsubApproval();
+      unsubVncStarted();
+      unsubVncStopped();
+      unsubGpuAllocated();
+      unsubGpuReleased();
       unsubMetrics();
       unsubList();
     };

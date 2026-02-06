@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Bot, Monitor, List, Grid3x3, Filter, ExternalLink, Activity, Cpu, HardDrive, Clock, Zap, History, ChevronRight, Eye } from 'lucide-react';
 import { Agent, AgentStatus } from '../../types';
 import { VirtualDesktop } from '../os/VirtualDesktop';
-import { getKernelClient } from '../../services/kernelClient';
+import { getKernelClient, GPUInfo } from '../../services/kernelClient';
 import { AgentTimeline } from './AgentTimeline';
 
 type ViewMode = 'grid' | 'list';
@@ -19,9 +19,12 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
   const [showNewAgentModal, setShowNewAgentModal] = useState(false);
   const [newGoal, setNewGoal] = useState('');
   const [newRole, setNewRole] = useState('Researcher');
+  const [newGpuEnabled, setNewGpuEnabled] = useState(false);
+  const [newGraphicalEnabled, setNewGraphicalEnabled] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
   const [kernelMetrics, setKernelMetrics] = useState<{ uptime: number; memoryMB: number; cpuPercent: number } | null>(null);
+  const [gpuInfo, setGpuInfo] = useState<{ available: boolean; count: number; gpus: GPUInfo[] }>({ available: false, count: 0, gpus: [] });
   const [showHistory, setShowHistory] = useState(false);
   const [historyProcesses, setHistoryProcesses] = useState<Array<{
     pid: number;
@@ -56,6 +59,15 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
           setKernelMetrics(prev => ({ ...prev!, uptime: status.uptime, memoryMB: prev?.memoryMB || 0, cpuPercent: prev?.cpuPercent || 0 }));
         }
       }).catch(() => {});
+
+      // Check GPU availability
+      client.getGPUs().then(data => {
+        setGpuInfo({
+          available: data.gpus.length > 0,
+          count: data.gpus.length,
+          gpus: data.gpus,
+        });
+      }).catch(() => {});
     }
 
     return unsub;
@@ -82,8 +94,17 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
 
   const handleCreate = () => {
     if (!newGoal.trim()) return;
-    onLaunchAgent(newRole, newGoal);
+    // Pass GPU and graphical options encoded in the goal string as metadata
+    // The parent component can parse these out or we extend the interface
+    let goal = newGoal;
+    const meta: string[] = [];
+    if (newGpuEnabled) meta.push('gpu:true');
+    if (newGraphicalEnabled) meta.push('graphical:true');
+    if (meta.length > 0) goal = `${newGoal} [${meta.join(',')}]`;
+    onLaunchAgent(newRole, goal);
     setNewGoal('');
+    setNewGpuEnabled(false);
+    setNewGraphicalEnabled(false);
     setShowNewAgentModal(false);
   };
 
@@ -183,6 +204,12 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
                 <span>Mem: <span className="text-white/70 font-mono">{kernelMetrics.memoryMB.toFixed(0)} MB</span></span>
               </div>
             </>
+          )}
+          {gpuInfo.available && (
+            <div className="flex items-center gap-2 text-white/40">
+              <Monitor size={12} className="text-yellow-400" />
+              <span>GPU: <span className="text-yellow-400 font-mono">{gpuInfo.count}</span></span>
+            </div>
           )}
         </div>
       </div>
@@ -511,6 +538,45 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
                      className="w-full bg-black/20 border border-white/10 rounded-xl p-4 text-sm text-white focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 min-h-[100px] transition-all"
                      placeholder="Describe the task in detail..."
                   />
+                </div>
+
+                {/* Hardware Options */}
+                <div>
+                  <label className="block text-xs font-bold text-gray-400 mb-2 uppercase tracking-wider">Hardware Options</label>
+                  <div className="space-y-2">
+                    {gpuInfo.available && (
+                      <label className="flex items-center gap-3 p-3 rounded-xl border border-white/5 bg-black/20 cursor-pointer hover:bg-white/5 transition-all">
+                        <input
+                          type="checkbox"
+                          checked={newGpuEnabled}
+                          onChange={(e) => setNewGpuEnabled(e.target.checked)}
+                          className="accent-yellow-500 w-4 h-4"
+                        />
+                        <div className="flex-1">
+                          <div className="text-sm text-white font-medium">GPU Enabled</div>
+                          <div className="text-[10px] text-gray-500">
+                            {gpuInfo.count} GPU(s) available: {gpuInfo.gpus.map(g => g.name).join(', ')}
+                          </div>
+                        </div>
+                        <Monitor size={16} className="text-yellow-400" />
+                      </label>
+                    )}
+                    <label className="flex items-center gap-3 p-3 rounded-xl border border-white/5 bg-black/20 cursor-pointer hover:bg-white/5 transition-all">
+                      <input
+                        type="checkbox"
+                        checked={newGraphicalEnabled}
+                        onChange={(e) => setNewGraphicalEnabled(e.target.checked)}
+                        className="accent-indigo-500 w-4 h-4"
+                      />
+                      <div className="flex-1">
+                        <div className="text-sm text-white font-medium">Graphical Desktop</div>
+                        <div className="text-[10px] text-gray-500">
+                          Run Xvfb + VNC for graphical apps (browser, IDE, etc.)
+                        </div>
+                      </div>
+                      <Monitor size={16} className="text-indigo-400" />
+                    </label>
+                  </div>
                 </div>
              </div>
 

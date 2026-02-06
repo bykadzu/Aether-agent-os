@@ -1,7 +1,8 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { Agent } from '../../types';
-import { Wifi, Battery, Bot, FolderOpen, Globe, Terminal, Code, StickyNote, Cpu, Activity, File, Folder } from 'lucide-react';
-import { getKernelClient, KernelFileStat } from '../../services/kernelClient';
+import { Wifi, Battery, Bot, FolderOpen, Globe, Terminal, Code, StickyNote, Cpu, Activity, File, Folder, Monitor } from 'lucide-react';
+import { getKernelClient, KernelFileStat, VNCInfo } from '../../services/kernelClient';
+import { VNCViewer } from './VNCViewer';
 
 // Simulated window within the virtual desktop
 const VirtualWindow: React.FC<{ title: string; children: React.ReactNode; x: number; y: number; width: string; height: string; active?: boolean }> = ({
@@ -51,6 +52,52 @@ export const VirtualDesktop: React.FC<VirtualDesktopProps> = ({ agent, scale = 1
     const [fileList, setFileList] = useState<KernelFileStat[]>([]);
     const [filesLoaded, setFilesLoaded] = useState(false);
 
+    // VNC state for graphical agents
+    const [vncInfo, setVncInfo] = useState<VNCInfo | null>(null);
+
+    // GPU allocation for this agent
+    const [gpuIds, setGpuIds] = useState<number[] | undefined>(undefined);
+
+    // Check for VNC session on mount
+    useEffect(() => {
+        if (!agent.pid) return;
+
+        const client = getKernelClient();
+        if (!client.connected) return;
+
+        // Check if this agent has a VNC session
+        client.getVNCInfo(agent.pid).then(info => {
+            if (info) setVncInfo(info);
+        });
+
+        // Subscribe to VNC events
+        const unsubStarted = client.on('vnc.started', (data: any) => {
+            if (data.pid === agent.pid) {
+                setVncInfo({ pid: data.pid, wsPort: data.wsPort, display: data.display });
+            }
+        });
+        const unsubStopped = client.on('vnc.stopped', (data: any) => {
+            if (data.pid === agent.pid) {
+                setVncInfo(null);
+            }
+        });
+
+        // Subscribe to GPU events
+        const unsubGpuAlloc = client.on('gpu.allocated', (data: any) => {
+            if (data.pid === agent.pid) setGpuIds(data.gpuIds);
+        });
+        const unsubGpuRelease = client.on('gpu.released', (data: any) => {
+            if (data.pid === agent.pid) setGpuIds(undefined);
+        });
+
+        return () => {
+            unsubStarted();
+            unsubStopped();
+            unsubGpuAlloc();
+            unsubGpuRelease();
+        };
+    }, [agent.pid]);
+
     // Subscribe to tty output for this agent
     useEffect(() => {
         if (!agent.ttyId) return;
@@ -91,6 +138,10 @@ export const VirtualDesktop: React.FC<VirtualDesktopProps> = ({ agent, scale = 1
         return () => clearInterval(interval);
     }, [agent.pid, agent.id]);
 
+    // Whether this agent has an active VNC desktop
+    const hasVNC = vncInfo !== null;
+    const vncWsUrl = vncInfo ? `ws://localhost:${vncInfo.wsPort}` : null;
+
     // Determine active windows based on agent logs/state
     const activeApp = useMemo(() => {
         const lastAction = agent.logs.filter(l => l.type === 'action').pop()?.message || '';
@@ -109,6 +160,7 @@ export const VirtualDesktop: React.FC<VirtualDesktopProps> = ({ agent, scale = 1
     // Dock icon mapping for highlighting
     const dockIcons = [
         { Icon: Bot, id: 'agent' },
+        ...(hasVNC ? [{ Icon: Monitor, id: 'vnc' }] : []),
         { Icon: FolderOpen, id: 'finder' },
         { Icon: Globe, id: 'browser' },
         { Icon: Terminal, id: 'terminal' },
@@ -152,25 +204,193 @@ export const VirtualDesktop: React.FC<VirtualDesktopProps> = ({ agent, scale = 1
             {/* Desktop Area */}
             <div className="absolute inset-0 pt-6 pb-16 p-4">
 
-                {/* Background Icons */}
-                <div className="absolute top-8 right-4 flex flex-col gap-4 items-center opacity-80">
-                    <div className="flex flex-col items-center gap-1">
-                        <div className="w-10 h-10 bg-blue-100/20 backdrop-blur rounded-lg flex items-center justify-center text-blue-300 border border-white/10">
-                            <FolderOpen size={20} />
-                        </div>
-                        <span className="text-[9px] text-white font-medium shadow-black drop-shadow-md">Project</span>
+                {/* VNC Desktop Mode: render real graphical desktop when VNC is active */}
+                {hasVNC && vncWsUrl ? (
+                    <div className="relative w-full h-full">
+                        <VNCViewer
+                            wsUrl={vncWsUrl}
+                            scale={scale}
+                        />
                     </div>
-                    {agent.githubSync && (
-                         <div className="flex flex-col items-center gap-1">
-                            <div className="w-10 h-10 bg-gray-800/40 backdrop-blur rounded-lg flex items-center justify-center text-white border border-white/10">
-                                <Code size={20} />
+                ) : (
+                    /* Standard simulated windows mode (non-graphical agents) */
+                    <>
+                        {/* Background Icons */}
+                        <div className="absolute top-8 right-4 flex flex-col gap-4 items-center opacity-80">
+                            <div className="flex flex-col items-center gap-1">
+                                <div className="w-10 h-10 bg-blue-100/20 backdrop-blur rounded-lg flex items-center justify-center text-blue-300 border border-white/10">
+                                    <FolderOpen size={20} />
+                                </div>
+                                <span className="text-[9px] text-white font-medium shadow-black drop-shadow-md">Project</span>
                             </div>
-                            <span className="text-[9px] text-white font-medium shadow-black drop-shadow-md">Repo</span>
+                            {agent.githubSync && (
+                                 <div className="flex flex-col items-center gap-1">
+                                    <div className="w-10 h-10 bg-gray-800/40 backdrop-blur rounded-lg flex items-center justify-center text-white border border-white/10">
+                                        <Code size={20} />
+                                    </div>
+                                    <span className="text-[9px] text-white font-medium shadow-black drop-shadow-md">Repo</span>
+                                </div>
+                            )}
                         </div>
-                    )}
-                </div>
 
-                {/* Activity Monitor Widget */}
+                        {/* Windows Layer */}
+                        <div className="relative w-full h-full">
+
+                            {/* Terminal Window - shows real tty output or falls back to logs */}
+                            <VirtualWindow
+                                title={`Terminal - ${agent.role}${agent.pid ? ` (PID ${agent.pid})` : ''}`}
+                                x={5} y={5} width="40%" height="45%"
+                                active={activeApp === 'terminal'}
+                            >
+                                <div className="h-full bg-[#1a1b26] p-2 font-mono text-[9px] text-blue-200 overflow-hidden leading-relaxed">
+                                    <div className="text-green-400 mb-1">$ agent-init --role="{agent.role}"</div>
+                                    <div className="opacity-50 mb-2">
+                                      {agent.pid ? `Process ${agent.pid} started in sandbox` : 'Initializing virtual environment...'}
+                                    </div>
+                                    {/* Show real TTY output if available */}
+                                    {agent.ttyId && ttyOutput.length > 0 ? (
+                                        ttyOutput.slice(-8).map((line, i) => (
+                                            <div key={i} className="mb-0.5 text-gray-300 whitespace-pre-wrap break-all">
+                                                {line}
+                                            </div>
+                                        ))
+                                    ) : (
+                                        /* Fall back to agent logs */
+                                        agent.logs.slice(-6).map((log, i) => (
+                                            <div key={i} className="mb-1">
+                                                <span className="text-gray-500">[{new Date(log.timestamp).toLocaleTimeString().split(' ')[0]}]</span>{' '}
+                                                <span className={
+                                                  log.type === 'thought' ? 'text-purple-300' :
+                                                  log.type === 'action' ? 'text-yellow-300' :
+                                                  log.type === 'observation' ? 'text-cyan-300' :
+                                                  'text-gray-300'
+                                                }>
+                                                    {log.message}
+                                                </span>
+                                            </div>
+                                        ))
+                                    )}
+                                    {(agent.status === 'thinking' || agent.phase === 'thinking') && <div className="animate-pulse">_</div>}
+                                </div>
+                            </VirtualWindow>
+
+                            {/* File Manager Window - shows real files when kernel connected */}
+                            {(activeApp === 'finder' || filesLoaded) && (
+                                <VirtualWindow
+                                    title={`Finder - ${agent.role}`}
+                                    x={48} y={5} width="45%" height="40%"
+                                    active={activeApp === 'finder'}
+                                >
+                                    <div className="h-full bg-white flex">
+                                        {/* Sidebar */}
+                                        <div className="w-1/4 bg-gray-50 border-r border-gray-200 p-1.5 text-[8px]">
+                                            <div className="text-gray-400 font-bold uppercase mb-1">Favorites</div>
+                                            <div className="flex items-center gap-1 text-gray-600 py-0.5 px-1 rounded bg-blue-50">
+                                                <FolderOpen size={8} className="text-blue-500" />
+                                                <span>Home</span>
+                                            </div>
+                                            <div className="flex items-center gap-1 text-gray-500 py-0.5 px-1">
+                                                <FolderOpen size={8} />
+                                                <span>Project</span>
+                                            </div>
+                                        </div>
+                                        {/* File List */}
+                                        <div className="flex-1 p-1.5 text-[8px] overflow-y-auto">
+                                            {filesLoaded && fileList.length > 0 ? (
+                                                fileList.slice(0, 10).map((f, i) => (
+                                                    <div key={i} className="flex items-center gap-1.5 py-0.5 px-1 hover:bg-blue-50 rounded">
+                                                        {f.type === 'directory' ? (
+                                                            <Folder size={8} className="text-blue-400" />
+                                                        ) : (
+                                                            <File size={8} className="text-gray-400" />
+                                                        )}
+                                                        <span className="text-gray-700 truncate">{f.name}</span>
+                                                        <span className="ml-auto text-gray-400 text-[7px]">
+                                                            {f.type === 'file' ? `${(f.size / 1024).toFixed(1)}K` : '--'}
+                                                        </span>
+                                                    </div>
+                                                ))
+                                            ) : (
+                                                /* Mock file display */
+                                                <>
+                                                    <div className="flex items-center gap-1.5 py-0.5 px-1 hover:bg-blue-50 rounded">
+                                                        <Folder size={8} className="text-blue-400" />
+                                                        <span className="text-gray-700">src/</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-1.5 py-0.5 px-1 hover:bg-blue-50 rounded">
+                                                        <File size={8} className="text-gray-400" />
+                                                        <span className="text-gray-700">package.json</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-1.5 py-0.5 px-1 hover:bg-blue-50 rounded">
+                                                        <File size={8} className="text-gray-400" />
+                                                        <span className="text-gray-700">README.md</span>
+                                                    </div>
+                                                </>
+                                            )}
+                                        </div>
+                                    </div>
+                                </VirtualWindow>
+                            )}
+
+                            {/* Conditional: Browser Window */}
+                            {(agent.currentUrl || activeApp === 'browser') && (
+                                <VirtualWindow
+                                    title="Safari - Agent View"
+                                    x={30} y={15} width="60%" height="70%"
+                                    active={activeApp === 'browser'}
+                                >
+                                    <div className="h-full flex flex-col bg-white">
+                                        <div className="h-6 border-b flex items-center px-2 bg-gray-50">
+                                            <div className="flex-1 bg-gray-200 h-4 rounded flex items-center px-2 text-[8px] text-gray-500 truncate">
+                                                {agent.currentUrl || 'about:blank'}
+                                            </div>
+                                        </div>
+                                        <div className="flex-1 p-4 overflow-hidden relative">
+                                            <div className="w-1/3 h-2 bg-gray-800 rounded mb-2"></div>
+                                            <div className="w-full h-1 bg-gray-200 rounded mb-1"></div>
+                                            <div className="w-5/6 h-1 bg-gray-200 rounded mb-4"></div>
+
+                                            <div className="grid grid-cols-2 gap-2">
+                                                <div className="h-20 bg-gray-100 rounded"></div>
+                                                <div className="h-20 bg-gray-100 rounded"></div>
+                                            </div>
+
+                                            {agent.currentUrl && (
+                                                <div className="mt-4 p-2 bg-blue-50 border border-blue-100 rounded text-[9px] text-blue-800">
+                                                    {agent.logs.findLast(l => l.type === 'action' && (l.message.includes('Browsing') || l.message.includes('browse')))?.message || 'Page Content Loaded'}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </VirtualWindow>
+                            )}
+
+                            {/* Conditional: Code Editor Window */}
+                            {(agent.currentCode || activeApp === 'code') && (
+                                <VirtualWindow
+                                    title={`VS Code - ${agent.role}`}
+                                    x={45} y={25} width="50%" height="65%"
+                                    active={activeApp === 'code'}
+                                >
+                                    <div className="h-full flex bg-[#1e1e1e]">
+                                        <div className="w-8 bg-[#252526] border-r border-[#333]"></div>
+                                        <div className="flex-1 p-2 font-mono text-[9px] text-gray-300 whitespace-pre overflow-hidden">
+                                            <div className="text-gray-500 mb-2">// Generated Code</div>
+                                            {agent.currentCode ? (
+                                                <span className="text-blue-300">{agent.currentCode.substring(0, 300)}</span>
+                                            ) : (
+                                                <span className="opacity-50">Waiting for code generation...</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                </VirtualWindow>
+                            )}
+
+                        </div>
+                    </>
+                )}
+
+                {/* Activity Monitor Widget - shown over both VNC and simulated modes */}
                 {agent.pid && (
                     <div className="absolute bottom-20 right-4 bg-black/50 backdrop-blur-xl border border-white/10 rounded-lg p-2 text-[8px] text-white/70 z-30 w-32">
                         <div className="flex items-center gap-1 mb-1.5 text-white/90 font-semibold">
@@ -192,6 +412,18 @@ export const VirtualDesktop: React.FC<VirtualDesktopProps> = ({ agent, scale = 1
                                 <span>Steps</span>
                                 <span className="font-mono text-blue-300">{agent.progress}</span>
                             </div>
+                            {gpuIds && gpuIds.length > 0 && (
+                                <div className="flex justify-between">
+                                    <span>GPU</span>
+                                    <span className="font-mono text-yellow-300">{gpuIds.length}x</span>
+                                </div>
+                            )}
+                            {hasVNC && (
+                                <div className="flex justify-between">
+                                    <span>Display</span>
+                                    <span className="font-mono text-green-300">VNC</span>
+                                </div>
+                            )}
                             {/* Mini progress bar */}
                             <div className="mt-1">
                                 <div className="w-full h-1 bg-white/10 rounded-full overflow-hidden">
@@ -204,161 +436,6 @@ export const VirtualDesktop: React.FC<VirtualDesktopProps> = ({ agent, scale = 1
                         </div>
                     </div>
                 )}
-
-                {/* Windows Layer */}
-                <div className="relative w-full h-full">
-
-                    {/* Terminal Window - shows real tty output or falls back to logs */}
-                    <VirtualWindow
-                        title={`Terminal - ${agent.role}${agent.pid ? ` (PID ${agent.pid})` : ''}`}
-                        x={5} y={5} width="40%" height="45%"
-                        active={activeApp === 'terminal'}
-                    >
-                        <div className="h-full bg-[#1a1b26] p-2 font-mono text-[9px] text-blue-200 overflow-hidden leading-relaxed">
-                            <div className="text-green-400 mb-1">$ agent-init --role="{agent.role}"</div>
-                            <div className="opacity-50 mb-2">
-                              {agent.pid ? `Process ${agent.pid} started in sandbox` : 'Initializing virtual environment...'}
-                            </div>
-                            {/* Show real TTY output if available */}
-                            {agent.ttyId && ttyOutput.length > 0 ? (
-                                ttyOutput.slice(-8).map((line, i) => (
-                                    <div key={i} className="mb-0.5 text-gray-300 whitespace-pre-wrap break-all">
-                                        {line}
-                                    </div>
-                                ))
-                            ) : (
-                                /* Fall back to agent logs */
-                                agent.logs.slice(-6).map((log, i) => (
-                                    <div key={i} className="mb-1">
-                                        <span className="text-gray-500">[{new Date(log.timestamp).toLocaleTimeString().split(' ')[0]}]</span>{' '}
-                                        <span className={
-                                          log.type === 'thought' ? 'text-purple-300' :
-                                          log.type === 'action' ? 'text-yellow-300' :
-                                          log.type === 'observation' ? 'text-cyan-300' :
-                                          'text-gray-300'
-                                        }>
-                                            {log.message}
-                                        </span>
-                                    </div>
-                                ))
-                            )}
-                            {(agent.status === 'thinking' || agent.phase === 'thinking') && <div className="animate-pulse">_</div>}
-                        </div>
-                    </VirtualWindow>
-
-                    {/* File Manager Window - shows real files when kernel connected */}
-                    {(activeApp === 'finder' || filesLoaded) && (
-                        <VirtualWindow
-                            title={`Finder - ${agent.role}`}
-                            x={48} y={5} width="45%" height="40%"
-                            active={activeApp === 'finder'}
-                        >
-                            <div className="h-full bg-white flex">
-                                {/* Sidebar */}
-                                <div className="w-1/4 bg-gray-50 border-r border-gray-200 p-1.5 text-[8px]">
-                                    <div className="text-gray-400 font-bold uppercase mb-1">Favorites</div>
-                                    <div className="flex items-center gap-1 text-gray-600 py-0.5 px-1 rounded bg-blue-50">
-                                        <FolderOpen size={8} className="text-blue-500" />
-                                        <span>Home</span>
-                                    </div>
-                                    <div className="flex items-center gap-1 text-gray-500 py-0.5 px-1">
-                                        <FolderOpen size={8} />
-                                        <span>Project</span>
-                                    </div>
-                                </div>
-                                {/* File List */}
-                                <div className="flex-1 p-1.5 text-[8px] overflow-y-auto">
-                                    {filesLoaded && fileList.length > 0 ? (
-                                        fileList.slice(0, 10).map((f, i) => (
-                                            <div key={i} className="flex items-center gap-1.5 py-0.5 px-1 hover:bg-blue-50 rounded">
-                                                {f.type === 'directory' ? (
-                                                    <Folder size={8} className="text-blue-400" />
-                                                ) : (
-                                                    <File size={8} className="text-gray-400" />
-                                                )}
-                                                <span className="text-gray-700 truncate">{f.name}</span>
-                                                <span className="ml-auto text-gray-400 text-[7px]">
-                                                    {f.type === 'file' ? `${(f.size / 1024).toFixed(1)}K` : '--'}
-                                                </span>
-                                            </div>
-                                        ))
-                                    ) : (
-                                        /* Mock file display */
-                                        <>
-                                            <div className="flex items-center gap-1.5 py-0.5 px-1 hover:bg-blue-50 rounded">
-                                                <Folder size={8} className="text-blue-400" />
-                                                <span className="text-gray-700">src/</span>
-                                            </div>
-                                            <div className="flex items-center gap-1.5 py-0.5 px-1 hover:bg-blue-50 rounded">
-                                                <File size={8} className="text-gray-400" />
-                                                <span className="text-gray-700">package.json</span>
-                                            </div>
-                                            <div className="flex items-center gap-1.5 py-0.5 px-1 hover:bg-blue-50 rounded">
-                                                <File size={8} className="text-gray-400" />
-                                                <span className="text-gray-700">README.md</span>
-                                            </div>
-                                        </>
-                                    )}
-                                </div>
-                            </div>
-                        </VirtualWindow>
-                    )}
-
-                    {/* Conditional: Browser Window */}
-                    {(agent.currentUrl || activeApp === 'browser') && (
-                        <VirtualWindow
-                            title="Safari - Agent View"
-                            x={30} y={15} width="60%" height="70%"
-                            active={activeApp === 'browser'}
-                        >
-                            <div className="h-full flex flex-col bg-white">
-                                <div className="h-6 border-b flex items-center px-2 bg-gray-50">
-                                    <div className="flex-1 bg-gray-200 h-4 rounded flex items-center px-2 text-[8px] text-gray-500 truncate">
-                                        {agent.currentUrl || 'about:blank'}
-                                    </div>
-                                </div>
-                                <div className="flex-1 p-4 overflow-hidden relative">
-                                    <div className="w-1/3 h-2 bg-gray-800 rounded mb-2"></div>
-                                    <div className="w-full h-1 bg-gray-200 rounded mb-1"></div>
-                                    <div className="w-5/6 h-1 bg-gray-200 rounded mb-4"></div>
-
-                                    <div className="grid grid-cols-2 gap-2">
-                                        <div className="h-20 bg-gray-100 rounded"></div>
-                                        <div className="h-20 bg-gray-100 rounded"></div>
-                                    </div>
-
-                                    {agent.currentUrl && (
-                                        <div className="mt-4 p-2 bg-blue-50 border border-blue-100 rounded text-[9px] text-blue-800">
-                                            {agent.logs.findLast(l => l.type === 'action' && (l.message.includes('Browsing') || l.message.includes('browse')))?.message || 'Page Content Loaded'}
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        </VirtualWindow>
-                    )}
-
-                    {/* Conditional: Code Editor Window */}
-                    {(agent.currentCode || activeApp === 'code') && (
-                        <VirtualWindow
-                            title={`VS Code - ${agent.role}`}
-                            x={45} y={25} width="50%" height="65%"
-                            active={activeApp === 'code'}
-                        >
-                            <div className="h-full flex bg-[#1e1e1e]">
-                                <div className="w-8 bg-[#252526] border-r border-[#333]"></div>
-                                <div className="flex-1 p-2 font-mono text-[9px] text-gray-300 whitespace-pre overflow-hidden">
-                                    <div className="text-gray-500 mb-2">// Generated Code</div>
-                                    {agent.currentCode ? (
-                                        <span className="text-blue-300">{agent.currentCode.substring(0, 300)}</span>
-                                    ) : (
-                                        <span className="opacity-50">Waiting for code generation...</span>
-                                    )}
-                                </div>
-                            </div>
-                        </VirtualWindow>
-                    )}
-
-                </div>
             </div>
 
             {/* Dock with active app highlighting */}

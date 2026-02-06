@@ -23,6 +23,7 @@ import { ProcessManager } from './ProcessManager.js';
 import { VirtualFS } from './VirtualFS.js';
 import { PTYManager } from './PTYManager.js';
 import { ContainerManager } from './ContainerManager.js';
+import { VNCManager } from './VNCManager.js';
 import { PluginManager } from './PluginManager.js';
 import { SnapshotManager } from './SnapshotManager.js';
 import { StateStore } from './StateStore.js';
@@ -40,6 +41,7 @@ export class Kernel {
   readonly fs: VirtualFS;
   readonly pty: PTYManager;
   readonly containers: ContainerManager;
+  readonly vnc: VNCManager;
   readonly plugins: PluginManager;
   readonly snapshots: SnapshotManager;
   readonly state: StateStore;
@@ -52,6 +54,7 @@ export class Kernel {
     this.processes = new ProcessManager(this.bus);
     this.fs = new VirtualFS(this.bus, options.fsRoot);
     this.containers = new ContainerManager(this.bus);
+    this.vnc = new VNCManager(this.bus);
     this.pty = new PTYManager(this.bus);
     this.plugins = new PluginManager(this.bus, options.fsRoot);
     this.state = new StateStore(this.bus, options.dbPath);
@@ -71,9 +74,13 @@ export class Kernel {
     await this.fs.init();
     console.log('[Kernel] Filesystem initialized');
 
-    // Initialize container manager (detects Docker availability)
+    // Initialize container manager (detects Docker + GPU availability)
     await this.containers.init();
     console.log(`[Kernel] Container manager initialized (Docker: ${this.containers.isDockerAvailable() ? 'available' : 'unavailable, using process fallback'})`);
+    console.log(`[Kernel] GPU: ${this.containers.isGPUAvailable() ? `${this.containers.getGPUs().length} GPU(s) detected` : 'not available'}`);
+
+    // VNC manager is initialized (starts proxies on demand)
+    console.log('[Kernel] VNC manager initialized');
 
     // Wire container manager into PTY manager
     this.pty.setContainerManager(this.containers);
@@ -114,12 +121,23 @@ export class Kernel {
 
           // If sandbox type is 'container' and Docker is available, create container
           const sandbox = cmd.config.sandbox;
+          let vncWsPort: number | undefined;
           if (sandbox?.type === 'container' && this.containers.isDockerAvailable()) {
             const hostVolume = this.fs.getRealRoot() + proc.info.cwd;
             const containerInfo = await this.containers.create(pid, hostVolume, sandbox);
             if (containerInfo) {
               proc.info.containerId = containerInfo.containerId;
               proc.info.containerStatus = 'running';
+
+              // Start VNC proxy for graphical containers
+              if (sandbox.graphical && containerInfo.vncPort) {
+                try {
+                  const proxy = await this.vnc.startProxy(pid, containerInfo.vncPort);
+                  vncWsPort = proxy.wsPort;
+                } catch (err: any) {
+                  console.error(`[Kernel] Failed to start VNC proxy for PID ${pid}:`, err.message);
+                }
+              }
             }
           }
 
@@ -136,7 +154,7 @@ export class Kernel {
           events.push({
             type: 'response.ok',
             id: cmd.id,
-            data: { pid, ttyId: tty.id, containerId: proc.info.containerId },
+            data: { pid, ttyId: tty.id, containerId: proc.info.containerId, vncWsPort },
           });
           events.push({
             type: 'process.spawned',
@@ -149,8 +167,9 @@ export class Kernel {
         case 'process.signal': {
           const success = this.processes.signal(cmd.pid, cmd.signal);
 
-          // If killing a process, also clean up its container
+          // If killing a process, also clean up its container and VNC proxy
           if (success && (cmd.signal === 'SIGTERM' || cmd.signal === 'SIGKILL')) {
+            this.vnc.stopProxy(cmd.pid);
             this.containers.remove(cmd.pid).catch(() => {});
           }
 
@@ -523,6 +542,88 @@ export class Kernel {
           break;
         }
 
+        // ----- VNC Commands -----
+        case 'vnc.info': {
+          const vncPort = this.containers.getVNCPort(cmd.pid);
+          if (vncPort) {
+            const proxyInfo = this.vnc.getProxyInfo(cmd.pid);
+            if (proxyInfo) {
+              events.push({
+                type: 'response.ok',
+                id: cmd.id,
+                data: { pid: cmd.pid, wsPort: proxyInfo.wsPort, display: ':99' },
+              });
+              events.push({
+                type: 'vnc.info',
+                pid: cmd.pid,
+                wsPort: proxyInfo.wsPort,
+                display: ':99',
+              } as KernelEvent);
+            } else {
+              events.push({
+                type: 'response.error',
+                id: cmd.id,
+                error: `VNC proxy not running for PID ${cmd.pid}`,
+              });
+            }
+          } else {
+            events.push({
+              type: 'response.error',
+              id: cmd.id,
+              error: `No VNC available for PID ${cmd.pid} (not a graphical agent)`,
+            });
+          }
+          break;
+        }
+
+        case 'vnc.exec': {
+          try {
+            const output = await this.containers.execGraphical(cmd.pid, cmd.command);
+            events.push({
+              type: 'response.ok',
+              id: cmd.id,
+              data: { output },
+            });
+          } catch (err: any) {
+            events.push({
+              type: 'response.error',
+              id: cmd.id,
+              error: err.message,
+            });
+          }
+          break;
+        }
+
+        // ----- GPU Commands -----
+        case 'gpu.list': {
+          const gpus = this.containers.getGPUs();
+          const allocations = this.containers.getAllGPUAllocations();
+          events.push({
+            type: 'response.ok',
+            id: cmd.id,
+            data: { gpus, allocations },
+          });
+          events.push({
+            type: 'gpu.list',
+            gpus,
+          } as KernelEvent);
+          break;
+        }
+
+        case 'gpu.stats': {
+          const stats = await this.containers.getGPUStats();
+          events.push({
+            type: 'response.ok',
+            id: cmd.id,
+            data: { stats },
+          });
+          events.push({
+            type: 'gpu.stats',
+            stats,
+          } as KernelEvent);
+          break;
+        }
+
         // ----- System Commands -----
         case 'kernel.status': {
           events.push({
@@ -534,6 +635,8 @@ export class Kernel {
               processes: this.processes.getCounts(),
               docker: this.containers.isDockerAvailable(),
               containers: this.containers.getAll().length,
+              gpu: this.containers.isGPUAvailable(),
+              gpuCount: this.containers.getGPUs().length,
             },
           });
           break;
@@ -591,6 +694,7 @@ export class Kernel {
       });
     } catch { /* ignore metric errors during shutdown */ }
 
+    await this.vnc.shutdown();
     await this.pty.shutdown();
     await this.containers.shutdown();
     await this.processes.shutdown();
