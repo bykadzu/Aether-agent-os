@@ -17,7 +17,7 @@
 
 import { Kernel } from '@aether/kernel';
 import { PID, AgentConfig, AGENT_STEP_INTERVAL, DEFAULT_AGENT_MAX_STEPS } from '@aether/shared';
-import { createToolSet, ToolDefinition, ToolResult, ToolContext } from './tools.js';
+import { createToolSet, getToolsForAgent, ToolDefinition, ToolResult, ToolContext } from './tools.js';
 
 interface AgentState {
   step: number;
@@ -57,7 +57,14 @@ export async function runAgentLoop(
   const proc = kernel.processes.get(pid);
   if (!proc) throw new Error(`Process ${pid} not found`);
 
-  const tools = createToolSet();
+  // Load plugins for this agent if PluginManager is available
+  if (kernel.plugins) {
+    await kernel.plugins.loadPluginsForAgent(pid, proc.info.uid);
+  }
+
+  const tools = kernel.plugins
+    ? getToolsForAgent(pid, kernel.plugins)
+    : createToolSet();
   const toolMap = new Map(tools.map(t => [t.name, t]));
 
   const state: AgentState = {

@@ -170,6 +170,75 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
     return;
   }
 
+  // ----- Plugin Endpoints -----
+
+  // List loaded plugins for an agent
+  if (url.pathname.startsWith('/api/plugins/') && req.method === 'GET') {
+    const pidStr = url.pathname.split('/').pop();
+    const pid = parseInt(pidStr || '', 10);
+    if (isNaN(pid)) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid PID' }));
+      return;
+    }
+    try {
+      const plugins = kernel.plugins.getPluginInfos(pid);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(plugins));
+    } catch (err: any) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
+  // Install a plugin for an agent
+  if (url.pathname.startsWith('/api/plugins/') && req.method === 'POST') {
+    const parts = url.pathname.split('/');
+    const pidStr = parts[3];
+    const action = parts[4]; // "install"
+    const pid = parseInt(pidStr || '', 10);
+
+    if (isNaN(pid) || action !== 'install') {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid request. Use POST /api/plugins/:pid/install' }));
+      return;
+    }
+
+    // Read request body
+    let body = '';
+    for await (const chunk of req) {
+      body += chunk;
+    }
+
+    try {
+      const { manifest, handlers } = JSON.parse(body);
+      if (!manifest || !handlers) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Request body must include "manifest" and "handlers"' }));
+        return;
+      }
+
+      const proc = kernel.processes.get(pid);
+      if (!proc) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: `Process ${pid} not found` }));
+        return;
+      }
+
+      const pluginDir = kernel.plugins.installPlugin(pid, proc.info.uid, manifest, handlers);
+      // Reload plugins for this agent
+      await kernel.plugins.loadPluginsForAgent(pid, proc.info.uid);
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, pluginDir }));
+    } catch (err: any) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
   // 404
   res.writeHead(404, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ error: 'Not found' }));
@@ -285,6 +354,8 @@ const BROADCAST_EVENTS = [
   'tty.output',
   'tty.opened',
   'tty.closed',
+  'plugin.loaded',
+  'plugin.error',
   'kernel.metrics',
 ];
 

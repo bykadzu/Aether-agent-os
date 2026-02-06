@@ -171,6 +171,51 @@ booting → thinking → executing → observing → thinking → ... → comple
 | `check_messages` | Read messages from other agents |
 | `complete` | Mark the task as done |
 
+### Agent Plugin System
+
+Agents can be extended with custom tools via the plugin system. Plugins are discovered automatically from each agent's home directory.
+
+**Plugin structure:**
+```
+~/.config/plugins/
+  my-plugin/
+    manifest.json    # Plugin metadata and tool definitions
+    handler.js       # Tool implementation (default export)
+```
+
+**manifest.json format:**
+```json
+{
+  "name": "my-plugin",
+  "version": "1.0.0",
+  "description": "What this plugin does",
+  "tools": [{
+    "name": "tool_name",
+    "description": "Description for the LLM",
+    "parameters": {
+      "param1": { "type": "string", "description": "...", "required": true }
+    },
+    "handler": "handler.js",
+    "requiresApproval": false
+  }]
+}
+```
+
+**handler.js format:**
+```js
+export default async function(params, context) {
+  // params: tool arguments from the agent
+  // context: { pid, cwd, kernel }
+  return "result string";
+}
+```
+
+**API endpoints:**
+- `GET /api/plugins/:pid` — list loaded plugins for an agent
+- `POST /api/plugins/:pid/install` — install a plugin (body: `{ manifest, handlers }`)
+
+A sample plugin is included at `kernel/src/plugins/sample-weather/` as a template.
+
 ### Dual-Mode Architecture
 
 The UI works in two modes with zero configuration:
@@ -252,8 +297,11 @@ The host OS itself is a full desktop environment:
 │       ├── Kernel.ts            # Core kernel orchestrator
 │       ├── ProcessManager.ts    # PID allocation, signals, lifecycle
 │       ├── VirtualFS.ts         # Real filesystem at /tmp/aether
-│       ├── PTYManager.ts        # Terminal sessions (shell or docker exec)
+│       ├── PTYManager.ts        # Terminal sessions (node-pty or docker exec)
 │       ├── ContainerManager.ts  # Docker container sandboxing
+│       ├── PluginManager.ts     # Agent plugin loading and management
+│       ├── plugins/             # Sample plugins
+│       │   └── sample-weather/  # Template plugin with weather tool
 │       ├── StateStore.ts        # SQLite persistence
 │       └── EventBus.ts          # Typed pub/sub IPC
 ├── runtime/
@@ -286,10 +334,10 @@ The host OS itself is a full desktop environment:
 
 ## Roadmap
 
-- [ ] Full node-pty integration for proper SIGWINCH and terminal resizing
+- [x] Full node-pty integration for proper SIGWINCH and terminal resizing
 - [ ] VNC/noVNC for rendering real graphical applications inside agent desktops
 - [ ] Multi-user authentication and per-user agent pools
-- [ ] Agent plugin system for custom tool discovery
+- [x] Agent plugin system for custom tool discovery
 - [ ] GPU passthrough for agents running ML workloads
 - [ ] Distributed kernel across multiple hosts
 - [ ] Snapshot/restore for agent process state (like VM checkpoints)

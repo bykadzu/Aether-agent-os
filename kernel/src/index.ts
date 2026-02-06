@@ -4,4 +4,5 @@ export { ProcessManager } from './ProcessManager.js';
 export { VirtualFS } from './VirtualFS.js';
 export { PTYManager } from './PTYManager.js';
 export { ContainerManager } from './ContainerManager.js';
+export { PluginManager } from './PluginManager.js';
 export { StateStore } from './StateStore.js';

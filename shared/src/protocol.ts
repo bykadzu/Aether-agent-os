@@ -244,6 +244,9 @@ export type KernelCommand =
   | { type: 'ipc.send'; id: string; fromPid: PID; toPid: PID; channel: string; payload: any }
   | { type: 'ipc.list_agents'; id: string }
 
+  // Plugins
+  | { type: 'plugins.list'; id: string; pid: PID }
+
   // System
   | { type: 'kernel.status'; id: string }
   | { type: 'kernel.shutdown'; id: string };
@@ -296,9 +299,25 @@ export type KernelEvent =
   | { type: 'tty.output'; ttyId: string; data: string }
   | { type: 'tty.closed'; ttyId: string }
 
+  // Plugin events
+  | { type: 'plugin.loaded'; pid: PID; name: string; version: string; tools: string[] }
+  | { type: 'plugin.error'; pid: PID; plugin: string; error: string }
+  | { type: 'plugins.list'; pid: PID; plugins: PluginInfo[] }
+
   // System events
   | { type: 'kernel.ready'; version: string; uptime: number }
   | { type: 'kernel.metrics'; processCount: number; cpuPercent: number; memoryMB: number; containerCount?: number };
+
+// ---------------------------------------------------------------------------
+// Plugin Types
+// ---------------------------------------------------------------------------
+
+export interface PluginInfo {
+  name: string;
+  version: string;
+  description: string;
+  tools: string[];
+}
 
 // ---------------------------------------------------------------------------
 // Utility Types

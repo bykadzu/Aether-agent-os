@@ -11,7 +11,7 @@
  * - Tools operate within the agent's sandbox
  */
 
-import { Kernel } from '@aether/kernel';
+import { Kernel, PluginManager } from '@aether/kernel';
 import { PID } from '@aether/shared';
 
 export interface ToolResult {
@@ -294,6 +294,46 @@ export function createToolSet(): ToolDefinition[] {
       },
     },
   ];
+}
+
+/**
+ * Get the full tool set for an agent, merging built-in tools with any
+ * loaded plugin tools.
+ */
+export function getToolsForAgent(pid: PID, pluginManager?: PluginManager): ToolDefinition[] {
+  const baseTools = createToolSet();
+
+  if (!pluginManager) return baseTools;
+
+  const plugins = pluginManager.getPlugins(pid);
+  const pluginTools: ToolDefinition[] = [];
+
+  for (const plugin of plugins) {
+    for (const toolManifest of plugin.manifest.tools) {
+      const handler = plugin.handlers.get(toolManifest.name);
+      if (!handler) continue;
+
+      pluginTools.push({
+        name: toolManifest.name,
+        description: toolManifest.description,
+        requiresApproval: toolManifest.requiresApproval,
+        execute: async (args: Record<string, any>, ctx: ToolContext): Promise<ToolResult> => {
+          try {
+            const result = await handler(args, {
+              pid: ctx.pid,
+              cwd: ctx.cwd,
+              kernel: ctx.kernel,
+            });
+            return { success: true, output: result };
+          } catch (err: any) {
+            return { success: false, output: `Plugin error: ${err.message}` };
+          }
+        },
+      });
+    }
+  }
+
+  return [...baseTools, ...pluginTools];
 }
 
 // ---------------------------------------------------------------------------
