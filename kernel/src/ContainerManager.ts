@@ -17,25 +17,36 @@ import {
   SandboxConfig,
   ContainerInfo,
   ContainerStatus,
+  GPUInfo,
+  GPUStats,
+  GPUAllocation,
   DEFAULT_CONTAINER_IMAGE,
+  DEFAULT_GRAPHICAL_IMAGE,
   DEFAULT_CONTAINER_MEMORY_MB,
   DEFAULT_CONTAINER_CPU_LIMIT,
   CONTAINER_STOP_TIMEOUT,
+  VNC_BASE_PORT,
+  VNC_DISPLAY,
 } from '@aether/shared';
 
 export class ContainerManager {
   private containers = new Map<PID, ContainerInfo>();
   private bus: EventBus;
   private dockerAvailable: boolean = false;
+  private gpuAvailable: boolean = false;
+  private detectedGPUs: GPUInfo[] = [];
+  private gpuAllocations = new Map<PID, GPUAllocation>();
+  private nextVncOffset = 0;
 
   constructor(bus: EventBus) {
     this.bus = bus;
   }
 
   /**
-   * Check if Docker is available on the system.
+   * Check if Docker is available on the system. Detect GPUs.
    */
   async init(): Promise<void> {
+    // Detect Docker
     try {
       execFileSync('docker', ['info'], { stdio: 'ignore', timeout: 5000 });
       this.dockerAvailable = true;
@@ -43,6 +54,32 @@ export class ContainerManager {
     } catch {
       this.dockerAvailable = false;
       console.log('[ContainerManager] Docker not available, using process fallback');
+    }
+
+    // Detect NVIDIA GPUs
+    try {
+      const output = execFileSync('nvidia-smi', [
+        '--query-gpu=name,memory.total,memory.free,utilization.gpu',
+        '--format=csv,noheader,nounits',
+      ], { timeout: 5000 }).toString().trim();
+
+      if (output) {
+        this.detectedGPUs = output.split('\n').map((line, idx) => {
+          const [name, memTotal, memFree, util] = line.split(',').map(s => s.trim());
+          return {
+            id: idx,
+            name,
+            memoryTotal: parseFloat(memTotal) || 0,
+            memoryFree: parseFloat(memFree) || 0,
+            utilization: parseFloat(util) || 0,
+          };
+        });
+        this.gpuAvailable = this.detectedGPUs.length > 0;
+        console.log(`[ContainerManager] ${this.detectedGPUs.length} GPU(s) detected: ${this.detectedGPUs.map(g => g.name).join(', ')}`);
+      }
+    } catch {
+      this.gpuAvailable = false;
+      console.log('[ContainerManager] nvidia-smi not available, GPU passthrough disabled');
     }
   }
 
@@ -59,11 +96,19 @@ export class ContainerManager {
   async create(pid: PID, hostVolumePath: string, sandbox?: SandboxConfig): Promise<ContainerInfo | null> {
     if (!this.dockerAvailable) return null;
 
-    const image = sandbox?.image || DEFAULT_CONTAINER_IMAGE;
+    const graphical = sandbox?.graphical ?? false;
+    const image = sandbox?.image || (graphical ? DEFAULT_GRAPHICAL_IMAGE : DEFAULT_CONTAINER_IMAGE);
     const memoryMB = sandbox?.memoryLimitMB || DEFAULT_CONTAINER_MEMORY_MB;
     const cpuLimit = sandbox?.cpuLimit || DEFAULT_CONTAINER_CPU_LIMIT;
     const networkEnabled = sandbox?.networkAccess ?? false;
     const containerName = `aether-agent-${pid}-${Date.now()}`;
+
+    // Determine VNC port for graphical containers
+    let vncPort: number | undefined;
+    if (graphical) {
+      vncPort = VNC_BASE_PORT + 99 + this.nextVncOffset;
+      this.nextVncOffset++;
+    }
 
     const args: string[] = [
       'run', '-d',
@@ -81,6 +126,29 @@ export class ContainerManager {
       '-e', 'HOME=/home/agent',
       '-e', 'USER=agent',
     ];
+
+    // Graphical container: expose VNC port and set DISPLAY
+    if (graphical && vncPort) {
+      args.push('-e', `DISPLAY=${VNC_DISPLAY}`);
+      args.push('-p', `${vncPort}:${VNC_BASE_PORT + 99}`);
+    }
+
+    // GPU passthrough
+    let assignedGpuIds: number[] | undefined;
+    if (sandbox?.gpu?.enabled && this.gpuAvailable) {
+      const gpuAlloc = this.allocateGPUs(pid, sandbox.gpu);
+      if (gpuAlloc) {
+        assignedGpuIds = gpuAlloc.gpuIds;
+        if (sandbox.gpu.deviceIds && sandbox.gpu.deviceIds.length > 0) {
+          args.push('--gpus', `"device=${sandbox.gpu.deviceIds.join(',')}"`);
+        } else if (sandbox.gpu.count) {
+          args.push('--gpus', String(sandbox.gpu.count));
+        } else {
+          args.push('--gpus', 'all');
+        }
+        args.push('-e', `NVIDIA_VISIBLE_DEVICES=${assignedGpuIds.join(',')}`);
+      }
+    }
 
     // Network isolation
     if (!networkEnabled) {
@@ -104,9 +172,32 @@ export class ContainerManager {
         memoryLimitMB: memoryMB,
         cpuLimit,
         createdAt: Date.now(),
+        vncPort,
+        gpuIds: assignedGpuIds,
       };
 
       this.containers.set(pid, info);
+
+      // Start Xvfb and x11vnc inside the container for graphical agents
+      if (graphical) {
+        try {
+          await this.dockerExec('docker', [
+            'exec', '-d', trimmedId,
+            '/bin/bash', '-c',
+            `Xvfb ${VNC_DISPLAY} -screen 0 1920x1080x24 &`,
+          ], 10_000);
+          // Wait briefly for Xvfb to start
+          await new Promise(r => setTimeout(r, 500));
+          await this.dockerExec('docker', [
+            'exec', '-d', trimmedId,
+            '/bin/bash', '-c',
+            `x11vnc -display ${VNC_DISPLAY} -rfbport ${VNC_BASE_PORT + 99} -nopw -forever -shared &`,
+          ], 10_000);
+          console.log(`[ContainerManager] Graphical stack started for PID ${pid} (VNC port ${vncPort})`);
+        } catch (err: any) {
+          console.error(`[ContainerManager] Failed to start graphical stack for PID ${pid}:`, err.message);
+        }
+      }
 
       this.bus.emit('container.created', {
         pid,
@@ -119,9 +210,18 @@ export class ContainerManager {
         containerId: trimmedId,
       });
 
+      // Emit GPU allocation event
+      if (assignedGpuIds && assignedGpuIds.length > 0) {
+        this.bus.emit('gpu.allocated', { pid, gpuIds: assignedGpuIds });
+      }
+
       return info;
     } catch (err: any) {
       console.error(`[ContainerManager] Failed to create container for PID ${pid}:`, err.message);
+      // Clean up GPU allocation on failure
+      if (assignedGpuIds) {
+        this.gpuAllocations.delete(pid);
+      }
       return null;
     }
   }
@@ -190,7 +290,7 @@ export class ContainerManager {
   }
 
   /**
-   * Stop and remove a container.
+   * Stop and remove a container. Release GPU allocations.
    */
   async remove(pid: PID): Promise<void> {
     const info = this.containers.get(pid);
@@ -214,6 +314,13 @@ export class ContainerManager {
       this.bus.emit('container.removed', { pid, containerId: info.containerId });
     } catch (err: any) {
       console.error(`[ContainerManager] Failed to remove container for PID ${pid}:`, err.message);
+    }
+
+    // Release GPU allocation
+    const gpuAlloc = this.gpuAllocations.get(pid);
+    if (gpuAlloc) {
+      this.gpuAllocations.delete(pid);
+      this.bus.emit('gpu.released', { pid, gpuIds: gpuAlloc.gpuIds });
     }
 
     this.containers.delete(pid);
@@ -242,10 +349,148 @@ export class ContainerManager {
   }
 
   // ---------------------------------------------------------------------------
+  // VNC Methods
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Get the host-side VNC port for a containerized graphical agent.
+   */
+  getVNCPort(pid: PID): number | null {
+    const info = this.containers.get(pid);
+    return info?.vncPort ?? null;
+  }
+
+  /**
+   * Execute a command inside a graphical container with DISPLAY set.
+   */
+  async execGraphical(pid: PID, command: string): Promise<string> {
+    const info = this.containers.get(pid);
+    if (!info) {
+      throw new Error(`No container for PID ${pid}`);
+    }
+    if (!info.vncPort) {
+      throw new Error(`Container for PID ${pid} is not graphical`);
+    }
+
+    return this.dockerExec('docker', [
+      'exec', '-e', `DISPLAY=${VNC_DISPLAY}`, info.containerId,
+      '/bin/bash', '-c', command,
+    ], 30_000);
+  }
+
+  // ---------------------------------------------------------------------------
+  // GPU Methods
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Whether NVIDIA GPUs are available.
+   */
+  isGPUAvailable(): boolean {
+    return this.gpuAvailable;
+  }
+
+  /**
+   * Get detected GPU list.
+   */
+  getGPUs(): GPUInfo[] {
+    return [...this.detectedGPUs];
+  }
+
+  /**
+   * Get current GPU stats by running nvidia-smi.
+   */
+  async getGPUStats(): Promise<GPUStats[]> {
+    if (!this.gpuAvailable) return [];
+
+    try {
+      const output = await this.shellExec('nvidia-smi', [
+        '--query-gpu=name,memory.total,memory.free,utilization.gpu,temperature.gpu,power.draw',
+        '--format=csv,noheader,nounits',
+      ], 5000);
+
+      return output.trim().split('\n').map((line, idx) => {
+        const [name, memTotal, memFree, util, temp, power] = line.split(',').map(s => s.trim());
+        return {
+          id: idx,
+          name,
+          memoryTotal: parseFloat(memTotal) || 0,
+          memoryFree: parseFloat(memFree) || 0,
+          utilization: parseFloat(util) || 0,
+          temperature: parseFloat(temp) || 0,
+          powerUsage: parseFloat(power) || 0,
+        };
+      });
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Get GPU allocation for a specific container.
+   */
+  getContainerGPU(pid: PID): GPUAllocation | null {
+    return this.gpuAllocations.get(pid) ?? null;
+  }
+
+  /**
+   * Get all current GPU allocations.
+   */
+  getAllGPUAllocations(): GPUAllocation[] {
+    return Array.from(this.gpuAllocations.values());
+  }
+
+  /**
+   * Allocate GPUs for a process. Returns null if not enough GPUs available.
+   */
+  private allocateGPUs(pid: PID, gpuConfig: { enabled: boolean; count?: number; deviceIds?: string[] }): GPUAllocation | null {
+    if (!this.gpuAvailable || !gpuConfig.enabled) return null;
+
+    let gpuIds: number[];
+
+    if (gpuConfig.deviceIds && gpuConfig.deviceIds.length > 0) {
+      gpuIds = gpuConfig.deviceIds.map(id => parseInt(id, 10));
+    } else {
+      const count = gpuConfig.count || this.detectedGPUs.length;
+      const allocatedIds = new Set<number>();
+      for (const alloc of this.gpuAllocations.values()) {
+        for (const id of alloc.gpuIds) allocatedIds.add(id);
+      }
+
+      const available = this.detectedGPUs
+        .filter(g => !allocatedIds.has(g.id))
+        .map(g => g.id);
+
+      if (available.length < count) {
+        console.warn(`[ContainerManager] Not enough free GPUs: requested ${count}, available ${available.length}`);
+        // Fall back to sharing all GPUs
+        gpuIds = this.detectedGPUs.map(g => g.id);
+      } else {
+        gpuIds = available.slice(0, count);
+      }
+    }
+
+    const allocation: GPUAllocation = { pid, gpuIds };
+    this.gpuAllocations.set(pid, allocation);
+    return allocation;
+  }
+
+  // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
 
   private dockerExec(cmd: string, args: string[], timeout = 30_000): Promise<string> {
+    return new Promise((resolve, reject) => {
+      execFile(cmd, args, { timeout }, (error, stdout, stderr) => {
+        if (error) {
+          reject(new Error(stderr?.trim() || error.message));
+        } else {
+          resolve(stdout);
+        }
+      });
+    });
+  }
+
+  private shellExec(cmd: string, args: string[], timeout = 30_000): Promise<string> {
     return new Promise((resolve, reject) => {
       execFile(cmd, args, { timeout }, (error, stdout, stderr) => {
         if (error) {

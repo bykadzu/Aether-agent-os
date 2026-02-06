@@ -35,9 +35,15 @@ export const IPC_QUEUE_MAX_LENGTH = 100;             // Max queued messages per 
 
 // Container defaults
 export const DEFAULT_CONTAINER_IMAGE = 'ubuntu:22.04';
+export const DEFAULT_GRAPHICAL_IMAGE = 'aether-desktop:latest'; // Xvfb + x11vnc + X11 utils
 export const DEFAULT_CONTAINER_MEMORY_MB = 512;
 export const DEFAULT_CONTAINER_CPU_LIMIT = 0.5;      // 50% of one core
 export const CONTAINER_STOP_TIMEOUT = 10;             // seconds
+
+// VNC defaults
+export const VNC_BASE_PORT = 5900;                    // Base VNC port (display :0 = 5900)
+export const VNC_WS_BASE_PORT = 6080;                 // Base WebSocket proxy port for noVNC
+export const VNC_DISPLAY = ':99';                     // Default Xvfb display number
 
 // Persistence
 export const STATE_DB_PATH = '/tmp/aether/var/aether-state.db';

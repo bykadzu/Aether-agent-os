@@ -94,6 +94,14 @@ export interface SandboxConfig {
   allowedPaths?: string[];     // Filesystem paths the agent can access
   timeout?: number;            // Max runtime in seconds
   image?: string;              // Docker image to use
+  graphical?: boolean;         // Enable Xvfb + x11vnc for graphical apps
+  gpu?: GPUConfig;             // GPU passthrough configuration
+}
+
+export interface GPUConfig {
+  enabled: boolean;
+  count?: number;              // Number of GPUs to allocate
+  deviceIds?: string[];        // Specific GPU device IDs (e.g. ['0', '1'])
 }
 
 // ---------------------------------------------------------------------------
@@ -112,6 +120,8 @@ export interface ContainerInfo {
   memoryLimitMB: number;
   cpuLimit: number;
   createdAt: number;
+  vncPort?: number;            // Host-side VNC port (if graphical)
+  gpuIds?: number[];           // Assigned GPU device IDs
 }
 
 // ---------------------------------------------------------------------------
@@ -222,6 +232,38 @@ export interface SnapshotInfo {
 }
 
 // ---------------------------------------------------------------------------
+// VNC Types
+// ---------------------------------------------------------------------------
+
+export interface VNCInfo {
+  pid: PID;
+  wsPort: number;
+  display: string;
+}
+
+// ---------------------------------------------------------------------------
+// GPU Types
+// ---------------------------------------------------------------------------
+
+export interface GPUInfo {
+  id: number;
+  name: string;
+  memoryTotal: number;         // MB
+  memoryFree: number;          // MB
+  utilization: number;         // 0-100 percent
+}
+
+export interface GPUStats extends GPUInfo {
+  temperature: number;         // Celsius
+  powerUsage: number;          // Watts
+}
+
+export interface GPUAllocation {
+  pid: PID;
+  gpuIds: number[];
+}
+
+// ---------------------------------------------------------------------------
 // Shared Filesystem Types
 // ---------------------------------------------------------------------------
 
@@ -281,6 +323,14 @@ export type KernelCommand =
   | { type: 'fs.mountShared'; id: string; pid: PID; name: string; mountPoint?: string }
   | { type: 'fs.unmountShared'; id: string; pid: PID; name: string }
   | { type: 'fs.listShared'; id: string }
+
+  // VNC
+  | { type: 'vnc.info'; id: string; pid: PID }
+  | { type: 'vnc.exec'; id: string; pid: PID; command: string }
+
+  // GPU
+  | { type: 'gpu.list'; id: string }
+  | { type: 'gpu.stats'; id: string }
 
   // System
   | { type: 'kernel.status'; id: string }
@@ -350,6 +400,17 @@ export type KernelEvent =
   | { type: 'fs.sharedMounted'; pid: PID; name: string }
   | { type: 'fs.sharedUnmounted'; pid: PID; name: string }
   | { type: 'fs.sharedList'; mounts: SharedMountInfo[] }
+
+  // VNC events
+  | { type: 'vnc.started'; pid: PID; wsPort: number; display: string }
+  | { type: 'vnc.stopped'; pid: PID }
+  | { type: 'vnc.info'; pid: PID; wsPort: number; display: string }
+
+  // GPU events
+  | { type: 'gpu.list'; gpus: GPUInfo[] }
+  | { type: 'gpu.stats'; stats: GPUStats[] }
+  | { type: 'gpu.allocated'; pid: PID; gpuIds: number[] }
+  | { type: 'gpu.released'; pid: PID; gpuIds: number[] }
 
   // System events
   | { type: 'kernel.ready'; version: string; uptime: number }
