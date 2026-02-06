@@ -270,6 +270,67 @@ export function createToolSet(): ToolDefinition[] {
       },
     },
 
+    // ----- Shared Workspaces -----
+    {
+      name: 'create_shared_workspace',
+      description: 'Create a shared workspace directory that other agents can mount to collaborate on files',
+      execute: async (args, ctx) => {
+        try {
+          const name = args.name;
+          if (!name) {
+            return { success: false, output: 'Workspace name is required' };
+          }
+          const mount = await ctx.kernel.fs.createSharedMount(name, ctx.pid);
+          return {
+            success: true,
+            output: `Created shared workspace "${name}" at ${mount.path}. Other agents can mount it using mount_workspace.`,
+          };
+        } catch (err: any) {
+          return { success: false, output: `Error: ${err.message}` };
+        }
+      },
+    },
+
+    {
+      name: 'mount_workspace',
+      description: 'Mount an existing shared workspace into your home directory at ~/shared/{name}',
+      execute: async (args, ctx) => {
+        try {
+          const name = args.name;
+          if (!name) {
+            return { success: false, output: 'Workspace name is required' };
+          }
+          await ctx.kernel.fs.mountShared(ctx.pid, name, args.mount_point);
+          const mountPoint = args.mount_point || `shared/${name}`;
+          return {
+            success: true,
+            output: `Mounted shared workspace "${name}" at ~/${mountPoint}. You can now read and write files there.`,
+          };
+        } catch (err: any) {
+          return { success: false, output: `Error: ${err.message}` };
+        }
+      },
+    },
+
+    {
+      name: 'list_workspaces',
+      description: 'List all available shared workspaces and which agents have them mounted',
+      execute: async (_args, ctx) => {
+        try {
+          const mounts = await ctx.kernel.fs.listSharedMounts();
+          if (mounts.length === 0) {
+            return { success: true, output: 'No shared workspaces exist yet.' };
+          }
+          const listing = mounts.map(m =>
+            `${m.name} (${m.path}) - owner: PID ${m.ownerPid}, mounted by: ${m.mountedBy.length > 0 ? m.mountedBy.map(p => `PID ${p}`).join(', ') : 'none'}`
+          ).join('\n');
+          return { success: true, output: `Shared workspaces:\n${listing}` };
+        } catch (err: any) {
+          return { success: false, output: `Error: ${err.message}` };
+        }
+      },
+    },
+
     // ----- Thinking/Planning -----
     {
       name: 'think',

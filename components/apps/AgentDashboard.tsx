@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Bot, Monitor, List, Grid3x3, Filter, ExternalLink, Activity, Cpu, HardDrive, Clock, Zap } from 'lucide-react';
+import { Plus, Bot, Monitor, List, Grid3x3, Filter, ExternalLink, Activity, Cpu, HardDrive, Clock, Zap, History, ChevronRight, Eye } from 'lucide-react';
 import { Agent, AgentStatus } from '../../types';
 import { VirtualDesktop } from '../os/VirtualDesktop';
 import { getKernelClient } from '../../services/kernelClient';
+import { AgentTimeline } from './AgentTimeline';
 
 type ViewMode = 'grid' | 'list';
 type FilterMode = 'all' | 'active' | 'completed' | 'failed';
@@ -21,6 +22,21 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
   const [kernelMetrics, setKernelMetrics] = useState<{ uptime: number; memoryMB: number; cpuPercent: number } | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
+  const [historyProcesses, setHistoryProcesses] = useState<Array<{
+    pid: number;
+    uid: string;
+    name: string;
+    role: string;
+    goal: string;
+    state: string;
+    agentPhase?: string;
+    exitCode?: number;
+    createdAt: number;
+    exitedAt?: number;
+  }>>([]);
+  const [selectedHistoryPid, setSelectedHistoryPid] = useState<number | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   // Subscribe to kernel metrics
   useEffect(() => {
@@ -44,6 +60,25 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
 
     return unsub;
   }, []);
+
+  // Load process history when history panel is shown
+  useEffect(() => {
+    if (!showHistory) return;
+    const client = getKernelClient();
+    if (!client.connected) return;
+
+    setHistoryLoading(true);
+    client.getProcessHistory()
+      .then(processes => {
+        // Filter to completed/failed agents
+        const pastAgents = processes.filter(p =>
+          p.state === 'zombie' || p.state === 'dead' || p.agentPhase === 'completed' || p.agentPhase === 'failed'
+        );
+        setHistoryProcesses(pastAgents);
+        setHistoryLoading(false);
+      })
+      .catch(() => setHistoryLoading(false));
+  }, [showHistory]);
 
   const handleCreate = () => {
     if (!newGoal.trim()) return;
@@ -196,6 +231,17 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
             </button>
           </div>
 
+          <button
+            onClick={() => setShowHistory(!showHistory)}
+            className={`px-4 py-2.5 rounded-xl flex items-center gap-2 transition-all font-medium border ${
+              showHistory
+                ? 'bg-white/10 border-white/20 text-white'
+                : 'bg-white/5 border-white/5 text-gray-400 hover:text-white hover:bg-white/10'
+            }`}
+          >
+            <History size={16} />
+            History
+          </button>
           <button
             onClick={() => setShowNewAgentModal(true)}
             className="bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-xl shadow-indigo-500/20 font-medium"
@@ -359,6 +405,81 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
           </div>
         )}
       </div>
+
+      {/* History Panel */}
+      {showHistory && (
+        <div className="border-t border-white/5 bg-[#0f111a]">
+          <div className="p-6">
+            <h2 className="text-lg font-light text-white mb-4 flex items-center gap-2">
+              <History size={18} className="text-gray-400" />
+              Agent History
+              <span className="text-xs text-gray-500 ml-2">{historyProcesses.length} past agents</span>
+            </h2>
+
+            {selectedHistoryPid !== null ? (
+              /* Timeline view for selected agent */
+              <div className="animate-fade-in">
+                <button
+                  onClick={() => setSelectedHistoryPid(null)}
+                  className="text-[11px] text-gray-400 hover:text-white flex items-center gap-1 mb-3 transition-colors"
+                >
+                  <ChevronRight size={12} className="rotate-180" /> Back to history list
+                </button>
+                <div className="h-[400px] bg-[#1a1d26] rounded-xl border border-white/5 overflow-hidden">
+                  <AgentTimeline pid={selectedHistoryPid} />
+                </div>
+              </div>
+            ) : historyLoading ? (
+              <div className="flex items-center justify-center py-12 text-gray-500">
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin" />
+                  <span className="text-xs">Loading history...</span>
+                </div>
+              </div>
+            ) : historyProcesses.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-gray-500 gap-2">
+                <History size={24} />
+                <span className="text-xs">No past agent runs yet</span>
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                {historyProcesses.map(proc => (
+                  <div
+                    key={proc.pid}
+                    onClick={() => setSelectedHistoryPid(proc.pid)}
+                    className="flex items-center gap-4 p-3 rounded-xl border border-white/5 bg-white/[0.02] hover:bg-white/[0.05] cursor-pointer transition-all"
+                  >
+                    <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                      proc.agentPhase === 'completed' ? 'bg-emerald-500' :
+                      proc.agentPhase === 'failed' ? 'bg-red-500' :
+                      'bg-gray-500'
+                    }`} />
+                    <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-indigo-500/50 to-purple-500/50 flex items-center justify-center text-white text-[9px] font-bold shrink-0">
+                      {proc.role.substring(0, 2).toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm text-white font-medium truncate">{proc.name}</div>
+                      <div className="text-[10px] text-gray-500 truncate">{proc.goal}</div>
+                    </div>
+                    <div className="text-[10px] font-mono text-cyan-400/60 shrink-0">PID {proc.pid}</div>
+                    <div className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase shrink-0 ${
+                      proc.agentPhase === 'completed' ? 'bg-emerald-500/20 text-emerald-400' :
+                      proc.agentPhase === 'failed' ? 'bg-red-500/20 text-red-400' :
+                      'bg-gray-500/20 text-gray-400'
+                    }`}>
+                      {proc.agentPhase || proc.state}
+                    </div>
+                    <div className="text-[10px] text-gray-600 shrink-0">
+                      {new Date(proc.createdAt).toLocaleDateString()} {new Date(proc.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                    <Eye size={14} className="text-gray-600 hover:text-white shrink-0" />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* New Agent Modal */}
       {showNewAgentModal && (
