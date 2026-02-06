@@ -9,6 +9,10 @@
     "dev": "tsx watch src/index.ts"
   },
   "dependencies": {
-    "@aether/shared": "file:../shared"
+    "@aether/shared": "file:../shared",
+    "better-sqlite3": "^12.6.2"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13"
   }
 }

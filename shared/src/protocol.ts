@@ -73,6 +73,8 @@ export interface ProcessInfo {
   cpuPercent: number;          // 0-100
   memoryMB: number;            // Memory usage in MB
   ttyId?: string;             // Attached terminal ID
+  containerId?: string;       // Docker container ID (if sandboxed)
+  containerStatus?: ContainerStatus;
 }
 
 export interface AgentConfig {
@@ -91,6 +93,41 @@ export interface SandboxConfig {
   networkAccess?: boolean;
   allowedPaths?: string[];     // Filesystem paths the agent can access
   timeout?: number;            // Max runtime in seconds
+  image?: string;              // Docker image to use
+}
+
+// ---------------------------------------------------------------------------
+// Container Types
+// ---------------------------------------------------------------------------
+
+export type ContainerStatus = 'creating' | 'running' | 'paused' | 'stopped' | 'removing' | 'dead';
+
+export interface ContainerInfo {
+  containerId: string;
+  pid: PID;
+  image: string;
+  status: ContainerStatus;
+  mountedVolume: string;       // Host path of mounted volume
+  networkEnabled: boolean;
+  memoryLimitMB: number;
+  cpuLimit: number;
+  createdAt: number;
+}
+
+// ---------------------------------------------------------------------------
+// IPC Types
+// ---------------------------------------------------------------------------
+
+export interface IPCMessage {
+  id: string;
+  fromPid: PID;
+  toPid: PID;
+  fromUid: string;
+  toUid: string;
+  channel: string;             // Message channel/topic
+  payload: any;                // Message content
+  timestamp: number;
+  delivered: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -129,6 +166,50 @@ export interface TerminalInfo {
 }
 
 // ---------------------------------------------------------------------------
+// Persistence Types
+// ---------------------------------------------------------------------------
+
+export interface ProcessRecord {
+  pid: PID;
+  uid: string;
+  name: string;
+  role: string;
+  goal: string;
+  state: ProcessState;
+  agentPhase?: AgentPhase;
+  exitCode?: number;
+  createdAt: number;
+  exitedAt?: number;
+}
+
+export interface AgentLogEntry {
+  id?: number;
+  pid: PID;
+  step: number;
+  phase: string;               // 'thought' | 'action' | 'observation'
+  tool?: string;
+  content: string;
+  timestamp: number;
+}
+
+export interface FileMetadataRecord {
+  path: string;
+  ownerUid: string;
+  size: number;
+  fileType: FileType;
+  createdAt: number;
+  modifiedAt: number;
+}
+
+export interface KernelMetricRecord {
+  timestamp: number;
+  processCount: number;
+  cpuPercent: number;
+  memoryMB: number;
+  containerCount: number;
+}
+
+// ---------------------------------------------------------------------------
 // UI -> Kernel Commands (what the frontend sends)
 // ---------------------------------------------------------------------------
 
@@ -158,6 +239,10 @@ export type KernelCommand =
   | { type: 'tty.input'; id: string; ttyId: string; data: string }
   | { type: 'tty.resize'; id: string; ttyId: string; cols: number; rows: number }
   | { type: 'tty.close'; id: string; ttyId: string }
+
+  // IPC
+  | { type: 'ipc.send'; id: string; fromPid: PID; toPid: PID; channel: string; payload: any }
+  | { type: 'ipc.list_agents'; id: string }
 
   // System
   | { type: 'kernel.status'; id: string }
@@ -190,6 +275,16 @@ export type KernelEvent =
   | { type: 'agent.file_created'; pid: PID; path: string; content: string }
   | { type: 'agent.browsing'; pid: PID; url: string; summary?: string }
 
+  // IPC events
+  | { type: 'ipc.message'; message: IPCMessage }
+  | { type: 'ipc.delivered'; messageId: string; toPid: PID }
+
+  // Container events
+  | { type: 'container.created'; pid: PID; containerId: string; info: ContainerInfo }
+  | { type: 'container.started'; pid: PID; containerId: string }
+  | { type: 'container.stopped'; pid: PID; containerId: string }
+  | { type: 'container.removed'; pid: PID; containerId: string }
+
   // Filesystem events
   | { type: 'fs.changed'; path: string; changeType: 'create' | 'modify' | 'delete' }
   | { type: 'fs.list'; path: string; entries: FileStat[] }
@@ -203,7 +298,7 @@ export type KernelEvent =
 
   // System events
   | { type: 'kernel.ready'; version: string; uptime: number }
-  | { type: 'kernel.metrics'; processCount: number; cpuPercent: number; memoryMB: number };
+  | { type: 'kernel.metrics'; processCount: number; cpuPercent: number; memoryMB: number; containerCount?: number };
 
 // ---------------------------------------------------------------------------
 // Utility Types

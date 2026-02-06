@@ -30,6 +30,17 @@ export const DEFAULT_TTY_ROWS = 36;
 export const WS_HEARTBEAT_INTERVAL = 30_000;
 export const WS_RECONNECT_DELAY = 2_000;
 export const WS_MAX_RECONNECT_ATTEMPTS = 10;
+export const IPC_MESSAGE_MAX_SIZE = 1024 * 1024;    // 1MB per IPC message
+export const IPC_QUEUE_MAX_LENGTH = 100;             // Max queued messages per process
+
+// Container defaults
+export const DEFAULT_CONTAINER_IMAGE = 'ubuntu:22.04';
+export const DEFAULT_CONTAINER_MEMORY_MB = 512;
+export const DEFAULT_CONTAINER_CPU_LIMIT = 0.5;      // 50% of one core
+export const CONTAINER_STOP_TIMEOUT = 10;             // seconds
+
+// Persistence
+export const STATE_DB_PATH = '/tmp/aether/var/aether-state.db';
 
 // Agent roles
 export const AGENT_ROLES = [

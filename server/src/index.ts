@@ -4,7 +4,7 @@
  * The server layer sits between the kernel and the outside world.
  * It provides:
  * - WebSocket server for real-time kernel communication
- * - HTTP endpoints for initial state loading and health checks
+ * - HTTP endpoints for initial state loading, health checks, and history queries
  * - CORS support for the Vite dev server
  *
  * This is intentionally minimal. The kernel does the real work.
@@ -61,6 +61,8 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
       version: AETHER_VERSION,
       uptime: kernel.getUptime(),
       processes: kernel.processes.getCounts(),
+      docker: kernel.containers.isDockerAvailable(),
+      containers: kernel.containers.getAll().length,
     }));
     return;
   }
@@ -80,7 +82,91 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
       version: AETHER_VERSION,
       uptime: kernel.getUptime(),
       processes: kernel.processes.getCounts(),
+      docker: kernel.containers.isDockerAvailable(),
+      containers: kernel.containers.getAll().length,
     }));
+    return;
+  }
+
+  // ----- Historical Data Endpoints (from StateStore) -----
+
+  // Process history (all spawned agents)
+  if (url.pathname === '/api/history/processes') {
+    try {
+      const records = kernel.state.getAllProcesses();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(records));
+    } catch (err: any) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
+  // Agent logs for a specific PID
+  if (url.pathname.startsWith('/api/history/logs/')) {
+    const pidStr = url.pathname.split('/').pop();
+    const pid = parseInt(pidStr || '', 10);
+    if (isNaN(pid)) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid PID' }));
+      return;
+    }
+    try {
+      const logs = kernel.state.getAgentLogs(pid);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(logs));
+    } catch (err: any) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
+  // Recent logs (across all agents)
+  if (url.pathname === '/api/history/logs') {
+    const limit = parseInt(url.searchParams.get('limit') || '100', 10);
+    try {
+      const logs = kernel.state.getRecentLogs(limit);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(logs));
+    } catch (err: any) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
+  // File metadata index
+  if (url.pathname === '/api/history/files') {
+    const owner = url.searchParams.get('owner');
+    try {
+      const files = owner
+        ? kernel.state.getFilesByOwner(owner)
+        : kernel.state.getAllFiles();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(files));
+    } catch (err: any) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
+  // Kernel metrics over time
+  if (url.pathname === '/api/history/metrics') {
+    const since = parseInt(url.searchParams.get('since') || '0', 10);
+    const limit = parseInt(url.searchParams.get('limit') || '100', 10);
+    try {
+      const metrics = since > 0
+        ? kernel.state.getMetrics(since)
+        : kernel.state.getLatestMetrics(limit);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(metrics));
+    } catch (err: any) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
     return;
   }
 
@@ -189,6 +275,12 @@ const BROADCAST_EVENTS = [
   'agent.progress',
   'agent.file_created',
   'agent.browsing',
+  'ipc.message',
+  'ipc.delivered',
+  'container.created',
+  'container.started',
+  'container.stopped',
+  'container.removed',
   'fs.changed',
   'tty.output',
   'tty.opened',
@@ -223,12 +315,28 @@ function broadcast(event: KernelEvent): void {
 
 setInterval(() => {
   const counts = kernel.processes.getCounts();
+  const containerCount = kernel.containers.getAll().length;
+  const memoryMB = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
+  const processCount = counts.running + counts.sleeping + counts.created;
+
   broadcast({
     type: 'kernel.metrics',
-    processCount: counts.running + counts.sleeping + counts.created,
+    processCount,
     cpuPercent: 0,
-    memoryMB: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+    memoryMB,
+    containerCount,
   } as KernelEvent);
+
+  // Persist metrics to StateStore
+  try {
+    kernel.state.recordMetric({
+      timestamp: Date.now(),
+      processCount,
+      cpuPercent: 0,
+      memoryMB,
+      containerCount,
+    });
+  } catch { /* ignore metric persistence errors */ }
 }, 5000);
 
 // ---------------------------------------------------------------------------
@@ -272,6 +380,8 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`  ║  HTTP:       http://0.0.0.0:${String(PORT).padEnd(10)}║`);
   console.log(`  ║  WebSocket:  ws://0.0.0.0:${String(PORT).padEnd(11)}║`);
   console.log(`  ║  Path:       ${DEFAULT_WS_PATH.padEnd(24)}║`);
+  console.log(`  ║  Docker:     ${(kernel.containers.isDockerAvailable() ? 'Available' : 'Unavailable').padEnd(24)}║`);
+  console.log(`  ║  SQLite:     ${'Enabled'.padEnd(24)}║`);
   console.log('  ╚══════════════════════════════════════╝');
   console.log('');
 });
