@@ -10,7 +10,10 @@ export enum AppID {
   CODE = 'code',
   VIDEO = 'video',
   AGENTS = 'agents', // The Dashboard
-  VM = 'vm' // The Individual Agent View
+  VM = 'vm', // The Individual Agent View
+  SHEETS = 'sheets',
+  CANVAS = 'canvas',
+  WRITER = 'writer'
 }
 
 export interface WindowState {
@@ -24,6 +27,8 @@ export interface WindowState {
   position: { x: number; y: number };
   size: { width: number; height: number };
   initialData?: any; // To pass file content, URLs, agent IDs etc.
+  workspaceId?: number; // Which workspace this window belongs to (0-based, undefined = workspace 0)
+  stickyWorkspace?: boolean; // Show on all workspaces
 }
 
 export interface Note {

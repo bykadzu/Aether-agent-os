@@ -1,6 +1,6 @@
 import React from 'react';
 import { AppID } from '../../types';
-import { StickyNote, Image, MessageSquare, FolderOpen, Settings as SettingsIcon, Terminal, Globe, Calculator, Code, Bot } from 'lucide-react';
+import { StickyNote, FolderOpen, Settings as SettingsIcon, Terminal, Globe, Code, Bot, Table2, Palette, FileEdit } from 'lucide-react';
 
 interface DockProps {
   onAppClick: (id: AppID) => void;
@@ -15,9 +15,9 @@ export const Dock: React.FC<DockProps> = ({ onAppClick, openApps }) => {
     { id: AppID.TERMINAL, icon: Terminal, label: 'Terminal', color: 'bg-gray-800 text-white' },
     { id: AppID.CODE, icon: Code, label: 'Code', color: 'bg-indigo-100 text-indigo-600' },
     { id: AppID.NOTES, icon: StickyNote, label: 'Notes', color: 'bg-yellow-100 text-yellow-600' },
-    { id: AppID.PHOTOS, icon: Image, label: 'Photos', color: 'bg-purple-100 text-purple-600' },
-    { id: AppID.CHAT, icon: MessageSquare, label: 'Chat', color: 'bg-green-100 text-green-600' },
-    { id: AppID.CALCULATOR, icon: Calculator, label: 'Calc', color: 'bg-orange-100 text-orange-600' },
+    { id: AppID.SHEETS, icon: Table2, label: 'Sheets', color: 'bg-green-100 text-green-600' },
+    { id: AppID.CANVAS, icon: Palette, label: 'Canvas', color: 'bg-purple-100 text-purple-600' },
+    { id: AppID.WRITER, icon: FileEdit, label: 'Writer', color: 'bg-orange-100 text-orange-600' },
   ];
 
   return (
