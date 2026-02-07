@@ -1,0 +1,54 @@
+/* ===== Aether OS Theme System - CSS Custom Properties ===== */
+
+:root {
+  /* Default: Dark theme (matches existing app styling) */
+  --bg-primary: #0a0b0f;
+  --bg-secondary: #1a1d26;
+  --bg-tertiary: #16161e;
+  --text-primary: #ffffff;
+  --text-secondary: #a9b1d6;
+  --text-muted: #565a6e;
+  --border-color: rgba(255, 255, 255, 0.1);
+  --border-subtle: rgba(255, 255, 255, 0.05);
+  --accent-color: #6366f1;
+  --accent-hover: #818cf8;
+  --glass-bg: rgba(255, 255, 255, 0.08);
+  --glass-border: rgba(255, 255, 255, 0.12);
+  --surface-color: #1a1d26;
+  --surface-hover: #222436;
+  --danger: #ef4444;
+  --warning: #f59e0b;
+  --success: #22c55e;
+  --info: #3b82f6;
+  --shadow-color: rgba(0, 0, 0, 0.5);
+}
+
+[data-theme="light"] {
+  --bg-primary: #f5f5f7;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #e8e8ed;
+  --text-primary: #1d1d1f;
+  --text-secondary: #6e6e73;
+  --text-muted: #aeaeb2;
+  --border-color: rgba(0, 0, 0, 0.12);
+  --border-subtle: rgba(0, 0, 0, 0.06);
+  --accent-color: #5856d6;
+  --accent-hover: #4744c9;
+  --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-border: rgba(0, 0, 0, 0.08);
+  --surface-color: #ffffff;
+  --surface-hover: #f0f0f5;
+  --danger: #ff3b30;
+  --warning: #ff9500;
+  --success: #34c759;
+  --info: #007aff;
+  --shadow-color: rgba(0, 0, 0, 0.1);
+}
+
+/* ===== Scrollbar Theming ===== */
+[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+}
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.35);
+}

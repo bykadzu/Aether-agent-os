@@ -19,6 +19,8 @@ import { SheetsApp } from './components/apps/SheetsApp';
 import { CanvasApp } from './components/apps/CanvasApp';
 import { WriterApp } from './components/apps/WriterApp';
 import { SystemMonitorApp } from './components/apps/SystemMonitorApp';
+import { MusicApp } from './components/apps/MusicApp';
+import { DocumentsApp } from './components/apps/DocumentsApp';
 import { DesktopWidgets } from './components/os/DesktopWidgets';
 import { ContextMenu } from './components/os/ContextMenu';
 import { LoginScreen } from './components/os/LoginScreen';
@@ -38,6 +40,7 @@ import {
   Server,
 } from 'lucide-react';
 import { NotificationBell, useNotifications } from './components/os/NotificationCenter';
+import { ThemeToggle } from './components/os/ThemeToggle';
 import { FileSystemItem, mockFileSystem } from './data/mockFileSystem';
 import { generateText, GeminiModel, getAgentDecision } from './services/geminiService';
 import { useKernel, AgentProcess } from './services/useKernel';
@@ -55,6 +58,8 @@ const DOCK_APPS: AppID[] = [
   AppID.SHEETS,
   AppID.CANVAS,
   AppID.WRITER,
+  AppID.MUSIC,
+  AppID.DOCUMENTS,
   AppID.SYSTEM_MONITOR,
 ];
 
@@ -830,6 +835,10 @@ const App: React.FC = () => {
         return 'Writer';
       case AppID.SYSTEM_MONITOR:
         return 'System Monitor';
+      case AppID.MUSIC:
+        return 'Music';
+      case AppID.DOCUMENTS:
+        return 'Documents';
       default:
         return 'App';
     }
@@ -1238,6 +1247,10 @@ const App: React.FC = () => {
         return <WriterApp />;
       case AppID.SYSTEM_MONITOR:
         return <SystemMonitorApp />;
+      case AppID.MUSIC:
+        return <MusicApp />;
+      case AppID.DOCUMENTS:
+        return <DocumentsApp initialFile={windowState.initialData?.filePath} />;
       case AppID.VM:
         const agent = agents.find((a) => a.id === windowState.initialData?.agentId);
         if (!agent) return <div className="p-4 text-white">Agent not found or terminated.</div>;
@@ -1279,8 +1292,12 @@ const App: React.FC = () => {
       openApp(AppID.CODE, { content: file.content, fileId: file.id, fileName: file.name });
     } else if (file.kind === 'image') {
       openApp(AppID.PHOTOS, { image: file.url });
-    } else if (file.kind === 'video' || file.kind === 'audio') {
+    } else if (file.kind === 'audio') {
+      openApp(AppID.MUSIC);
+    } else if (file.kind === 'video') {
       openApp(AppID.VIDEO, { url: file.url, title: file.name });
+    } else if (file.name?.endsWith('.pdf')) {
+      openApp(AppID.DOCUMENTS, { filePath: file.url || file.name });
     } else {
       openApp(AppID.NOTES, {
         content: `Cannot view file type: ${file.kind}\n\nMetadata:\nName: ${file.name}\nSize: ${file.size}`,
@@ -1448,6 +1465,7 @@ const App: React.FC = () => {
               </span>
             </div>
           )}
+          <ThemeToggle />
           <NotificationBell />
           <Wifi size={14} />
           <Battery size={14} />

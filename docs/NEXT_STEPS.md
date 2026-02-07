@@ -75,7 +75,7 @@ What's missing is the polish, hardening, and "last mile" work that turns a worki
 ### 3.2 Desktop App Improvements
 - ~~**File Explorer:** Connect fully to kernel filesystem~~ **DONE** — Kernel FS browsing, breadcrumb nav, file stats, refresh
 - ~~**Code Editor:** Syntax highlighting, save to kernel FS, open from File Explorer~~ **DONE** — Monaco Editor with multi-tab, file tree sidebar, language auto-detection, kernel read/write
-- ~~**Browser App:** Render fetched pages more faithfully, handle navigation~~ **DONE** — Playwright-based BrowserManager replaces iframe approach; agents can browse via real Chromium
+- ~~**Browser App:** Render fetched pages more faithfully, handle navigation~~ **DONE** — Full browser UI with tab bar, canvas viewport, keyboard/mouse event forwarding, dual-mode (Chromium kernel / iframe fallback)
 - ~~**Notes App:** Persist to kernel filesystem instead of localStorage~~ **DONE** — Kernel FS persistence at `/home/root/Documents/notes/`, auto-save with debounce
 - ~~**Settings App:** Actually apply settings (theme, API keys, resource limits)~~ **DONE** — Kernel status, LLM providers with green/red indicators, GPU/Docker/cluster info, Gemini API key in mock mode
 
@@ -189,7 +189,7 @@ These are small improvements that would make an immediate difference:
 | ~~Kernel boot banner with subsystem status~~ | ~~30 min~~ | ✅ Done — prints 12 subsystems + port + FS root + cluster |
 | Screenshots in README | 30 min | Makes the project 10x more approachable |
 | ~~Agent log export (download as JSON/text)~~ | ~~1 hr~~ | ✅ Done — JSON + text download from AgentVM |
-| Dark/light theme toggle | 1 hr | Already has dark theme, just add a switch |
+| ~~Dark/light theme toggle~~ | ~~1 hr~~ | ✅ Done — ThemeProvider context, dark/light/system modes, CSS custom properties, ThemeToggle in menu bar |
 | ~~Keyboard shortcut overlay (Cmd+/)~~ | ~~30 min~~ | ✅ Done — `ShortcutOverlay.tsx` |
 | ~~Loading skeleton for Mission Control~~ | ~~30 min~~ | ✅ Done — animated pulse cards during initial load |
 
