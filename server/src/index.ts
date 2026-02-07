@@ -16,7 +16,7 @@
 import { createServer, IncomingMessage, ServerResponse } from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { Kernel } from '@aether/kernel';
-import { runAgentLoop } from '@aether/runtime';
+import { runAgentLoop, listProviders, AGENT_TEMPLATES } from '@aether/runtime';
 import {
   KernelCommand,
   KernelEvent,
@@ -552,6 +552,30 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: err.message }));
     }
+    return;
+  }
+
+  // ----- LLM Provider Endpoints -----
+
+  // List available LLM providers and models
+  if (url.pathname === '/api/llm/providers' && req.method === 'GET') {
+    try {
+      const providers = listProviders();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(providers));
+    } catch (err: any) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
+  // ----- Agent Template Endpoints -----
+
+  // List available agent templates
+  if (url.pathname === '/api/templates' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(AGENT_TEMPLATES));
     return;
   }
 
