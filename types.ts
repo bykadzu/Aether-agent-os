@@ -17,6 +17,7 @@ export enum AppID {
   SYSTEM_MONITOR = 'system_monitor',
   MUSIC = 'music',
   DOCUMENTS = 'documents',
+  MEMORY_INSPECTOR = 'memory_inspector',
 }
 
 export interface WindowState {
