@@ -279,6 +279,40 @@ export interface GPUAllocation {
 }
 
 // ---------------------------------------------------------------------------
+// Browser Types
+// ---------------------------------------------------------------------------
+
+export interface BrowserPageInfo {
+  url: string;
+  title: string;
+  favicon?: string;
+  isLoading: boolean;
+}
+
+export interface BrowserSessionOptions {
+  width?: number;
+  height?: number;
+}
+
+export interface DOMElement {
+  tag: string;
+  text?: string;
+  href?: string;
+  type?: string;
+  name?: string;
+  value?: string;
+  role?: string;
+  ariaLabel?: string;
+  children?: DOMElement[];
+}
+
+export interface DOMSnapshot {
+  url: string;
+  title: string;
+  elements: DOMElement[];
+}
+
+// ---------------------------------------------------------------------------
 // Shared Filesystem Types
 // ---------------------------------------------------------------------------
 
@@ -387,6 +421,22 @@ export type KernelCommand =
   | { type: 'cluster.nodes'; id: string }
   | { type: 'cluster.drain'; id: string; nodeId: string }
 
+  // Browser
+  | { type: 'browser:create'; id: string; sessionId: string; options?: BrowserSessionOptions }
+  | { type: 'browser:navigate'; id: string; sessionId: string; url: string }
+  | { type: 'browser:click'; id: string; sessionId: string; x: number; y: number; button?: 'left' | 'right' }
+  | { type: 'browser:type'; id: string; sessionId: string; text: string }
+  | { type: 'browser:keypress'; id: string; sessionId: string; key: string }
+  | { type: 'browser:scroll'; id: string; sessionId: string; deltaX: number; deltaY: number }
+  | { type: 'browser:screenshot'; id: string; sessionId: string }
+  | { type: 'browser:destroy'; id: string; sessionId: string }
+  | { type: 'browser:screencast_start'; id: string; sessionId: string; fps?: number }
+  | { type: 'browser:screencast_stop'; id: string; sessionId: string }
+  | { type: 'browser:back'; id: string; sessionId: string }
+  | { type: 'browser:forward'; id: string; sessionId: string }
+  | { type: 'browser:reload'; id: string; sessionId: string }
+  | { type: 'browser:dom_snapshot'; id: string; sessionId: string }
+
   // LLM Providers
   | { type: 'llm.list'; id: string }
 
@@ -481,6 +531,14 @@ export type KernelEvent =
   | { type: 'cluster.nodeLeft'; nodeId: string }
   | { type: 'cluster.nodeOffline'; nodeId: string }
   | { type: 'cluster.status'; info: ClusterInfo }
+
+  // Browser events
+  | { type: 'browser:created'; sessionId: string }
+  | { type: 'browser:navigated'; sessionId: string; url: string; title: string }
+  | { type: 'browser:screenshot'; sessionId: string; data: string }
+  | { type: 'browser:page_info'; sessionId: string; info: BrowserPageInfo }
+  | { type: 'browser:destroyed'; sessionId: string }
+  | { type: 'browser:error'; sessionId: string; error: string }
 
   // LLM events
   | { type: 'llm.list'; providers: LLMProviderInfo[] }

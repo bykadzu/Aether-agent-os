@@ -24,6 +24,7 @@ import { VirtualFS } from './VirtualFS.js';
 import { PTYManager } from './PTYManager.js';
 import { ContainerManager } from './ContainerManager.js';
 import { VNCManager } from './VNCManager.js';
+import { BrowserManager } from './BrowserManager.js';
 import { PluginManager } from './PluginManager.js';
 import { SnapshotManager } from './SnapshotManager.js';
 import { StateStore } from './StateStore.js';
@@ -45,6 +46,7 @@ export class Kernel {
   readonly pty: PTYManager;
   readonly containers: ContainerManager;
   readonly vnc: VNCManager;
+  readonly browser: BrowserManager;
   readonly plugins: PluginManager;
   readonly snapshots: SnapshotManager;
   readonly state: StateStore;
@@ -60,6 +62,7 @@ export class Kernel {
     this.fs = new VirtualFS(this.bus, options.fsRoot);
     this.containers = new ContainerManager(this.bus);
     this.vnc = new VNCManager(this.bus);
+    this.browser = new BrowserManager(this.bus);
     this.pty = new PTYManager(this.bus);
     this.plugins = new PluginManager(this.bus, options.fsRoot);
     this.state = new StateStore(this.bus, options.dbPath);
@@ -88,6 +91,10 @@ export class Kernel {
 
     // VNC manager is initialized (starts proxies on demand)
     console.log('[Kernel] VNC manager initialized');
+
+    // Initialize browser manager (detects Playwright availability)
+    await this.browser.init();
+    console.log(`[Kernel] Browser manager initialized (Playwright: ${this.browser.isAvailable() ? 'available' : 'unavailable'})`);
 
     // Wire container manager into PTY manager
     this.pty.setContainerManager(this.containers);
@@ -776,6 +783,94 @@ export class Kernel {
           break;
         }
 
+        // ----- Browser Commands -----
+        case 'browser:create': {
+          await this.browser.createSession(cmd.sessionId, cmd.options);
+          events.push({ type: 'response.ok', id: cmd.id, data: { sessionId: cmd.sessionId } });
+          events.push({ type: 'browser:created', sessionId: cmd.sessionId } as KernelEvent);
+          break;
+        }
+
+        case 'browser:destroy': {
+          await this.browser.destroySession(cmd.sessionId);
+          events.push({ type: 'response.ok', id: cmd.id });
+          events.push({ type: 'browser:destroyed', sessionId: cmd.sessionId } as KernelEvent);
+          break;
+        }
+
+        case 'browser:navigate': {
+          const pageInfo = await this.browser.navigateTo(cmd.sessionId, cmd.url);
+          events.push({ type: 'response.ok', id: cmd.id, data: pageInfo });
+          events.push({ type: 'browser:navigated', sessionId: cmd.sessionId, url: pageInfo.url, title: pageInfo.title } as KernelEvent);
+          break;
+        }
+
+        case 'browser:back': {
+          const backInfo = await this.browser.goBack(cmd.sessionId);
+          events.push({ type: 'response.ok', id: cmd.id, data: backInfo });
+          break;
+        }
+
+        case 'browser:forward': {
+          const fwdInfo = await this.browser.goForward(cmd.sessionId);
+          events.push({ type: 'response.ok', id: cmd.id, data: fwdInfo });
+          break;
+        }
+
+        case 'browser:reload': {
+          const reloadInfo = await this.browser.reload(cmd.sessionId);
+          events.push({ type: 'response.ok', id: cmd.id, data: reloadInfo });
+          break;
+        }
+
+        case 'browser:screenshot': {
+          const screenshot = await this.browser.getScreenshot(cmd.sessionId);
+          events.push({ type: 'response.ok', id: cmd.id, data: { screenshot } });
+          break;
+        }
+
+        case 'browser:dom_snapshot': {
+          const snapshot = await this.browser.getDOMSnapshot(cmd.sessionId);
+          events.push({ type: 'response.ok', id: cmd.id, data: snapshot });
+          break;
+        }
+
+        case 'browser:click': {
+          await this.browser.click(cmd.sessionId, cmd.x, cmd.y, cmd.button);
+          events.push({ type: 'response.ok', id: cmd.id });
+          break;
+        }
+
+        case 'browser:type': {
+          await this.browser.type(cmd.sessionId, cmd.text);
+          events.push({ type: 'response.ok', id: cmd.id });
+          break;
+        }
+
+        case 'browser:keypress': {
+          await this.browser.keyPress(cmd.sessionId, cmd.key);
+          events.push({ type: 'response.ok', id: cmd.id });
+          break;
+        }
+
+        case 'browser:scroll': {
+          await this.browser.scroll(cmd.sessionId, cmd.deltaX, cmd.deltaY);
+          events.push({ type: 'response.ok', id: cmd.id });
+          break;
+        }
+
+        case 'browser:screencast_start': {
+          this.browser.startScreencast(cmd.sessionId, cmd.fps);
+          events.push({ type: 'response.ok', id: cmd.id });
+          break;
+        }
+
+        case 'browser:screencast_stop': {
+          this.browser.stopScreencast(cmd.sessionId);
+          events.push({ type: 'response.ok', id: cmd.id });
+          break;
+        }
+
         // ----- System Commands -----
         case 'kernel.status': {
           events.push({
@@ -847,6 +942,7 @@ export class Kernel {
     } catch { /* ignore metric errors during shutdown */ }
 
     await this.cluster.shutdown();
+    await this.browser.shutdown();
     await this.vnc.shutdown();
     await this.pty.shutdown();
     await this.containers.shutdown();
