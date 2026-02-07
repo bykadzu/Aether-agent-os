@@ -5,23 +5,23 @@
 
 ---
 
-## Current State (v0.1.0)
+## Current State (v0.3)
 
-Aether OS is a **purpose-built operating system for AI agents** with a solid v0.1 foundation:
-- Real kernel with process management, virtual filesystem, PTY terminals, Docker sandboxing
-- Multi-LLM agent runtime (Gemini, OpenAI, Anthropic, Ollama) with 8 templates
-- Full desktop UI: window manager, dock, 14 built-in apps, Mission Control
-- 149 tests, CI/CD, hub-and-spoke clustering, GPU passthrough
-- Authentication, per-agent isolation, event bus, plugin system
+Aether OS is a **purpose-built operating system for AI agents** with v0.1 kernel, v0.2 real apps, and v0.3 agent intelligence all complete:
+- Real kernel with 15 subsystems including MemoryManager, CronManager, BrowserManager
+- Multi-LLM agent runtime (Gemini, OpenAI, Anthropic, Ollama) with reflection, planning, collaboration, vision
+- Full desktop UI: window manager, dock, 20+ apps (including Memory Inspector, system monitor, spreadsheet, etc.)
+- 345+ tests, CI/CD, hub-and-spoke clustering, GPU passthrough
+- Authentication, per-agent isolation, event bus, plugin system, agent profiles, feedback loops
 
 ### What's Done vs. What's Next
 
 | Area | Completion | Key Gaps |
 |------|-----------|----------|
-| Kernel | ~98% | Cron scheduling, advanced event triggers |
-| Agent Runtime | ~95% | Cross-session memory, planning, reflection |
-| Desktop UI | ~80% | Real browser, Monaco editor, light theme, new apps |
-| Advanced Features | ~20% | Memory, multi-agent orchestration, ecosystem |
+| Kernel | ~100% | All planned subsystems implemented |
+| Agent Runtime | ~100% | Memory, planning, reflection, collaboration, vision all shipped |
+| Desktop UI | ~95% | 20+ apps, all v0.3 UI components done |
+| Advanced Features | ~70% | Ecosystem (app store, marketplace, integrations) next |
 
 ---
 
@@ -136,13 +136,15 @@ Features that appear in multiple roadmaps or are notably absent:
 
 | Gap | Where It Appears | Notes |
 |-----|-------------------|-------|
-| Cross-session memory | v0.3 core feature | Biggest blocker to genuine autonomy |
-| Cron/scheduling | v0.3 briefly mentioned | Underspecified vs. user demand |
+| ~~Cross-session memory~~ | ~~v0.3 core feature~~ | ✅ Shipped — MemoryManager with FTS5 |
+| ~~Cron/scheduling~~ | ~~v0.3~~ | ✅ Shipped — CronManager with event triggers |
+| ~~File-based memory MVP~~ | ~~RESEARCH-openclaw-ideas.md~~ | ✅ Superseded — Full MemoryManager shipped |
 | Messaging integration | v0.4 notifications only | Should be bidirectional (see OpenClaw research) |
 | Lightweight skill format | Not planned | v0.4 apps are React-heavy; need a simpler tier |
 | Remote access | Not in any roadmap | Tailscale/SSH tunnel for single-user setups |
 | Context compaction | Not explicitly planned | Important for long-running agents |
-| File-based memory MVP | Not planned | Quick win before full v0.3 memory |
+| Vector embeddings | v0.3.1 | FTS5 shipped; true vector similarity search next |
+| Visual workflow builder | v0.4 | Deferred from v0.3 success criteria |
 
 ---
 

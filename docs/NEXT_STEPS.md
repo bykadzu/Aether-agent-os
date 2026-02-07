@@ -2,9 +2,14 @@
 
 ## Where We Are Now
 
-Aether OS v0.1.0 has a working kernel, agent runtime, and desktop UI. Agents can be deployed, run autonomously with real tools, communicate with each other, and be observed in real time. The foundation is solid — process management, filesystem, terminals, persistence, auth, containers, clustering, and a plugin system are all implemented.
+Aether OS v0.3 is complete. On top of the v0.1 kernel foundation and v0.2 real apps, agents now have cross-session memory, goal planning, self-reflection, vision capabilities, collaboration protocols, agent profiles, feedback loops, cron scheduling, and a Memory Inspector UI. The system has 18+ desktop apps, 28+ agent tools, 4 LLM providers, and 345+ tests.
 
-What's missing is the polish, hardening, and "last mile" work that turns a working prototype into something others can pick up and use confidently.
+**Completed versions:**
+- **v0.1** — Kernel foundation (12 subsystems), agent runtime, desktop UI, 14 apps
+- **v0.2** — Real apps (Playwright browser, Monaco editor, music player, PDF viewer, spreadsheet, canvas, writer, system monitor, theme system, workspaces)
+- **v0.3** — Agent intelligence (memory, planning, reflection, feedback, profiles, collaboration, vision, cron scheduling, Memory Inspector, automation UI)
+
+**Next:** v0.4 — Ecosystem, Marketplace & Integrations
 
 ---
 
@@ -80,7 +85,7 @@ What's missing is the polish, hardening, and "last mile" work that turns a worki
 - ~~**Settings App:** Actually apply settings (theme, API keys, resource limits)~~ **DONE** — Kernel status, LLM providers with green/red indicators, GPU/Docker/cluster info, Gemini API key in mock mode
 
 ### 3.3 Agent Capabilities
-- **Conversation memory:** Let agents remember context across restarts (load previous logs)
+- ~~**Conversation memory:** Let agents remember context across restarts~~ **DONE** — MemoryManager with FTS5 search, memory-aware agent loop, auto-journaling (v0.3)
 - ~~**Agent templates:** Pre-built configs for common roles~~ **DONE** — 8 templates (Web Researcher, Code Developer, Code Reviewer, Data Analyst, System Admin, Technical Writer, Test Engineer, Project Manager) with template-first deploy UI
 - **Tool permissions per agent:** Configure which tools each agent role can use
 - **Step budget management:** UI controls for adjusting max steps, pausing/resuming the loop
@@ -93,12 +98,12 @@ What's missing is the polish, hardening, and "last mile" work that turns a worki
 
 ---
 
-## Phase 4: Multi-Agent Collaboration
+## Phase 4: Multi-Agent Collaboration — PARTIALLY COMPLETE (v0.3)
 
 **Goal:** Make agents work together meaningfully.
 
 ### 4.1 Agent-to-Agent Protocols
-- Define standard message formats (task delegation, status updates, results)
+- ~~Define standard message formats (task delegation, status updates, results)~~ **DONE** — 8 collaboration protocol types in `runtime/src/collaboration.ts` (v0.3)
 - Build a "supervisor" agent type that can spawn and manage sub-agents
 - Implement task queues — one agent produces work items, others consume them
 - Add conversation threads between agents (visible in UI timeline)
@@ -197,10 +202,21 @@ These are small improvements that would make an immediate difference:
 
 ## Priority Recommendation
 
-If I had to pick the top 5 things to do next:
-
-1. ~~**Test suite**~~ ✅ Done — 149 tests, 10 suites
+**Completed priorities (v0.1–v0.3):**
+1. ~~**Test suite**~~ ✅ Done — 345+ tests, 19+ suites
 2. ~~**`.env.example` + setup script + README update**~~ ✅ Done
 3. ~~**Error handling audit**~~ ✅ Done — all crash paths addressed
 4. ~~**Agent templates**~~ ✅ Done — 8 pre-built templates with curated tool sets
 5. ~~**Multi-LLM support**~~ ✅ Done — Gemini, OpenAI, Anthropic, Ollama with auto-fallback
+6. ~~**Cross-session memory**~~ ✅ Done — MemoryManager with FTS5 (v0.3)
+7. ~~**Self-reflection & planning**~~ ✅ Done — reflection.ts + planner.ts (v0.3)
+8. ~~**Cron scheduling**~~ ✅ Done — CronManager with event triggers (v0.3)
+9. ~~**Agent collaboration**~~ ✅ Done — Structured protocols (v0.3)
+10. ~~**Vision capability**~~ ✅ Done — All 4 LLM providers (v0.3)
+
+**Next priorities (v0.4):**
+1. **App Store framework** — App manifest, sandbox, permissions, SDK
+2. **Plugin Marketplace** — Searchable catalog, one-click install
+3. **External integrations** — GitHub, Slack, Discord (bidirectional)
+4. **REST API & SDKs** — Public API, TypeScript/Python SDKs
+5. **Lightweight skills format** — Simpler than full React apps for community contributions

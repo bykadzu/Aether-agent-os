@@ -43,9 +43,14 @@
 │   │ custom tools   │  │ JWT + users│  │  hub-and-spoke       │     │
 │   └────────────────┘  └────────────┘  └──────────────────────┘     │
 │                                                                     │
+│   ┌────────────────┐  ┌────────────┐  ┌──────────────────────┐     │
+│   │  VNCManager    │  │ SnapshotMgr│  │  BrowserManager      │     │
+│   │ Xvfb + x11vnc │  │ pause/save │  │  Playwright          │     │
+│   └────────────────┘  └────────────┘  └──────────────────────┘     │
+│                                                                     │
 │   ┌────────────────┐  ┌────────────┐                               │
-│   │  VNCManager    │  │ SnapshotMgr│                               │
-│   │ Xvfb + x11vnc │  │ pause/save │                               │
+│   │ MemoryManager  │  │ CronManager│                               │
+│   │ FTS5 + 4-layer │  │ scheduling │                               │
 │   └────────────────┘  └────────────┘                               │
 │                                                                     │
 ├─────────────────────────────────────────────────────────────────────┤
@@ -61,15 +66,17 @@
 │   │       ↑                                        │       │       │
 │   │       └────────────────────────────────────────┘       │       │
 │   │                                                         │       │
-│   │   Tools: file I/O, shell, web, IPC, plugins, approve   │       │
-│   │   LLM: Google Gemini (Flash for speed, Pro for depth)   │       │
+│   │   Tools: file I/O, shell, web, IPC, memory, planning,   │       │
+│   │          collaboration, vision, feedback, plugins       │       │
+│   │   LLM: Gemini, OpenAI, Anthropic, Ollama (multi-LLM)   │       │
+│   │   Intelligence: reflection, planner, collaboration      │       │
 │   └─────────────────────────────────────────────────────────┘       │
 │                                                                     │
 ├─────────────────────────────────────────────────────────────────────┤
 │                     SHARED PROTOCOL                                 │
 │                                                                     │
-│   42 command types (UI → Kernel)                                   │
-│   40+ event types  (Kernel → UI)                                   │
+│   60+ command types (UI → Kernel)                                  │
+│   60+ event types  (Kernel → UI)                                   │
 │   Discriminated unions — fully typed, no guessing                  │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -91,18 +98,32 @@ aether-os/
 │       ├── VirtualFS.ts         # Real filesystem at /tmp/aether
 │       ├── PTYManager.ts        # Terminal sessions (node-pty)
 │       ├── ContainerManager.ts  # Docker containers + GPU
-│       ├── StateStore.ts        # SQLite persistence
+│       ├── StateStore.ts        # SQLite persistence (WAL mode)
 │       ├── EventBus.ts          # Typed event pub/sub
 │       ├── PluginManager.ts     # Agent plugin loading
 │       ├── SnapshotManager.ts   # Process save/restore
 │       ├── AuthManager.ts       # Users, JWT, scrypt passwords
 │       ├── VNCManager.ts        # Graphical desktop proxy
-│       └── ClusterManager.ts    # Distributed kernel nodes
+│       ├── ClusterManager.ts    # Distributed kernel nodes
+│       ├── BrowserManager.ts    # Playwright browser sessions
+│       ├── MemoryManager.ts     # 4-layer memory with FTS5, profiles
+│       └── CronManager.ts       # Cron jobs + event triggers
 │
 ├── runtime/                 # Agent execution engine
 │   └── src/
-│       ├── AgentLoop.ts     # Think-act-observe cycle
-│       └── tools.ts         # 15+ built-in tools for agents
+│       ├── AgentLoop.ts     # Think-act-observe cycle (memory-aware)
+│       ├── tools.ts         # 28+ built-in tools for agents
+│       ├── reflection.ts    # Post-task self-reflection engine
+│       ├── planner.ts       # Goal decomposition & planning
+│       ├── collaboration.ts # Structured multi-agent protocols
+│       ├── templates.ts     # 8 pre-built agent templates
+│       └── llm/             # Multi-LLM provider abstraction
+│           ├── LLMProvider.ts      # Base interface (+ vision)
+│           ├── GeminiProvider.ts
+│           ├── OpenAIProvider.ts
+│           ├── AnthropicProvider.ts
+│           ├── OllamaProvider.ts
+│           └── index.ts            # Provider registry + fallback
 │
 ├── server/                  # HTTP + WebSocket transport
 │   └── src/
@@ -120,21 +141,28 @@ aether-os/
 │   │   ├── ContextMenu.tsx      # Right-click menu
 │   │   └── VNCViewer.tsx        # VNC stream display
 │   │
-│   └── apps/                # Applications
-│       ├── AgentDashboard.tsx   # Mission Control
-│       ├── AgentVM.tsx          # Single agent viewer
-│       ├── AgentTimeline.tsx    # Thought/action history
-│       ├── SmartBar.tsx         # Cmd+K spotlight search
-│       ├── TerminalApp.tsx      # Host terminal
-│       ├── ChatApp.tsx          # Gemini chat
-│       ├── FileExplorer.tsx     # File browser
-│       ├── CodeEditorApp.tsx    # Code editor
-│       ├── BrowserApp.tsx       # Web browser
-│       ├── NotesApp.tsx         # Notes
-│       ├── CalculatorApp.tsx    # Calculator
-│       ├── PhotosApp.tsx        # Photo gallery
-│       ├── VideoPlayerApp.tsx   # Video player
-│       └── SettingsApp.tsx      # System settings
+│   └── apps/                # Applications (20+)
+│       ├── AgentDashboard.tsx      # Mission Control
+│       ├── AgentVM.tsx             # Single agent viewer (+ plan, feedback)
+│       ├── AgentTimeline.tsx       # Thought/action history
+│       ├── SmartBar.tsx            # Cmd+K spotlight search
+│       ├── TerminalApp.tsx         # Host terminal
+│       ├── ChatApp.tsx             # Multi-LLM chat
+│       ├── FileExplorer.tsx        # File browser
+│       ├── CodeEditorApp.tsx       # Monaco code editor
+│       ├── BrowserApp.tsx          # Chromium/iframe browser
+│       ├── NotesApp.tsx            # Notes (kernel FS persistence)
+│       ├── CalculatorApp.tsx       # Calculator
+│       ├── PhotosApp.tsx           # Photo gallery
+│       ├── VideoPlayerApp.tsx      # Video player
+│       ├── SheetsApp.tsx           # Spreadsheet with formulas
+│       ├── CanvasApp.tsx           # Drawing canvas
+│       ├── WriterApp.tsx           # Markdown writer
+│       ├── MusicApp.tsx            # Music/audio player + TTS
+│       ├── DocumentsApp.tsx        # PDF viewer
+│       ├── SystemMonitorApp.tsx    # Real-time system monitor
+│       ├── MemoryInspectorApp.tsx  # Agent memory browser
+│       └── SettingsApp.tsx         # Settings (+ automation tab)
 │
 ├── services/                # Frontend ↔ kernel bridge
 │   ├── kernelClient.ts      # WebSocket client + HTTP API
@@ -249,7 +277,7 @@ User types in XTerminal
 | **node-pty over child_process** | Real terminal emulation — ANSI colors, cursor movement, interactive programs. |
 | **SQLite over Postgres** | Zero config, embedded, fast synchronous reads. Perfect for single-node. |
 | **Dual-mode UI** | Works without kernel (mock mode) for frontend development. |
-| **Gemini over OpenAI** | Cost-effective. Flash model for fast decisions, Pro for deep reasoning. |
+| **Multi-LLM provider** | Gemini, OpenAI, Anthropic, Ollama with automatic fallback and per-agent selection. |
 | **WebSocket over REST** | Real-time bidirectional communication. Events stream continuously. |
 | **Monorepo with shared package** | Protocol types are the contract. Both sides import from `@aether/shared`. |
 

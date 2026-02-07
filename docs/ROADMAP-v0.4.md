@@ -4,7 +4,7 @@
 
 **Status:** Planning
 
-**Depends on:** v0.3 (Intelligent agents are what make the ecosystem valuable)
+**Depends on:** v0.3 ✅ (Intelligent agents are what make the ecosystem valuable — v0.3 is complete)
 
 ---
 

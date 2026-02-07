@@ -26,13 +26,15 @@ The key apps are:
 | App | What It Does |
 |-----|-------------|
 | **Mission Control** | Dashboard showing all your deployed agents in a grid. See what each one is doing at a glance. |
-| **Agent VM** | Full view of a single agent — its terminal, thought log, current action, and an approval modal when it needs permission. |
+| **Agent VM** | Full view of a single agent — its terminal, thought log, plan viewer, feedback buttons, and an approval modal when it needs permission. |
+| **Memory Inspector** | Browse agent memories across 4 layers (episodic, semantic, procedural, social). Search, filter, view agent profiles and stats. |
 | **Terminal** | A real terminal connected to the host system or an agent's sandbox. |
-| **Chat** | A Gemini-powered chat interface for quick questions. |
-| **Files** | Browse the virtual filesystem. |
-| **Code Editor** | Read and edit code files. |
-| **Smart Bar** | Hit Cmd+K for a Spotlight-style search powered by Gemini. |
-| Notes, Calculator, Browser, Photos, Video, Settings | Standard utility apps. |
+| **Chat** | An LLM-powered chat interface for quick questions (Gemini, OpenAI, Anthropic, or Ollama). |
+| **Code Editor** | Monaco-based editor with multi-tab support, file tree, and language auto-detection. |
+| **Browser** | Full browser with Chromium backend (Playwright) or iframe fallback, tab management. |
+| **System Monitor** | Real-time CPU/memory/disk/network charts with per-agent resource breakdown. |
+| **Smart Bar** | Hit Cmd+K for a Spotlight-style search powered by LLM. |
+| Sheets, Canvas, Writer, Music, Documents, Notes, Calculator, Photos, Video, Settings | Full-featured productivity apps. |
 
 ## How Agents Work
 
@@ -45,11 +47,15 @@ Every agent follows a **think-act-observe** loop:
 4. REPEAT  →  Back to step 1, until the goal is complete
 ```
 
-Agents have access to real tools:
+Agents have access to 28+ real tools:
 
 - **File operations** — read, write, create, delete, move, copy files
 - **Shell commands** — run anything in their terminal
-- **Web browsing** — fetch and read web pages
+- **Web browsing** — browse pages with real Chromium, take screenshots, click elements
+- **Memory** — remember things across sessions, recall past experiences, forget outdated info
+- **Planning** — break goals into hierarchical task trees, track progress
+- **Collaboration** — request reviews, delegate tasks, share knowledge with other agents
+- **Vision** — analyze images and screenshots via multi-modal LLMs
 - **Messaging** — send messages to other agents
 - **Shared workspaces** — create folders that multiple agents can access
 - **Plugins** — custom tools you can add yourself
@@ -110,5 +116,6 @@ You'll need a `GEMINI_API_KEY` environment variable set for the AI reasoning to 
 | Database | SQLite (via better-sqlite3) |
 | Terminals | node-pty (real pseudo-terminals) |
 | Containers | Docker (optional, auto-detected) |
-| AI | Multi-provider — Google Gemini, OpenAI, Anthropic, Ollama (local) |
+| AI | Multi-provider — Google Gemini, OpenAI, Anthropic, Ollama (local) — with vision support |
 | Graphics | Xvfb + x11vnc for graphical agent desktops |
+| Browser Engine | Playwright (Chromium) for real web browsing |

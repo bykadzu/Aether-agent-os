@@ -15,9 +15,9 @@ Real processes. Real filesystems. Real terminals. Beautiful UI.
 
 ---
 
-Aether OS is a from-scratch operating system designed for AI agents to live and work in. Each agent runs as a real process with its own sandboxed filesystem, terminal session, and execution environment. Humans observe and interact with agents through a Mission Control interface inspired by macOS.
+Aether OS is a from-scratch operating system designed for AI agents to live and work in. Each agent runs as a real process with its own sandboxed filesystem, terminal session, and execution environment. Agents remember across sessions, plan hierarchically, reflect on their work, collaborate with each other, and see through vision-capable LLMs. Humans observe and interact through a Mission Control interface inspired by macOS.
 
-Unlike approaches that drop an AI into an existing Linux VM, Aether OS is built from the ground up with AI agents as first-class citizens. The kernel, process model, and UI are all designed around the agent lifecycle: think, act, observe.
+Unlike approaches that drop an AI into an existing Linux VM, Aether OS is built from the ground up with AI agents as first-class citizens. The kernel (15 subsystems), agent runtime (28+ tools, 4 LLM providers), and UI (20+ apps) are all designed around the agent lifecycle: think, act, observe, remember, plan, reflect.
 
 ## What It Does
 
@@ -124,21 +124,29 @@ If Docker is available on the host, agent processes will automatically run insid
 │  │ (noVNC       │ │ Manager  │ │ Manager  │ │ Manager     │  │
 │  │  proxy)      │ │ (ckpts)  │ │ (JWT)    │ │ (hub/spoke) │  │
 │  ├──────────────┤ ├──────────┤ ├──────────┤ ├─────────────┤  │
-│  │ Plugin       │ │ State    │ │ Event    │ │             │  │
-│  │ Manager      │ │ Store    │ │ Bus      │ │             │  │
-│  │              │ │ (SQLite) │ │ (pub/sub)│ │             │  │
-│  └──────────────┘ └──────────┘ └──────────┘ └─────────────┘  │
+│  │ Plugin       │ │ State    │ │ Event    │ │ Browser     │  │
+│  │ Manager      │ │ Store    │ │ Bus      │ │ Manager     │  │
+│  │              │ │ (SQLite) │ │ (pub/sub)│ │ (Playwright)│  │
+│  ├──────────────┤ ├──────────┤ └──────────┘ └─────────────┘  │
+│  │ Memory       │ │ Cron     │                               │  │
+│  │ Manager      │ │ Manager  │                               │  │
+│  │ (FTS5,       │ │ (sched,  │                               │  │
+│  │  4-layer)    │ │  events) │                               │  │
+│  └──────────────┘ └──────────┘                               │  │
 ├────────────────────────────────────────────────────────────────┤
 │                       Agent Runtime                            │
 │                                                                │
 │  ┌───────────────┐ ┌──────────────┐ ┌──────────────────────┐  │
-│  │ Agent Loop    │ │  Tools       │ │  LLM Providers       │  │
+│  │ Agent Loop    │ │  Tools (28+) │ │  LLM Providers       │  │
 │  │ (think-act-   │ │  fs, shell,  │ │  Gemini · OpenAI     │  │
-│  │  observe)     │ │  web, IPC    │ │  Anthropic · Ollama  │  │
-│  ├───────────────┤ └──────────────┘ └──────────────────────┘  │
-│  │ Templates     │                                            │
-│  │ (8 presets)   │                                            │
-│  └───────────────┘                                            │
+│  │  observe,     │ │  web, memory,│ │  Anthropic · Ollama  │  │
+│  │  memory-aware)│ │  plan, collab│ │  (+ vision support)  │  │
+│  ├───────────────┤ ├──────────────┤ └──────────────────────┘  │
+│  │ Templates     │ │ Intelligence │                           │  │
+│  │ (8 presets)   │ │ reflection,  │                           │  │
+│  └───────────────┘ │ planner,     │                           │  │
+│                    │ collaboration│                           │  │
+│                    └──────────────┘                           │  │
 └────────────────────────────────────────────────────────────────┘
 ```
 
@@ -194,8 +202,23 @@ Tools are invoked by whichever LLM provider is active (Gemini, OpenAI, Anthropic
 | `list_files` | List directory contents |
 | `mkdir` | Create directories |
 | `run_command` | Execute a shell command in the agent's terminal |
-| `browse_web` | Fetch and extract text from a URL |
+| `browse_web` | Browse with real Chromium (Playwright) or HTTP fetch fallback |
+| `screenshot_page` | Take a screenshot of the current browser page |
+| `click_element` | Click an element in the browser |
+| `type_text` | Type text into the browser |
 | `think` | Record reasoning (no side effects) |
+| `remember` | Store a memory for future sessions |
+| `recall` | Search past memories by query |
+| `forget` | Remove a specific memory |
+| `create_plan` | Break a goal into a hierarchical task tree |
+| `update_plan` | Update a plan node's status |
+| `get_plan` | Retrieve the current plan |
+| `get_feedback` | Query past user feedback |
+| `request_review` | Ask another agent to review work |
+| `respond_to_review` | Send review feedback |
+| `delegate_task` | Delegate a task to another agent |
+| `share_knowledge` | Share knowledge with another agent |
+| `analyze_image` | Analyze an image using vision-capable LLM |
 | `list_agents` | Discover other running agents |
 | `send_message` | Send a message to another agent |
 | `check_messages` | Read messages from other agents |
@@ -342,28 +365,34 @@ The host OS itself is a full desktop environment:
 │   └── geminiService.ts         # Gemini API integration (UI-side mock mode)
 ├── kernel/
 │   └── src/
-│       ├── Kernel.ts            # Core kernel orchestrator
+│       ├── Kernel.ts            # Core kernel orchestrator (15 subsystems)
 │       ├── ProcessManager.ts    # PID allocation, signals, lifecycle
 │       ├── VirtualFS.ts         # Real filesystem at /tmp/aether
 │       ├── PTYManager.ts        # Terminal sessions (node-pty or docker exec)
 │       ├── ContainerManager.ts  # Docker container sandboxing + GPU passthrough
 │       ├── VNCManager.ts        # WebSocket-to-TCP proxy for noVNC streams
+│       ├── BrowserManager.ts    # Playwright browser session management
+│       ├── MemoryManager.ts     # 4-layer agent memory with FTS5 + profiles
+│       ├── CronManager.ts       # Cron scheduling + event triggers
 │       ├── SnapshotManager.ts   # VM-checkpoint-style agent snapshots
 │       ├── AuthManager.ts       # User auth, JWT tokens, password hashing
 │       ├── ClusterManager.ts    # Hub-and-spoke distributed kernel
 │       ├── PluginManager.ts     # Agent plugin loading and management
 │       ├── plugins/             # Sample plugins
 │       │   └── sample-weather/  # Template plugin with weather tool
-│       ├── StateStore.ts        # SQLite persistence (processes, users, metrics)
+│       ├── StateStore.ts        # SQLite persistence (processes, users, metrics, memories, plans, feedback, profiles)
 │       ├── EventBus.ts          # Typed pub/sub IPC
 │       └── __tests__/           # Kernel unit tests (Vitest)
 ├── runtime/
 │   └── src/
-│       ├── AgentLoop.ts         # Think-act-observe execution cycle
-│       ├── tools.ts             # Agent tool definitions (fs, shell, web, ipc)
+│       ├── AgentLoop.ts         # Think-act-observe cycle (memory-aware)
+│       ├── tools.ts             # 28+ agent tools (fs, shell, web, memory, plan, collab, vision)
 │       ├── templates.ts         # Pre-built agent templates (8 presets)
+│       ├── reflection.ts        # Post-task self-reflection engine
+│       ├── planner.ts           # Goal decomposition & hierarchical planning
+│       ├── collaboration.ts     # Structured multi-agent protocols
 │       ├── llm/                 # Multi-LLM provider abstraction
-│       │   ├── LLMProvider.ts   # Base provider interface
+│       │   ├── LLMProvider.ts   # Base provider interface (+ vision)
 │       │   ├── GeminiProvider.ts
 │       │   ├── OpenAIProvider.ts
 │       │   ├── AnthropicProvider.ts
@@ -404,6 +433,7 @@ The host OS itself is a full desktop environment:
 
 ### Shipped
 
+**v0.1 — Kernel Foundation:**
 - [x] Full node-pty integration for proper SIGWINCH and terminal resizing
 - [x] VNC/noVNC for rendering real graphical applications inside agent desktops
 - [x] Multi-user authentication and per-user agent pools
@@ -418,15 +448,42 @@ The host OS itself is a full desktop environment:
 - [x] CI pipeline (GitHub Actions — lint + Vitest)
 - [x] Automated setup script (`scripts/setup.sh`)
 
-### Up Next
+**v0.2 — Real Apps:**
+- [x] Playwright-based browser (replaces iframe approach)
+- [x] Monaco code editor with multi-tab, file tree, language detection
+- [x] System monitor with real-time CPU/memory/disk/network charts
+- [x] Music player with Web Audio visualizer and TTS
+- [x] PDF viewer with AI summarization
+- [x] Spreadsheet with formula engine (SUM, AVERAGE, COUNT, etc.)
+- [x] Drawing canvas with 8 tools, undo/redo, export
+- [x] Markdown writer with live preview and AI assist
+- [x] Notification center with bell icon and history
+- [x] Keyboard shortcut system (40+ shortcuts, Cmd+/ overlay)
+- [x] Multi-desktop workspaces with Ctrl+Left/Right switching
+- [x] Dark/light/system theme toggle with CSS custom properties
 
-- [ ] Live agent-to-agent video/audio streaming
-- [ ] Web-based plugin marketplace and one-click installs
-- [ ] Persistent agent memory across sessions (vector store)
-- [ ] Multi-node GPU scheduling and load balancing
-- [ ] Role-based access control (RBAC) beyond admin/user
-- [ ] Agent workflow orchestration (DAG-based multi-agent pipelines)
-- [ ] Audit logging and compliance export
+**v0.3 — Agent Intelligence:**
+- [x] Cross-session agent memory (4-layer: episodic, semantic, procedural, social) with FTS5 search
+- [x] Cron scheduling and event-triggered agent spawning
+- [x] Self-reflection system with quality ratings and lessons learned
+- [x] Goal decomposition and hierarchical planning
+- [x] User feedback system (thumbs up/down per action)
+- [x] Agent profiles with auto-tracked performance stats
+- [x] Structured collaboration protocols (review, delegate, broadcast, share)
+- [x] Vision capability across all 4 LLM providers
+- [x] Memory Inspector app with search, filters, and agent profiles
+- [x] Plan Viewer and Feedback UI in Agent VM
+- [x] Automation Manager in Settings for cron jobs and triggers
+
+### Up Next (v0.4 — Ecosystem)
+
+- [ ] App Store framework (manifest, sandbox, permissions, SDK)
+- [ ] Plugin Marketplace with searchable catalog
+- [ ] External integrations (GitHub, Slack, Discord — bidirectional)
+- [ ] REST API & SDKs (TypeScript, Python, CLI)
+- [ ] Agent template marketplace with ratings
+- [ ] Webhook & event system (inbound/outbound)
+- [ ] Lightweight skill format (simpler than full React apps)
 
 ## Snapshots (Agent Checkpoints)
 

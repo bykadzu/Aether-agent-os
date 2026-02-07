@@ -26,6 +26,8 @@ Status legend:
 | Authentication | Done | `kernel/src/AuthManager.ts` — scrypt password hashing, HMAC-SHA256 JWT, user CRUD |
 | Hub-and-spoke clustering | Done | `kernel/src/ClusterManager.ts` — hub accepts nodes, health monitoring, load-based routing |
 | Kernel orchestrator | Done | `kernel/src/Kernel.ts` — boots all subsystems, routes commands to handlers |
+| Memory management | Done | `kernel/src/MemoryManager.ts` — 4-layer memory (episodic, semantic, procedural, social), FTS5 search, importance decay, consolidation, sharing, agent profiles |
+| Cron scheduling | Done | `kernel/src/CronManager.ts` — 5-field cron parser, scheduled agent spawning, event triggers with cooldown, SQLite persistence |
 
 ## Agent Runtime
 
@@ -42,9 +44,15 @@ Status legend:
 | Completion signaling | Done | Agent calls `complete` tool when goal is achieved |
 | Step budget / max steps | Done | Configurable per agent, defaults to 50 |
 | Gemini integration | Done | Flash model for fast decisions, Pro for deeper reasoning |
-| Agent memory / context window | Partial | Agents have context within a session but no cross-session memory |
+| Agent memory / context window | Done | Cross-session memory via MemoryManager (FTS5), memory-aware agent loop loads relevant memories on startup, auto-journals on completion |
 | Multi-LLM support | Done | `runtime/src/llm/` — Gemini, OpenAI, Anthropic, Ollama providers with auto-detection |
 | Agent templates | Done | `runtime/src/templates.ts` — 8 pre-built templates (Researcher, Coder, Reviewer, Analyst, SysAdmin, Writer, Tester, PM) |
+| Self-reflection | Done | `runtime/src/reflection.ts` — post-task reflection via LLM, quality ratings (1-5), lessons/strategies stored as procedural memory |
+| Goal decomposition & planning | Done | `runtime/src/planner.ts` — hierarchical task trees, create/update/get plan tools, plan state injected into system prompt |
+| Agent profiles | Done | Auto-tracked stats per agent (tasks, success rate, expertise, quality rating), stored in SQLite, injected into system prompts |
+| Collaboration protocols | Done | `runtime/src/collaboration.ts` — review requests, task delegation, status broadcasts, knowledge sharing (8 protocol types, 10 functions) |
+| Vision capability | Done | `analyze_image` tool, `supportsVision()` + `analyzeImage()` in all 4 LLM providers (Gemini, OpenAI, Anthropic, Ollama) |
+| Feedback system | Done | POST /api/feedback, `get_feedback` agent tool, thumbs up/down per action with optional comments |
 
 ## Desktop UI
 
@@ -74,7 +82,7 @@ Status legend:
 | App | Status | Details |
 |-----|--------|---------|
 | Mission Control (Agent Dashboard) | Done | Grid of agents, deploy modal, live status, metrics cards |
-| Agent VM | Done | Full agent view — terminal, thought logs, approval modal, timeline |
+| Agent VM | Done | Full agent view — terminal, thought logs, approval modal, timeline, Plan Viewer tab, feedback thumbs up/down on actions |
 | Agent Timeline | Done | Color-coded history of thoughts, actions, observations |
 | Terminal | Done | `xterm.js` wrapper, connects to kernel PTY or host shell |
 | Chat | Done | Gemini-powered chat interface with streaming |
@@ -90,7 +98,8 @@ Status legend:
 | Writer (Document Editor) | Done | `components/apps/WriterApp.tsx` — split view with live markdown preview, formatting toolbar, AI writing assist via Gemini, file management |
 | Music/Audio Player | Done | `components/apps/MusicApp.tsx` — HTML5 audio with /api/fs/raw streaming, play/pause/seek/volume, shuffle/repeat, Web Audio API frequency visualizer, TTS tab with speechSynthesis, file browser sidebar |
 | Documents/PDF Viewer | Done | `components/apps/DocumentsApp.tsx` — PDF rendering via embed, page navigation, zoom controls, file browser sidebar, AI summarization via Gemini, search, dual view modes |
-| Settings | Done | Shows kernel status, LLM providers with availability, GPU/Docker/cluster info, API key config, Appearance tab with theme toggle |
+| Memory Inspector | Done | `components/apps/MemoryInspectorApp.tsx` — agent list sidebar, 4-layer filter tabs, FTS5 search, memory cards with importance/tags, stats header, agent profile cards, mock data fallback |
+| Settings | Done | Shows kernel status, LLM providers with availability, GPU/Docker/cluster info, API key config, Appearance tab with theme toggle, Automation tab for cron jobs and event triggers |
 | GitHub Sync | Done | Clone repos into agent workspace via modal, push changes with approval gating |
 | System Monitor | Done | `components/apps/SystemMonitorApp.tsx` — real-time CPU/memory/disk/network charts, 2s polling, per-agent resource breakdown, `/api/system/stats` endpoint |
 
@@ -130,11 +139,11 @@ Status legend:
 | SQLite database | Done | WAL mode, prepared statements, automatic schema creation |
 | Docker support | Done | Auto-detected, graceful fallback to child_process |
 | GPU detection | Done | nvidia-smi parsing |
-| Automated tests | Done | Vitest — 304 tests across 16 suites (kernel, runtime, shared, server integration, component tests) |
+| Automated tests | Done | Vitest — 345+ tests across 19+ suites (kernel, runtime, shared, server integration, component tests) |
 | CI/CD pipeline | Done | `.github/workflows/ci.yml` — lint + test on push/PR |
 | Linting / formatting | Done | ESLint (flat config) + Prettier, `npm run lint` / `npm run format` |
 | Error boundaries (React) | Done | `ErrorBoundary` wraps windows, dock, widgets; WS reconnect banner |
 | Error handling audit | Done | Graceful degradation for Docker, SQLite, PTY, VFS, API rate limits |
 | Setup script | Done | `scripts/setup.sh` — checks deps, installs packages, creates `.env` |
 | Production Dockerfile | Not started | No containerized deployment |
-| Documentation | Done | 14 markdown files: README, ARCHITECTURE, FEATURES, VISION, WHAT_IS_AETHER, NEXT_STEPS, 4 roadmaps, IDEAS, 2 research docs, SESSION-PROMPTS |
+| Documentation | Done | 18 markdown files: README, ARCHITECTURE, FEATURES, VISION, WHAT_IS_AETHER, NEXT_STEPS, TODO, 4 roadmaps, 2 execution plans, IDEAS, 2 research docs, 2 session prompts |

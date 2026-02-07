@@ -31,13 +31,13 @@ Every component in Aether OS must be **real** — not simulated, not mocked, not
 
 ## The Three Horizons
 
-### Horizon 1: Make It Real (v0.2)
+### Horizon 1: Make It Real (v0.2) ✅ Complete
 Replace every mock, stub, and workaround with a real implementation. The browser actually browses. The editor actually edits with intelligence. The video player actually plays. Every app works with or without the kernel, but works **better** with it.
 
-### Horizon 2: Make It Smart (v0.3)
-Agents that learn, remember, plan, and get better over time. Long-term memory. Self-reflection. Goal decomposition. Multi-modal perception (vision, audio). Agents that don't just follow instructions — they develop expertise.
+### Horizon 2: Make It Smart (v0.3) ✅ Complete
+Agents that learn, remember, plan, and get better over time. Long-term memory. Self-reflection. Goal decomposition. Multi-modal perception (vision). Agent collaboration protocols. Agents that don't just follow instructions — they develop expertise and profiles.
 
-### Horizon 3: Make It an Ecosystem (v0.4–v0.5)
+### Horizon 3: Make It an Ecosystem (v0.4–v0.5) ← Current Focus
 A living platform where agents, plugins, tools, and applications can be created, shared, and composed. An app store. A plugin marketplace. A community. The platform that other people build on top of.
 
 ---

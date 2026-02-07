@@ -2,9 +2,11 @@
 
 **Theme:** Agent Intelligence & Autonomy — from "LLM with tools" to "agents that learn, remember, plan, and improve"
 
-**Depends on:** v0.2 complete (all 14+ apps working, 304+ tests passing)
+**Status:** ✅ Complete (all 14 features implemented, merged to main via PRs #31 and #32)
 
-**Estimated scope:** 14 features across 4 waves
+**Depends on:** v0.2 complete (all 14+ apps working, 304+ tests passing) ✅
+
+**Scope:** 14 features across 4 waves — all delivered
 
 ---
 
