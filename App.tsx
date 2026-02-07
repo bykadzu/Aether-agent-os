@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { AppID, WindowState, Agent, AgentStatus, RuntimeMode, phaseToStatus } from './types';
 import { Window } from './components/os/Window';
 import { Dock } from './components/os/Dock';
@@ -20,16 +20,32 @@ import { ContextMenu } from './components/os/ContextMenu';
 import { LoginScreen } from './components/os/LoginScreen';
 import { UserMenu } from './components/os/UserMenu';
 import { ErrorBoundary } from './components/os/ErrorBoundary';
+import { ShortcutOverlay } from './components/os/ShortcutOverlay';
 import { Battery, Wifi, Search, Command, RefreshCw, FolderPlus, Monitor, Image as ImageIcon, Server } from 'lucide-react';
 import { FileSystemItem, mockFileSystem } from './data/mockFileSystem';
 import { generateText, GeminiModel, getAgentDecision } from './services/geminiService';
 import { useKernel, AgentProcess } from './services/useKernel';
 import { getKernelClient, UserInfo } from './services/kernelClient';
+import { getShortcutManager } from './services/shortcutManager';
+
+// Dock app ordering — also used for Cmd+1..9 mapping
+const DOCK_APPS: AppID[] = [
+  AppID.AGENTS,
+  AppID.FILES,
+  AppID.BROWSER,
+  AppID.TERMINAL,
+  AppID.CODE,
+  AppID.NOTES,
+  AppID.PHOTOS,
+  AppID.CHAT,
+  AppID.CALCULATOR,
+];
 
 const App: React.FC = () => {
   const [windows, setWindows] = useState<WindowState[]>([]);
   const [activeWindowId, setActiveWindowId] = useState<string | null>(null);
   const [isSmartBarOpen, setIsSmartBarOpen] = useState(false);
+  const [isShortcutOverlayOpen, setIsShortcutOverlayOpen] = useState(false);
   const [time, setTime] = useState(new Date());
   const [isBooting, setIsBooting] = useState(true);
   
@@ -278,21 +294,137 @@ const App: React.FC = () => {
     return () => clearInterval(timer);
   }, []);
 
-  // Keyboard Shortcuts
+  // ── Keyboard shortcut system ──────────────────────────────────────────────
+
+  // Keep the manager aware of which app is focused
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
-        setIsSmartBarOpen(prev => !prev);
+    const mgr = getShortcutManager();
+    if (activeWindowId) {
+      // Standard apps use appId directly as window id; VM windows start with 'vm-'
+      const win = windows.find((w) => w.id === activeWindowId);
+      mgr.setFocusedApp(win ? win.appId : null);
+    } else {
+      mgr.setFocusedApp(null);
+    }
+  }, [activeWindowId, windows]);
+
+  // Helper: get the next non-minimized window id for Cmd+Tab cycling
+  const cycleWindow = useCallback(() => {
+    const visible = windows.filter((w) => !w.isMinimized);
+    if (visible.length === 0) return;
+    if (visible.length === 1) {
+      focusWindow(visible[0].id);
+      return;
+    }
+    const currentIdx = visible.findIndex((w) => w.id === activeWindowId);
+    const nextIdx = (currentIdx + 1) % visible.length;
+    focusWindow(visible[nextIdx].id);
+  }, [windows, activeWindowId]);
+
+  // Register all global shortcuts
+  useEffect(() => {
+    const mgr = getShortcutManager();
+
+    // -- System --
+    mgr.registerShortcut('global:smart-bar', 'Cmd+K', () => {
+      setIsSmartBarOpen((prev) => !prev);
+    }, 'Open Smart Bar', 'global', 'System');
+
+    mgr.registerShortcut('global:shortcut-overlay', 'Cmd+/', () => {
+      setIsShortcutOverlayOpen((prev) => !prev);
+    }, 'Show keyboard shortcuts', 'global', 'System');
+
+    mgr.registerShortcut('global:shortcut-overlay-alt', 'Cmd+?', () => {
+      setIsShortcutOverlayOpen((prev) => !prev);
+    }, 'Show keyboard shortcuts', 'global', 'System');
+
+    mgr.registerShortcut('global:escape', 'Escape', () => {
+      if (isShortcutOverlayOpen) {
+        setIsShortcutOverlayOpen(false);
+      } else if (isSmartBarOpen) {
+        setIsSmartBarOpen(false);
+      } else if (contextMenu) {
+        setContextMenu(null);
       }
-      if (e.key === 'Escape') {
-          setIsSmartBarOpen(false);
-          setContextMenu(null);
-      }
+    }, 'Close active overlay', 'global', 'System');
+
+    // -- Window Management --
+    mgr.registerShortcut('global:close-window', 'Cmd+W', () => {
+      if (activeWindowId) closeWindow(activeWindowId);
+    }, 'Close focused window', 'global', 'Window Management');
+
+    mgr.registerShortcut('global:close-window-q', 'Cmd+Q', () => {
+      if (activeWindowId) closeWindow(activeWindowId);
+    }, 'Close focused window', 'global', 'Window Management');
+
+    mgr.registerShortcut('global:minimize-window', 'Cmd+M', () => {
+      if (activeWindowId) minimizeWindow(activeWindowId);
+    }, 'Minimize focused window', 'global', 'Window Management');
+
+    mgr.registerShortcut('global:maximize-window', 'Cmd+Shift+M', () => {
+      if (activeWindowId) maximizeWindow(activeWindowId);
+    }, 'Maximize / restore focused window', 'global', 'Window Management');
+
+    mgr.registerShortcut('global:cycle-window', 'Cmd+Tab', () => {
+      cycleWindow();
+    }, 'Cycle through open windows', 'global', 'Window Management');
+
+    // -- Navigation --
+    mgr.registerShortcut('global:open-terminal', 'Cmd+N', () => {
+      openApp(AppID.TERMINAL);
+    }, 'Open new Terminal', 'global', 'Navigation');
+
+    mgr.registerShortcut('global:open-settings', 'Cmd+,', () => {
+      openApp(AppID.SETTINGS);
+    }, 'Open Settings', 'global', 'Navigation');
+
+    // -- Cmd+1..9: Focus / open Nth dock app --
+    for (let i = 0; i < 9; i++) {
+      mgr.registerShortcut(`global:dock-${i + 1}`, `Cmd+${i + 1}`, () => {
+        if (DOCK_APPS[i]) openApp(DOCK_APPS[i]);
+      }, `Open ${DOCK_APPS[i] ? DOCK_APPS[i].charAt(0).toUpperCase() + DOCK_APPS[i].slice(1) : `dock app ${i + 1}`}`, 'global', 'Navigation');
+    }
+
+    // -- App-specific shortcuts --
+
+    // Terminal
+    mgr.registerShortcut('app:terminal:new-tab', 'Cmd+T', () => {}, 'New tab', 'app:terminal', 'Terminal');
+    mgr.registerShortcut('app:terminal:clear', 'Cmd+K', () => {}, 'Clear terminal', 'app:terminal', 'Terminal');
+
+    // Code Editor
+    mgr.registerShortcut('app:code:save', 'Cmd+S', () => {}, 'Save file', 'app:code', 'Code Editor');
+    mgr.registerShortcut('app:code:quick-open', 'Cmd+P', () => {}, 'Quick open file', 'app:code', 'Code Editor');
+    mgr.registerShortcut('app:code:search-all', 'Cmd+Shift+F', () => {}, 'Search all files', 'app:code', 'Code Editor');
+
+    // Browser
+    mgr.registerShortcut('app:browser:url-bar', 'Cmd+L', () => {}, 'Focus URL bar', 'app:browser', 'Browser');
+    mgr.registerShortcut('app:browser:new-tab', 'Cmd+T', () => {}, 'New tab', 'app:browser', 'Browser');
+    mgr.registerShortcut('app:browser:reload', 'Cmd+R', () => {}, 'Reload page', 'app:browser', 'Browser');
+
+    // Notes
+    mgr.registerShortcut('app:notes:save', 'Cmd+S', () => {}, 'Save note', 'app:notes', 'Notes');
+    mgr.registerShortcut('app:notes:bold', 'Cmd+B', () => {}, 'Bold', 'app:notes', 'Notes');
+    mgr.registerShortcut('app:notes:italic', 'Cmd+I', () => {}, 'Italic', 'app:notes', 'Notes');
+
+    return () => {
+      // Clean up all registered shortcuts
+      const ids = [
+        'global:smart-bar', 'global:shortcut-overlay', 'global:shortcut-overlay-alt',
+        'global:escape',
+        'global:close-window', 'global:close-window-q',
+        'global:minimize-window', 'global:maximize-window',
+        'global:cycle-window',
+        'global:open-terminal', 'global:open-settings',
+        ...Array.from({ length: 9 }, (_, i) => `global:dock-${i + 1}`),
+        'app:terminal:new-tab', 'app:terminal:clear',
+        'app:code:save', 'app:code:quick-open', 'app:code:search-all',
+        'app:browser:url-bar', 'app:browser:new-tab', 'app:browser:reload',
+        'app:notes:save', 'app:notes:bold', 'app:notes:italic',
+      ];
+      ids.forEach((id) => mgr.unregisterShortcut(id));
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeWindowId, isSmartBarOpen, isShortcutOverlayOpen, contextMenu, cycleWindow]);
 
   const openApp = (appId: AppID, initialData?: any) => {
     // If it's a VM window, we allow multiples, so we generate a unique ID based on agent ID
@@ -750,6 +882,9 @@ const App: React.FC = () => {
 
         {/* Smart Bar (Spotlight) */}
         <SmartBar isOpen={isSmartBarOpen} onClose={() => setIsSmartBarOpen(false)} />
+
+        {/* Shortcut Overlay (Cmd+/) */}
+        <ShortcutOverlay isOpen={isShortcutOverlayOpen} onClose={() => setIsShortcutOverlayOpen(false)} />
 
         {/* Context Menu */}
         {contextMenu && (
