@@ -8,11 +8,11 @@ Consolidated checklist of all outstanding work, derived from NEXT_STEPS.md, FEAT
 
 ## Quick Wins (pre-v0.2, low effort / high impact)
 
-- [ ] **Pre-commit hooks** — Set up husky + lint-staged (called out in NEXT_STEPS.md Phase 2)
+- [x] **Pre-commit hooks** — husky + lint-staged configured (eslint --fix + prettier on staged .ts/.tsx)
 - [ ] **Screenshots in README** — Add screenshots/GIFs of the UI to make the project more approachable
-- [ ] **Kernel boot banner** — Print subsystem status on kernel startup for quick visual confirmation
-- [ ] **Agent log export** — Let users download agent run logs as JSON/text
-- [ ] **Loading skeleton for Mission Control** — Show skeleton cards while agents load
+- [x] **Kernel boot banner** — Prints all 12 subsystems with status, port, FS root, cluster role on startup
+- [x] **Agent log export** — Download button in AgentVM control bar (JSON + plain text formats)
+- [x] **Loading skeleton for Mission Control** — Animated pulse skeleton cards during initial load
 - [ ] **Dark/light theme toggle** — UI switch exists as a stub; wire up a light theme (or defer to v0.2 D3)
 - [ ] **File-based memory MVP** — Simple file-based persistent memory per agent (quick win before the full v0.3 vector store; see RESEARCH-openclaw-ideas.md)
 
@@ -151,7 +151,7 @@ These items appear across multiple docs or were identified as gaps:
 
 | Item | Source | Notes |
 |------|--------|-------|
-| Pre-commit hooks (husky) | NEXT_STEPS.md | Explicitly marked as remaining TODO |
+| ~~Pre-commit hooks (husky)~~ | NEXT_STEPS.md | ✅ Done — husky + lint-staged configured |
 | Screenshots in README | NEXT_STEPS.md | High impact, low effort |
 | File-based memory MVP | RESEARCH-openclaw-ideas.md | Quick win before full v0.3 memory system |
 | Cron/scheduling detail | RESEARCH-openclaw-ideas.md, RESEARCH-future-plans-summary.md | v0.3 mentions it but underspecifies |
