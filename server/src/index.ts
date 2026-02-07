@@ -14,6 +14,7 @@
  */
 
 import { createServer, IncomingMessage, ServerResponse } from 'node:http';
+import * as nodePath from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
 import { Kernel } from '@aether/kernel';
 import { runAgentLoop, listProviders, AGENT_TEMPLATES } from '@aether/runtime';
@@ -27,6 +28,33 @@ import {
 } from '@aether/shared';
 
 const PORT = parseInt(process.env.AETHER_PORT || String(DEFAULT_PORT), 10);
+
+// ---------------------------------------------------------------------------
+// MIME type mapping for raw file serving
+// ---------------------------------------------------------------------------
+
+const MIME_TYPES: Record<string, string> = {
+  // Audio
+  '.mp3': 'audio/mpeg',
+  '.wav': 'audio/wav',
+  '.ogg': 'audio/ogg',
+  '.flac': 'audio/flac',
+  // Images
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+  '.webp': 'image/webp',
+  // Video
+  '.mp4': 'video/mp4',
+  '.webm': 'video/webm',
+  // Documents
+  '.pdf': 'application/pdf',
+  // Text/Data
+  '.json': 'application/json',
+  '.txt': 'text/plain',
+};
 
 // ---------------------------------------------------------------------------
 // Boot the kernel
@@ -577,6 +605,120 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(AGENT_TEMPLATES));
     return;
+  }
+
+  // ----- Raw File Serving Endpoint -----
+
+  if (url.pathname === '/api/fs/raw' && req.method === 'GET') {
+    const filePath = url.searchParams.get('path');
+
+    if (!filePath) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Missing required "path" query parameter' }));
+      return;
+    }
+
+    // Path traversal check
+    const normalized = nodePath.posix.normalize(filePath);
+    if (normalized.includes('..')) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Access denied: path traversal detected' }));
+      return;
+    }
+
+    try {
+      // Verify the file exists and get its size
+      const stat = await kernel.fs.stat(filePath);
+
+      if (stat.type === 'directory') {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Cannot serve a directory' }));
+        return;
+      }
+
+      const fileSize = stat.size;
+      const ext = nodePath.extname(filePath).toLowerCase();
+      const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+
+      // Handle Range requests for audio/video seeking
+      const rangeHeader = req.headers['range'];
+      if (rangeHeader) {
+        const match = rangeHeader.match(/bytes=(\d+)-(\d*)/);
+        if (!match) {
+          res.writeHead(416, {
+            'Content-Range': `bytes */${fileSize}`,
+          });
+          res.end();
+          return;
+        }
+
+        const start = parseInt(match[1], 10);
+        const end = match[2] ? parseInt(match[2], 10) : fileSize - 1;
+
+        if (start >= fileSize || end >= fileSize || start > end) {
+          res.writeHead(416, {
+            'Content-Range': `bytes */${fileSize}`,
+          });
+          res.end();
+          return;
+        }
+
+        const chunkSize = end - start + 1;
+        res.writeHead(206, {
+          'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+          'Accept-Ranges': 'bytes',
+          'Content-Length': String(chunkSize),
+          'Content-Type': contentType,
+          'Content-Disposition': 'inline',
+        });
+
+        const stream = kernel.fs.createReadStream(filePath, { start, end });
+        stream.pipe(res);
+        stream.on('error', () => {
+          if (!res.headersSent) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Error reading file' }));
+          } else {
+            res.end();
+          }
+        });
+        return;
+      }
+
+      // Full file response (streamed)
+      res.writeHead(200, {
+        'Content-Type': contentType,
+        'Content-Length': String(fileSize),
+        'Content-Disposition': 'inline',
+        'Accept-Ranges': 'bytes',
+      });
+
+      const stream = kernel.fs.createReadStream(filePath);
+      stream.pipe(res);
+      stream.on('error', () => {
+        if (!res.headersSent) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Error reading file' }));
+        } else {
+          res.end();
+        }
+      });
+      return;
+    } catch (err: any) {
+      if (err.code === 'ENOENT' || err.message?.includes('ENOENT')) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'File not found' }));
+        return;
+      }
+      if (err.message?.includes('Access denied')) {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+        return;
+      }
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+      return;
+    }
   }
 
   // 404
