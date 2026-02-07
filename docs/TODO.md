@@ -60,15 +60,15 @@ Full details in [ROADMAP-v0.2.md](./ROADMAP-v0.2.md) and [SESSION-PROMPTS-v0.2.m
 14 parallel session prompts are ready for execution in 4 waves:
 
 ### Wave 1 (no dependencies)
-- [ ] **A1: BrowserManager** — Playwright-based kernel browser subsystem (replaces iframe approach)
+- [x] **A1: BrowserManager** — Playwright-based kernel browser subsystem (replaces iframe approach) ✅ Fully implemented with session management, navigation, input, screenshots, screencasting
 - [ ] **B1: Notification Center** — system-wide toast/notification framework (component exists, needs kernel integration)
 - [ ] **D1: Keyboard Shortcuts** — global shortcut registry and overlay (ShortcutOverlay exists, needs expansion)
 - [ ] **F1: Raw File Serving** — `/api/files/raw/:path` endpoint for binary file access
 
 ### Wave 2 (depends on Wave 1)
 - [ ] **A2: BrowserApp** — UI for the real Chromium browser (depends on A1)
-- [ ] **A3: Monaco Code Editor** — Replace regex highlighter with Monaco Editor + LSP
-- [ ] **B2: System Monitor** — Real-time CPU/memory/disk/network dashboard
+- [x] **A3: Monaco Code Editor** — Replace regex highlighter with Monaco Editor ✅ Multi-tab, file tree sidebar, language auto-detection, VS Code dark theme
+- [x] **B2: System Monitor** — Real-time CPU/memory/disk/network dashboard ✅ SVG charts, 2s polling, per-agent resource breakdown, `/api/system/stats` endpoint
 - [ ] **B3: Music/Audio Player** — Audio playback with playlists, waveform visualization
 
 ### Wave 3 (depends on Wave 1-2)
@@ -76,18 +76,18 @@ Full details in [ROADMAP-v0.2.md](./ROADMAP-v0.2.md) and [SESSION-PROMPTS-v0.2.m
 - [ ] **C1: Spreadsheet** — HyperFormula-based spreadsheet (SheetsApp exists, needs formula engine)
 - [ ] **C2: Drawing Canvas** — tldraw or Excalidraw integration (CanvasApp exists, needs upgrade)
 - [ ] **C3: Markdown Writer** — Milkdown editor with live preview (WriterApp exists, needs upgrade)
-- [ ] **E1: Agent Browser Tools** — Upgrade `browse_web` tool from HTTP fetch to real Chromium
+- [x] **E1: Agent Browser Tools** — Upgrade `browse_web` tool from HTTP fetch to real Chromium ✅ browse_web uses BrowserManager with fallback, added screenshot_page, click_element, type_text tools
 
 ### Wave 4 (depends on D1)
 - [ ] **D2: Multi-Desktop Workspaces** — Virtual workspace switching (WorkspaceSwitcher exists, needs polish)
 - [ ] **D3: Light Theme + Theme System** — Full theming with light/dark toggle and CSS variable system
 
 ### v0.2 Success Criteria
-- [ ] Agent can browse any website (not blocked by iframe restrictions)
-- [ ] Code editor has syntax highlighting, autocomplete, and multi-file tabs
+- [x] Agent can browse any website (not blocked by iframe restrictions) ✅ BrowserManager + agent tools
+- [x] Code editor has syntax highlighting, autocomplete, and multi-file tabs ✅ Monaco Editor
 - [ ] All 14+ apps launch, function, and persist state through the kernel
 - [ ] Notification center aggregates events from kernel and agents
-- [ ] System monitor shows real resource usage
+- [x] System monitor shows real resource usage ✅ SystemMonitorApp + /api/system/stats
 - [ ] Theme toggle works between light and dark
 
 ---

@@ -18,6 +18,7 @@ import { AgentVM } from './components/apps/AgentVM';
 import { SheetsApp } from './components/apps/SheetsApp';
 import { CanvasApp } from './components/apps/CanvasApp';
 import { WriterApp } from './components/apps/WriterApp';
+import { SystemMonitorApp } from './components/apps/SystemMonitorApp';
 import { DesktopWidgets } from './components/os/DesktopWidgets';
 import { ContextMenu } from './components/os/ContextMenu';
 import { LoginScreen } from './components/os/LoginScreen';
@@ -25,7 +26,17 @@ import { UserMenu } from './components/os/UserMenu';
 import { ErrorBoundary } from './components/os/ErrorBoundary';
 import { ShortcutOverlay } from './components/os/ShortcutOverlay';
 import { WorkspaceSwitcher, WorkspaceOverview } from './components/os/WorkspaceSwitcher';
-import { Battery, Wifi, Search, Command, RefreshCw, FolderPlus, Monitor, Image as ImageIcon, Server } from 'lucide-react';
+import {
+  Battery,
+  Wifi,
+  Search,
+  Command,
+  RefreshCw,
+  FolderPlus,
+  Monitor,
+  Image as ImageIcon,
+  Server,
+} from 'lucide-react';
 import { NotificationBell, useNotifications } from './components/os/NotificationCenter';
 import { FileSystemItem, mockFileSystem } from './data/mockFileSystem';
 import { generateText, GeminiModel, getAgentDecision } from './services/geminiService';
@@ -44,6 +55,7 @@ const DOCK_APPS: AppID[] = [
   AppID.SHEETS,
   AppID.CANVAS,
   AppID.WRITER,
+  AppID.SYSTEM_MONITOR,
 ];
 
 const App: React.FC = () => {
@@ -53,18 +65,22 @@ const App: React.FC = () => {
   const [isShortcutOverlayOpen, setIsShortcutOverlayOpen] = useState(false);
   const [time, setTime] = useState(new Date());
   const [isBooting, setIsBooting] = useState(true);
-  
+
   // File System State
   const [files, setFiles] = useState<FileSystemItem[]>(mockFileSystem);
-  
+
   // Context Menu State
-  const [contextMenu, setContextMenu] = useState<{ isOpen: boolean; x: number; y: number } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ isOpen: boolean; x: number; y: number } | null>(
+    null,
+  );
 
   // Workspace State
   const [currentWorkspace, setCurrentWorkspace] = useState(0);
   const [totalWorkspaces] = useState(3);
   const [showWorkspaceOverview, setShowWorkspaceOverview] = useState(false);
-  const [workspaceTransitionDir, setWorkspaceTransitionDir] = useState<'left' | 'right' | null>(null);
+  const [workspaceTransitionDir, setWorkspaceTransitionDir] = useState<'left' | 'right' | null>(
+    null,
+  );
 
   // Auth state
   const [authUser, setAuthUser] = useState<UserInfo | null>(null);
@@ -89,43 +105,45 @@ const App: React.FC = () => {
       // Try to validate via HTTP
       const baseUrl = 'http://localhost:3001';
       fetch(`${baseUrl}/api/kernel`, {
-        headers: { 'Authorization': `Bearer ${storedToken}` },
-      }).then(res => {
-        if (res.ok) {
-          // Token is valid with server, now validate user from WS
-          // The WS connection will include the token automatically
-          client.connect();
-          // Try to decode user from token (will be validated server-side)
-          // We'll get the user info once the WS validates
-          // For now, parse the token payload
-          try {
-            const parts = storedToken.split('.');
-            if (parts.length === 3) {
-              const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
-              if (payload.sub && payload.username && payload.exp > Date.now()) {
-                const user: UserInfo = {
-                  id: payload.sub,
-                  username: payload.username,
-                  displayName: payload.username,
-                  role: payload.role || 'user',
-                };
-                setAuthUser(user);
-                client.setCurrentUser(user);
+        headers: { Authorization: `Bearer ${storedToken}` },
+      })
+        .then((res) => {
+          if (res.ok) {
+            // Token is valid with server, now validate user from WS
+            // The WS connection will include the token automatically
+            client.connect();
+            // Try to decode user from token (will be validated server-side)
+            // We'll get the user info once the WS validates
+            // For now, parse the token payload
+            try {
+              const parts = storedToken.split('.');
+              if (parts.length === 3) {
+                const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+                if (payload.sub && payload.username && payload.exp > Date.now()) {
+                  const user: UserInfo = {
+                    id: payload.sub,
+                    username: payload.username,
+                    displayName: payload.username,
+                    role: payload.role || 'user',
+                  };
+                  setAuthUser(user);
+                  client.setCurrentUser(user);
+                }
               }
+            } catch {
+              // Token decode failed, will need to re-login
             }
-          } catch {
-            // Token decode failed, will need to re-login
+          } else {
+            // Token invalid, clear it
+            localStorage.removeItem('aether_token');
+            client.setToken(null);
           }
-        } else {
-          // Token invalid, clear it
-          localStorage.removeItem('aether_token');
-          client.setToken(null);
-        }
-        setAuthChecking(false);
-      }).catch(() => {
-        // Server not available - might be mock mode
-        setAuthChecking(false);
-      });
+          setAuthChecking(false);
+        })
+        .catch(() => {
+          // Server not available - might be mock mode
+          setAuthChecking(false);
+        });
     } else {
       setAuthChecking(false);
     }
@@ -155,7 +173,11 @@ const App: React.FC = () => {
     }
   };
 
-  const handleRegister = async (username: string, password: string, displayName: string): Promise<boolean> => {
+  const handleRegister = async (
+    username: string,
+    password: string,
+    displayName: string,
+  ): Promise<boolean> => {
     try {
       const client = getKernelClient();
       const result = await client.registerHttp(username, password, displayName);
@@ -180,21 +202,23 @@ const App: React.FC = () => {
 
   // Bridge kernel processes to Agent type for UI compatibility
   const kernelAgents: Agent[] = useMemo(() => {
-    return kernel.processes.map((proc: AgentProcess): Agent => ({
-      id: `agent_${proc.pid}`,
-      pid: proc.pid,
-      name: proc.name,
-      role: proc.role,
-      goal: proc.goal,
-      status: phaseToStatus(proc.phase, proc.state),
-      phase: proc.phase,
-      logs: proc.logs,
-      currentUrl: proc.currentUrl,
-      currentCode: proc.currentCode,
-      progress: proc.progress.step,
-      ttyId: proc.ttyId,
-      isWaiting: false,
-    }));
+    return kernel.processes.map(
+      (proc: AgentProcess): Agent => ({
+        id: `agent_${proc.pid}`,
+        pid: proc.pid,
+        name: proc.name,
+        role: proc.role,
+        goal: proc.goal,
+        status: phaseToStatus(proc.phase, proc.state),
+        phase: proc.phase,
+        logs: proc.logs,
+        currentUrl: proc.currentUrl,
+        currentCode: proc.currentCode,
+        progress: proc.progress.step,
+        ttyId: proc.ttyId,
+        isWaiting: false,
+      }),
+    );
   }, [kernel.processes]);
 
   // Agent System State (mock mode fallback)
@@ -209,92 +233,110 @@ const App: React.FC = () => {
     if (runtimeMode === 'kernel') return; // Skip mock loop when real kernel is connected
 
     const runAgentStep = async (agent: Agent) => {
-        // If agent is busy, skip
-        if (agent.isWaiting) return;
+      // If agent is busy, skip
+      if (agent.isWaiting) return;
 
-        // Mark agent as waiting for network
-        setAgents(prev => prev.map(a => a.id === agent.id ? { ...a, isWaiting: true } : a));
+      // Mark agent as waiting for network
+      setAgents((prev) => prev.map((a) => (a.id === agent.id ? { ...a, isWaiting: true } : a)));
 
-        // Get File System context (names only)
-        const fileNames = files.map(f => f.name);
-        
-        // Ask Gemini what to do
-        const decision = await getAgentDecision(agent, fileNames);
+      // Get File System context (names only)
+      const fileNames = files.map((f) => f.name);
 
-        // Execute Decision
-        setAgents(prev => prev.map(a => {
-            if (a.id !== agent.id) return a;
-            
-            const newLogs = [...a.logs];
-            let newStatus = a.status;
-            let newUrl = a.currentUrl;
-            let newCode = a.currentCode;
+      // Ask Gemini what to do
+      const decision = await getAgentDecision(agent, fileNames);
 
-            // 1. Log the thought
-            newLogs.push({ timestamp: Date.now(), type: 'thought', message: decision.thought });
+      // Execute Decision
+      setAgents((prev) =>
+        prev.map((a) => {
+          if (a.id !== agent.id) return a;
 
-            // 2. Perform Action
-            if (decision.action === 'create_file' && decision.fileName && decision.fileContent) {
-                // Side Effect: Create File in OS
-                const newFile: FileSystemItem = {
-                    id: `file_${Date.now()}`,
-                    parentId: 'root', // Agents drop files in root for now
-                    name: decision.fileName,
-                    type: 'file',
-                    kind: decision.fileName.endsWith('png') || decision.fileName.endsWith('jpg') ? 'image' : 'code',
-                    date: 'Just now',
-                    size: `${(decision.fileContent.length / 1024).toFixed(1)} KB`,
-                    content: decision.fileContent
-                };
-                
-                // We need to update the file system state, but we are inside setAgents map
-                // We'll queue this update via a separate effect or just break purity slightly for the demo
-                // Ideally we'd use a reducer, but let's use the setter from outside
-                setFiles(currentFiles => {
-                     // Check duplicates
-                     if (currentFiles.some(f => f.name === decision.fileName)) return currentFiles;
-                     return [...currentFiles, newFile];
-                });
+          const newLogs = [...a.logs];
+          let newStatus = a.status;
+          let newUrl = a.currentUrl;
+          let newCode = a.currentCode;
 
-                newLogs.push({ timestamp: Date.now(), type: 'action', message: `Created file: ${decision.fileName}` });
-                newCode = decision.fileContent;
-            } 
-            else if (decision.action === 'browse' && decision.url) {
-                newUrl = decision.url;
-                newLogs.push({ timestamp: Date.now(), type: 'action', message: `Browsing ${decision.url}... ${decision.webSummary ? `Found: ${decision.webSummary.substring(0, 50)}...` : ''}` });
-            }
-            else if (decision.action === 'complete') {
-                newStatus = 'completed';
-                newLogs.push({ timestamp: Date.now(), type: 'system', message: 'Goal achieved. Task complete.' });
-            }
+          // 1. Log the thought
+          newLogs.push({ timestamp: Date.now(), type: 'thought', message: decision.thought });
 
-            // Sync simulation
-            if (a.githubSync && decision.action !== 'think') {
-                 newLogs.push({ timestamp: Date.now(), type: 'system', message: 'Synced changes to GitHub repository [main].' });
-            }
-
-            return {
-                ...a,
-                status: newStatus,
-                currentUrl: newUrl,
-                currentCode: newCode,
-                logs: newLogs,
-                isWaiting: false // Done
+          // 2. Perform Action
+          if (decision.action === 'create_file' && decision.fileName && decision.fileContent) {
+            // Side Effect: Create File in OS
+            const newFile: FileSystemItem = {
+              id: `file_${Date.now()}`,
+              parentId: 'root', // Agents drop files in root for now
+              name: decision.fileName,
+              type: 'file',
+              kind:
+                decision.fileName.endsWith('png') || decision.fileName.endsWith('jpg')
+                  ? 'image'
+                  : 'code',
+              date: 'Just now',
+              size: `${(decision.fileContent.length / 1024).toFixed(1)} KB`,
+              content: decision.fileContent,
             };
-        }));
+
+            // We need to update the file system state, but we are inside setAgents map
+            // We'll queue this update via a separate effect or just break purity slightly for the demo
+            // Ideally we'd use a reducer, but let's use the setter from outside
+            setFiles((currentFiles) => {
+              // Check duplicates
+              if (currentFiles.some((f) => f.name === decision.fileName)) return currentFiles;
+              return [...currentFiles, newFile];
+            });
+
+            newLogs.push({
+              timestamp: Date.now(),
+              type: 'action',
+              message: `Created file: ${decision.fileName}`,
+            });
+            newCode = decision.fileContent;
+          } else if (decision.action === 'browse' && decision.url) {
+            newUrl = decision.url;
+            newLogs.push({
+              timestamp: Date.now(),
+              type: 'action',
+              message: `Browsing ${decision.url}... ${decision.webSummary ? `Found: ${decision.webSummary.substring(0, 50)}...` : ''}`,
+            });
+          } else if (decision.action === 'complete') {
+            newStatus = 'completed';
+            newLogs.push({
+              timestamp: Date.now(),
+              type: 'system',
+              message: 'Goal achieved. Task complete.',
+            });
+          }
+
+          // Sync simulation
+          if (a.githubSync && decision.action !== 'think') {
+            newLogs.push({
+              timestamp: Date.now(),
+              type: 'system',
+              message: 'Synced changes to GitHub repository [main].',
+            });
+          }
+
+          return {
+            ...a,
+            status: newStatus,
+            currentUrl: newUrl,
+            currentCode: newCode,
+            logs: newLogs,
+            isWaiting: false, // Done
+          };
+        }),
+      );
     };
 
     const interval = setInterval(() => {
-        agents.forEach(agent => {
-            if (agent.status === 'working' || agent.status === 'thinking') {
-                runAgentStep(agent);
-            }
-        });
+      agents.forEach((agent) => {
+        if (agent.status === 'working' || agent.status === 'thinking') {
+          runAgentStep(agent);
+        }
+      });
     }, 4000); // Check every 4 seconds to be polite to the API
 
     return () => clearInterval(interval);
   }, [mockAgents, files, runtimeMode]);
-
 
   // Boot Effect
   useEffect(() => {
@@ -340,113 +382,295 @@ const App: React.FC = () => {
     const mgr = getShortcutManager();
 
     // -- System --
-    mgr.registerShortcut('global:smart-bar', 'Cmd+K', () => {
-      setIsSmartBarOpen((prev) => !prev);
-    }, 'Open Smart Bar', 'global', 'System');
+    mgr.registerShortcut(
+      'global:smart-bar',
+      'Cmd+K',
+      () => {
+        setIsSmartBarOpen((prev) => !prev);
+      },
+      'Open Smart Bar',
+      'global',
+      'System',
+    );
 
-    mgr.registerShortcut('global:shortcut-overlay', 'Cmd+/', () => {
-      setIsShortcutOverlayOpen((prev) => !prev);
-    }, 'Show keyboard shortcuts', 'global', 'System');
+    mgr.registerShortcut(
+      'global:shortcut-overlay',
+      'Cmd+/',
+      () => {
+        setIsShortcutOverlayOpen((prev) => !prev);
+      },
+      'Show keyboard shortcuts',
+      'global',
+      'System',
+    );
 
-    mgr.registerShortcut('global:shortcut-overlay-alt', 'Cmd+?', () => {
-      setIsShortcutOverlayOpen((prev) => !prev);
-    }, 'Show keyboard shortcuts', 'global', 'System');
+    mgr.registerShortcut(
+      'global:shortcut-overlay-alt',
+      'Cmd+?',
+      () => {
+        setIsShortcutOverlayOpen((prev) => !prev);
+      },
+      'Show keyboard shortcuts',
+      'global',
+      'System',
+    );
 
-    mgr.registerShortcut('global:escape', 'Escape', () => {
-      if (isShortcutOverlayOpen) {
-        setIsShortcutOverlayOpen(false);
-      } else if (isSmartBarOpen) {
-        setIsSmartBarOpen(false);
-      } else if (contextMenu) {
-        setContextMenu(null);
-      }
-    }, 'Close active overlay', 'global', 'System');
+    mgr.registerShortcut(
+      'global:escape',
+      'Escape',
+      () => {
+        if (isShortcutOverlayOpen) {
+          setIsShortcutOverlayOpen(false);
+        } else if (isSmartBarOpen) {
+          setIsSmartBarOpen(false);
+        } else if (contextMenu) {
+          setContextMenu(null);
+        }
+      },
+      'Close active overlay',
+      'global',
+      'System',
+    );
 
     // -- Window Management --
-    mgr.registerShortcut('global:close-window', 'Cmd+W', () => {
-      if (activeWindowId) closeWindow(activeWindowId);
-    }, 'Close focused window', 'global', 'Window Management');
+    mgr.registerShortcut(
+      'global:close-window',
+      'Cmd+W',
+      () => {
+        if (activeWindowId) closeWindow(activeWindowId);
+      },
+      'Close focused window',
+      'global',
+      'Window Management',
+    );
 
-    mgr.registerShortcut('global:close-window-q', 'Cmd+Q', () => {
-      if (activeWindowId) closeWindow(activeWindowId);
-    }, 'Close focused window', 'global', 'Window Management');
+    mgr.registerShortcut(
+      'global:close-window-q',
+      'Cmd+Q',
+      () => {
+        if (activeWindowId) closeWindow(activeWindowId);
+      },
+      'Close focused window',
+      'global',
+      'Window Management',
+    );
 
-    mgr.registerShortcut('global:minimize-window', 'Cmd+M', () => {
-      if (activeWindowId) minimizeWindow(activeWindowId);
-    }, 'Minimize focused window', 'global', 'Window Management');
+    mgr.registerShortcut(
+      'global:minimize-window',
+      'Cmd+M',
+      () => {
+        if (activeWindowId) minimizeWindow(activeWindowId);
+      },
+      'Minimize focused window',
+      'global',
+      'Window Management',
+    );
 
-    mgr.registerShortcut('global:maximize-window', 'Cmd+Shift+M', () => {
-      if (activeWindowId) maximizeWindow(activeWindowId);
-    }, 'Maximize / restore focused window', 'global', 'Window Management');
+    mgr.registerShortcut(
+      'global:maximize-window',
+      'Cmd+Shift+M',
+      () => {
+        if (activeWindowId) maximizeWindow(activeWindowId);
+      },
+      'Maximize / restore focused window',
+      'global',
+      'Window Management',
+    );
 
-    mgr.registerShortcut('global:cycle-window', 'Cmd+Tab', () => {
-      cycleWindow();
-    }, 'Cycle through open windows', 'global', 'Window Management');
+    mgr.registerShortcut(
+      'global:cycle-window',
+      'Cmd+Tab',
+      () => {
+        cycleWindow();
+      },
+      'Cycle through open windows',
+      'global',
+      'Window Management',
+    );
 
     // -- Navigation --
-    mgr.registerShortcut('global:open-terminal', 'Cmd+N', () => {
-      openApp(AppID.TERMINAL);
-    }, 'Open new Terminal', 'global', 'Navigation');
+    mgr.registerShortcut(
+      'global:open-terminal',
+      'Cmd+N',
+      () => {
+        openApp(AppID.TERMINAL);
+      },
+      'Open new Terminal',
+      'global',
+      'Navigation',
+    );
 
-    mgr.registerShortcut('global:open-settings', 'Cmd+,', () => {
-      openApp(AppID.SETTINGS);
-    }, 'Open Settings', 'global', 'Navigation');
+    mgr.registerShortcut(
+      'global:open-settings',
+      'Cmd+,',
+      () => {
+        openApp(AppID.SETTINGS);
+      },
+      'Open Settings',
+      'global',
+      'Navigation',
+    );
 
     // -- Cmd+1..9: Focus / open Nth dock app --
     for (let i = 0; i < 9; i++) {
-      mgr.registerShortcut(`global:dock-${i + 1}`, `Cmd+${i + 1}`, () => {
-        if (DOCK_APPS[i]) openApp(DOCK_APPS[i]);
-      }, `Open ${DOCK_APPS[i] ? DOCK_APPS[i].charAt(0).toUpperCase() + DOCK_APPS[i].slice(1) : `dock app ${i + 1}`}`, 'global', 'Navigation');
+      mgr.registerShortcut(
+        `global:dock-${i + 1}`,
+        `Cmd+${i + 1}`,
+        () => {
+          if (DOCK_APPS[i]) openApp(DOCK_APPS[i]);
+        },
+        `Open ${DOCK_APPS[i] ? DOCK_APPS[i].charAt(0).toUpperCase() + DOCK_APPS[i].slice(1) : `dock app ${i + 1}`}`,
+        'global',
+        'Navigation',
+      );
     }
 
     // -- Workspace shortcuts --
-    mgr.registerShortcut('global:ws-prev', 'Ctrl+ArrowLeft', () => {
-      switchWorkspace(currentWorkspace - 1, 'left');
-    }, 'Previous workspace', 'global', 'Workspaces');
+    mgr.registerShortcut(
+      'global:ws-prev',
+      'Ctrl+ArrowLeft',
+      () => {
+        switchWorkspace(currentWorkspace - 1, 'left');
+      },
+      'Previous workspace',
+      'global',
+      'Workspaces',
+    );
 
-    mgr.registerShortcut('global:ws-next', 'Ctrl+ArrowRight', () => {
-      switchWorkspace(currentWorkspace + 1, 'right');
-    }, 'Next workspace', 'global', 'Workspaces');
+    mgr.registerShortcut(
+      'global:ws-next',
+      'Ctrl+ArrowRight',
+      () => {
+        switchWorkspace(currentWorkspace + 1, 'right');
+      },
+      'Next workspace',
+      'global',
+      'Workspaces',
+    );
 
-    mgr.registerShortcut('global:ws-overview', 'Ctrl+ArrowUp', () => {
-      setShowWorkspaceOverview(prev => !prev);
-    }, 'Workspace overview', 'global', 'Workspaces');
+    mgr.registerShortcut(
+      'global:ws-overview',
+      'Ctrl+ArrowUp',
+      () => {
+        setShowWorkspaceOverview((prev) => !prev);
+      },
+      'Workspace overview',
+      'global',
+      'Workspaces',
+    );
 
     for (let i = 0; i < 9; i++) {
-      mgr.registerShortcut(`global:ws-jump-${i + 1}`, `Ctrl+${i + 1}`, () => {
-        if (i < totalWorkspaces) switchWorkspace(i);
-      }, `Switch to workspace ${i + 1}`, 'global', 'Workspaces');
+      mgr.registerShortcut(
+        `global:ws-jump-${i + 1}`,
+        `Ctrl+${i + 1}`,
+        () => {
+          if (i < totalWorkspaces) switchWorkspace(i);
+        },
+        `Switch to workspace ${i + 1}`,
+        'global',
+        'Workspaces',
+      );
     }
 
-    mgr.registerShortcut('global:ws-move-left', 'Ctrl+Shift+ArrowLeft', () => {
-      if (activeWindowId && currentWorkspace > 0) {
-        moveWindowToWorkspace(activeWindowId, currentWorkspace - 1);
-        switchWorkspace(currentWorkspace - 1, 'left');
-      }
-    }, 'Move window to prev workspace', 'global', 'Workspaces');
+    mgr.registerShortcut(
+      'global:ws-move-left',
+      'Ctrl+Shift+ArrowLeft',
+      () => {
+        if (activeWindowId && currentWorkspace > 0) {
+          moveWindowToWorkspace(activeWindowId, currentWorkspace - 1);
+          switchWorkspace(currentWorkspace - 1, 'left');
+        }
+      },
+      'Move window to prev workspace',
+      'global',
+      'Workspaces',
+    );
 
-    mgr.registerShortcut('global:ws-move-right', 'Ctrl+Shift+ArrowRight', () => {
-      if (activeWindowId && currentWorkspace < totalWorkspaces - 1) {
-        moveWindowToWorkspace(activeWindowId, currentWorkspace + 1);
-        switchWorkspace(currentWorkspace + 1, 'right');
-      }
-    }, 'Move window to next workspace', 'global', 'Workspaces');
+    mgr.registerShortcut(
+      'global:ws-move-right',
+      'Ctrl+Shift+ArrowRight',
+      () => {
+        if (activeWindowId && currentWorkspace < totalWorkspaces - 1) {
+          moveWindowToWorkspace(activeWindowId, currentWorkspace + 1);
+          switchWorkspace(currentWorkspace + 1, 'right');
+        }
+      },
+      'Move window to next workspace',
+      'global',
+      'Workspaces',
+    );
 
     // -- App-specific shortcuts --
 
     // Terminal
-    mgr.registerShortcut('app:terminal:new-tab', 'Cmd+T', () => {}, 'New tab', 'app:terminal', 'Terminal');
-    mgr.registerShortcut('app:terminal:clear', 'Cmd+K', () => {}, 'Clear terminal', 'app:terminal', 'Terminal');
+    mgr.registerShortcut(
+      'app:terminal:new-tab',
+      'Cmd+T',
+      () => {},
+      'New tab',
+      'app:terminal',
+      'Terminal',
+    );
+    mgr.registerShortcut(
+      'app:terminal:clear',
+      'Cmd+K',
+      () => {},
+      'Clear terminal',
+      'app:terminal',
+      'Terminal',
+    );
 
     // Code Editor
-    mgr.registerShortcut('app:code:save', 'Cmd+S', () => {}, 'Save file', 'app:code', 'Code Editor');
-    mgr.registerShortcut('app:code:quick-open', 'Cmd+P', () => {}, 'Quick open file', 'app:code', 'Code Editor');
-    mgr.registerShortcut('app:code:search-all', 'Cmd+Shift+F', () => {}, 'Search all files', 'app:code', 'Code Editor');
+    mgr.registerShortcut(
+      'app:code:save',
+      'Cmd+S',
+      () => {},
+      'Save file',
+      'app:code',
+      'Code Editor',
+    );
+    mgr.registerShortcut(
+      'app:code:quick-open',
+      'Cmd+P',
+      () => {},
+      'Quick open file',
+      'app:code',
+      'Code Editor',
+    );
+    mgr.registerShortcut(
+      'app:code:search-all',
+      'Cmd+Shift+F',
+      () => {},
+      'Search all files',
+      'app:code',
+      'Code Editor',
+    );
 
     // Browser
-    mgr.registerShortcut('app:browser:url-bar', 'Cmd+L', () => {}, 'Focus URL bar', 'app:browser', 'Browser');
-    mgr.registerShortcut('app:browser:new-tab', 'Cmd+T', () => {}, 'New tab', 'app:browser', 'Browser');
-    mgr.registerShortcut('app:browser:reload', 'Cmd+R', () => {}, 'Reload page', 'app:browser', 'Browser');
+    mgr.registerShortcut(
+      'app:browser:url-bar',
+      'Cmd+L',
+      () => {},
+      'Focus URL bar',
+      'app:browser',
+      'Browser',
+    );
+    mgr.registerShortcut(
+      'app:browser:new-tab',
+      'Cmd+T',
+      () => {},
+      'New tab',
+      'app:browser',
+      'Browser',
+    );
+    mgr.registerShortcut(
+      'app:browser:reload',
+      'Cmd+R',
+      () => {},
+      'Reload page',
+      'app:browser',
+      'Browser',
+    );
 
     // Notes
     mgr.registerShortcut('app:notes:save', 'Cmd+S', () => {}, 'Save note', 'app:notes', 'Notes');
@@ -456,61 +680,88 @@ const App: React.FC = () => {
     return () => {
       // Clean up all registered shortcuts
       const ids = [
-        'global:smart-bar', 'global:shortcut-overlay', 'global:shortcut-overlay-alt',
+        'global:smart-bar',
+        'global:shortcut-overlay',
+        'global:shortcut-overlay-alt',
         'global:escape',
-        'global:close-window', 'global:close-window-q',
-        'global:minimize-window', 'global:maximize-window',
+        'global:close-window',
+        'global:close-window-q',
+        'global:minimize-window',
+        'global:maximize-window',
         'global:cycle-window',
-        'global:open-terminal', 'global:open-settings',
+        'global:open-terminal',
+        'global:open-settings',
         ...Array.from({ length: 9 }, (_, i) => `global:dock-${i + 1}`),
-        'global:ws-prev', 'global:ws-next', 'global:ws-overview',
+        'global:ws-prev',
+        'global:ws-next',
+        'global:ws-overview',
         ...Array.from({ length: 9 }, (_, i) => `global:ws-jump-${i + 1}`),
-        'global:ws-move-left', 'global:ws-move-right',
-        'app:terminal:new-tab', 'app:terminal:clear',
-        'app:code:save', 'app:code:quick-open', 'app:code:search-all',
-        'app:browser:url-bar', 'app:browser:new-tab', 'app:browser:reload',
-        'app:notes:save', 'app:notes:bold', 'app:notes:italic',
+        'global:ws-move-left',
+        'global:ws-move-right',
+        'app:terminal:new-tab',
+        'app:terminal:clear',
+        'app:code:save',
+        'app:code:quick-open',
+        'app:code:search-all',
+        'app:browser:url-bar',
+        'app:browser:new-tab',
+        'app:browser:reload',
+        'app:notes:save',
+        'app:notes:bold',
+        'app:notes:italic',
       ];
       ids.forEach((id) => mgr.unregisterShortcut(id));
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeWindowId, isSmartBarOpen, isShortcutOverlayOpen, contextMenu, cycleWindow, currentWorkspace, switchWorkspace, moveWindowToWorkspace, totalWorkspaces]);
+  }, [
+    activeWindowId,
+    isSmartBarOpen,
+    isShortcutOverlayOpen,
+    contextMenu,
+    cycleWindow,
+    currentWorkspace,
+    switchWorkspace,
+    moveWindowToWorkspace,
+    totalWorkspaces,
+  ]);
 
   const openApp = (appId: AppID, initialData?: any) => {
     // If it's a VM window, we allow multiples, so we generate a unique ID based on agent ID
     if (appId === AppID.VM && initialData?.agentId) {
-        const winId = `vm-${initialData.agentId}`;
-        const existing = windows.find(w => w.id === winId);
-        if (existing) {
-            focusWindow(winId);
-            if (existing.isMinimized) {
-                setWindows(prev => prev.map(w => w.id === winId ? { ...w, isMinimized: false } : w));
-            }
-        } else {
-             const agent = agents.find(a => a.id === initialData.agentId);
-             const newWindow: WindowState = {
-                id: winId,
-                appId: AppID.VM,
-                title: `VM: ${agent?.name || 'Agent'}`,
-                isOpen: true,
-                isMinimized: false,
-                isMaximized: false,
-                zIndex: windows.length + 1,
-                position: { x: 150, y: 100 },
-                size: { width: 1000, height: 700 },
-                initialData,
-                workspaceId: currentWorkspace,
-            };
-            setWindows(prev => [...prev, newWindow]);
-            setActiveWindowId(winId);
+      const winId = `vm-${initialData.agentId}`;
+      const existing = windows.find((w) => w.id === winId);
+      if (existing) {
+        focusWindow(winId);
+        if (existing.isMinimized) {
+          setWindows((prev) =>
+            prev.map((w) => (w.id === winId ? { ...w, isMinimized: false } : w)),
+          );
         }
-        return;
+      } else {
+        const agent = agents.find((a) => a.id === initialData.agentId);
+        const newWindow: WindowState = {
+          id: winId,
+          appId: AppID.VM,
+          title: `VM: ${agent?.name || 'Agent'}`,
+          isOpen: true,
+          isMinimized: false,
+          isMaximized: false,
+          zIndex: windows.length + 1,
+          position: { x: 150, y: 100 },
+          size: { width: 1000, height: 700 },
+          initialData,
+          workspaceId: currentWorkspace,
+        };
+        setWindows((prev) => [...prev, newWindow]);
+        setActiveWindowId(winId);
+      }
+      return;
     }
 
     // For standard apps (single instance mostly)
     const winId = appId;
-    const existingWindow = windows.find(w => w.id === winId);
-    
+    const existingWindow = windows.find((w) => w.id === winId);
+
     if (existingWindow) {
       // If window is on a different workspace, switch to it
       const winWs = existingWindow.workspaceId ?? 0;
@@ -518,10 +769,12 @@ const App: React.FC = () => {
         switchWorkspace(winWs);
       }
       if (existingWindow.isMinimized) {
-        setWindows(prev => prev.map(w => w.id === winId ? { ...w, isMinimized: false, initialData } : w));
+        setWindows((prev) =>
+          prev.map((w) => (w.id === winId ? { ...w, isMinimized: false, initialData } : w)),
+        );
       } else {
         if (initialData) {
-            setWindows(prev => prev.map(w => w.id === winId ? { ...w, initialData } : w));
+          setWindows((prev) => prev.map((w) => (w.id === winId ? { ...w, initialData } : w)));
         }
       }
       focusWindow(winId);
@@ -535,97 +788,126 @@ const App: React.FC = () => {
         isMinimized: false,
         isMaximized: false,
         zIndex: windows.length + 1,
-        position: { x: 100 + (windows.length * 30), y: 100 + (windows.length * 30) },
+        position: { x: 100 + windows.length * 30, y: 100 + windows.length * 30 },
         size: isCalculator ? { width: 320, height: 480 } : { width: 900, height: 650 },
         initialData,
         workspaceId: currentWorkspace,
       };
-      setWindows(prev => [...prev, newWindow]);
+      setWindows((prev) => [...prev, newWindow]);
       setActiveWindowId(winId);
     }
   };
 
   const getAppTitle = (id: AppID) => {
-    switch(id) {
-      case AppID.NOTES: return 'Notes';
-      case AppID.PHOTOS: return 'Photos';
-      case AppID.FILES: return 'Finder';
-      case AppID.CHAT: return 'Gemini Chat';
-      case AppID.SETTINGS: return 'Settings';
-      case AppID.TERMINAL: return 'Terminal';
-      case AppID.BROWSER: return 'Safari';
-      case AppID.CALCULATOR: return 'Calculator';
-      case AppID.CODE: return 'Code - Untitled';
-      case AppID.VIDEO: return 'Media Player';
-      case AppID.AGENTS: return 'Agent Center';
-      case AppID.SHEETS: return 'Sheets';
-      case AppID.CANVAS: return 'Canvas';
-      case AppID.WRITER: return 'Writer';
-      default: return 'App';
+    switch (id) {
+      case AppID.NOTES:
+        return 'Notes';
+      case AppID.PHOTOS:
+        return 'Photos';
+      case AppID.FILES:
+        return 'Finder';
+      case AppID.CHAT:
+        return 'Gemini Chat';
+      case AppID.SETTINGS:
+        return 'Settings';
+      case AppID.TERMINAL:
+        return 'Terminal';
+      case AppID.BROWSER:
+        return 'Safari';
+      case AppID.CALCULATOR:
+        return 'Calculator';
+      case AppID.CODE:
+        return 'Code - Untitled';
+      case AppID.VIDEO:
+        return 'Media Player';
+      case AppID.AGENTS:
+        return 'Agent Center';
+      case AppID.SHEETS:
+        return 'Sheets';
+      case AppID.CANVAS:
+        return 'Canvas';
+      case AppID.WRITER:
+        return 'Writer';
+      case AppID.SYSTEM_MONITOR:
+        return 'System Monitor';
+      default:
+        return 'App';
     }
   };
 
   const closeWindow = (id: string) => {
-    setWindows(prev => prev.filter(w => w.id !== id));
+    setWindows((prev) => prev.filter((w) => w.id !== id));
     if (activeWindowId === id) setActiveWindowId(null);
   };
 
   const minimizeWindow = (id: string) => {
-    setWindows(prev => prev.map(w => w.id === id ? { ...w, isMinimized: true } : w));
+    setWindows((prev) => prev.map((w) => (w.id === id ? { ...w, isMinimized: true } : w)));
     setActiveWindowId(null);
   };
 
   const maximizeWindow = (id: string) => {
-     setWindows(prev => prev.map(w => w.id === id ? { ...w, isMaximized: !w.isMaximized } : w));
+    setWindows((prev) =>
+      prev.map((w) => (w.id === id ? { ...w, isMaximized: !w.isMaximized } : w)),
+    );
   };
 
   const focusWindow = (id: string) => {
     setActiveWindowId(id);
-    setWindows(prev => {
-      const maxZ = Math.max(...prev.map(w => w.zIndex), 0);
-      return prev.map(w => w.id === id ? { ...w, zIndex: maxZ + 1 } : w);
+    setWindows((prev) => {
+      const maxZ = Math.max(...prev.map((w) => w.zIndex), 0);
+      return prev.map((w) => (w.id === id ? { ...w, zIndex: maxZ + 1 } : w));
     });
   };
 
   const moveWindow = (id: string, x: number, y: number) => {
-    setWindows(prev => prev.map(w => w.id === id ? { ...w, position: { x, y } } : w));
+    setWindows((prev) => prev.map((w) => (w.id === id ? { ...w, position: { x, y } } : w)));
   };
 
   const resizeWindow = (id: string, width: number, height: number, x?: number, y?: number) => {
-    setWindows(prev => prev.map(w => {
-      if (w.id === id) {
-        return { 
-          ...w, 
-          size: { width, height },
-          position: (x !== undefined && y !== undefined) ? { x, y } : w.position
-        };
-      }
-      return w;
-    }));
+    setWindows((prev) =>
+      prev.map((w) => {
+        if (w.id === id) {
+          return {
+            ...w,
+            size: { width, height },
+            position: x !== undefined && y !== undefined ? { x, y } : w.position,
+          };
+        }
+        return w;
+      }),
+    );
   };
 
   // ── Workspace Management ──────────────────────────────────────────────
-  const switchWorkspace = useCallback((targetIdx: number, direction?: 'left' | 'right') => {
-    if (targetIdx < 0 || targetIdx >= totalWorkspaces || targetIdx === currentWorkspace) return;
-    const dir = direction || (targetIdx > currentWorkspace ? 'right' : 'left');
-    setWorkspaceTransitionDir(dir);
-    setActiveWindowId(null);
-    setTimeout(() => {
-      setCurrentWorkspace(targetIdx);
-      setTimeout(() => setWorkspaceTransitionDir(null), 200);
-    }, 10);
-  }, [currentWorkspace, totalWorkspaces]);
+  const switchWorkspace = useCallback(
+    (targetIdx: number, direction?: 'left' | 'right') => {
+      if (targetIdx < 0 || targetIdx >= totalWorkspaces || targetIdx === currentWorkspace) return;
+      const dir = direction || (targetIdx > currentWorkspace ? 'right' : 'left');
+      setWorkspaceTransitionDir(dir);
+      setActiveWindowId(null);
+      setTimeout(() => {
+        setCurrentWorkspace(targetIdx);
+        setTimeout(() => setWorkspaceTransitionDir(null), 200);
+      }, 10);
+    },
+    [currentWorkspace, totalWorkspaces],
+  );
 
-  const moveWindowToWorkspace = useCallback((windowId: string, targetWorkspace: number) => {
-    if (targetWorkspace < 0 || targetWorkspace >= totalWorkspaces) return;
-    setWindows(prev => prev.map(w =>
-      w.id === windowId ? { ...w, workspaceId: targetWorkspace, stickyWorkspace: false } : w
-    ));
-  }, [totalWorkspaces]);
+  const moveWindowToWorkspace = useCallback(
+    (windowId: string, targetWorkspace: number) => {
+      if (targetWorkspace < 0 || targetWorkspace >= totalWorkspaces) return;
+      setWindows((prev) =>
+        prev.map((w) =>
+          w.id === windowId ? { ...w, workspaceId: targetWorkspace, stickyWorkspace: false } : w,
+        ),
+      );
+    },
+    [totalWorkspaces],
+  );
 
   // Compute visible windows for current workspace
   const visibleWindows = useMemo(() => {
-    return windows.filter(w => {
+    return windows.filter((w) => {
       if (w.stickyWorkspace) return true;
       const wsId = w.workspaceId ?? 0;
       return wsId === currentWorkspace;
@@ -635,7 +917,7 @@ const App: React.FC = () => {
   // Window counts per workspace (for the switcher dots)
   const workspaceWindowCounts = useMemo(() => {
     const counts = Array(totalWorkspaces).fill(0);
-    windows.forEach(w => {
+    windows.forEach((w) => {
       if (w.stickyWorkspace) {
         // Count sticky windows in all workspaces
         counts.forEach((_, i) => counts[i]++);
@@ -652,96 +934,179 @@ const App: React.FC = () => {
     return Array.from({ length: totalWorkspaces }, (_, i) => ({
       workspace: i,
       windows: windows
-        .filter(w => w.stickyWorkspace || (w.workspaceId ?? 0) === i)
-        .map(w => ({ id: w.id, title: w.title, appId: w.appId, position: w.position, size: w.size })),
+        .filter((w) => w.stickyWorkspace || (w.workspaceId ?? 0) === i)
+        .map((w) => ({
+          id: w.id,
+          title: w.title,
+          appId: w.appId,
+          position: w.position,
+          size: w.size,
+        })),
     }));
   }, [windows, totalWorkspaces]);
 
   // Agent Management - routes to kernel or mock depending on runtime mode
   const launchAgent = async (role: string, goal: string) => {
-      if (runtimeMode === 'kernel') {
-        try {
-          await kernel.spawnAgent({ role, goal });
-        } catch (err) {
-          console.error('Failed to spawn agent via kernel:', err);
-        }
-        return;
+    if (runtimeMode === 'kernel') {
+      try {
+        await kernel.spawnAgent({ role, goal });
+      } catch (err) {
+        console.error('Failed to spawn agent via kernel:', err);
       }
+      return;
+    }
 
-      // Mock mode fallback
-      const id = `agent_${Date.now()}`;
-      const newAgent: Agent = {
-          id,
-          name: `${role} Alpha`,
-          role,
-          goal,
-          status: 'thinking',
-          progress: 0,
-          logs: [{ timestamp: Date.now(), type: 'system', message: `Agent ${id} initialized.` }]
-      };
-      setAgents(prev => [...prev, newAgent]);
-      setTimeout(() => {
-          setAgents(prev => prev.map(a => a.id === id ? { ...a, status: 'working' } : a));
-      }, 500);
+    // Mock mode fallback
+    const id = `agent_${Date.now()}`;
+    const newAgent: Agent = {
+      id,
+      name: `${role} Alpha`,
+      role,
+      goal,
+      status: 'thinking',
+      progress: 0,
+      logs: [{ timestamp: Date.now(), type: 'system', message: `Agent ${id} initialized.` }],
+    };
+    setAgents((prev) => [...prev, newAgent]);
+    setTimeout(() => {
+      setAgents((prev) => prev.map((a) => (a.id === id ? { ...a, status: 'working' } : a)));
+    }, 500);
   };
 
   const stopAgent = (id: string) => {
-      if (runtimeMode === 'kernel') {
-        const agent = agents.find(a => a.id === id);
-        if (agent?.pid) kernel.killProcess(agent.pid);
-        return;
-      }
-      setAgents(prev => prev.map(a => a.id === id ? { ...a, status: 'error', logs: [...a.logs, { timestamp: Date.now(), type: 'system', message: 'Process terminated by user.' }] } : a));
+    if (runtimeMode === 'kernel') {
+      const agent = agents.find((a) => a.id === id);
+      if (agent?.pid) kernel.killProcess(agent.pid);
+      return;
+    }
+    setAgents((prev) =>
+      prev.map((a) =>
+        a.id === id
+          ? {
+              ...a,
+              status: 'error',
+              logs: [
+                ...a.logs,
+                { timestamp: Date.now(), type: 'system', message: 'Process terminated by user.' },
+              ],
+            }
+          : a,
+      ),
+    );
   };
 
   const approveAgent = (id: string) => {
-      if (runtimeMode === 'kernel') {
-        const agent = agents.find(a => a.id === id);
-        if (agent?.pid) kernel.approveAction(agent.pid);
-        return;
-      }
-      setAgents(prev => prev.map(a => a.id === id ? { ...a, status: 'working', logs: [...a.logs, { timestamp: Date.now(), type: 'system', message: 'Action approved by user.' }] } : a));
+    if (runtimeMode === 'kernel') {
+      const agent = agents.find((a) => a.id === id);
+      if (agent?.pid) kernel.approveAction(agent.pid);
+      return;
+    }
+    setAgents((prev) =>
+      prev.map((a) =>
+        a.id === id
+          ? {
+              ...a,
+              status: 'working',
+              logs: [
+                ...a.logs,
+                { timestamp: Date.now(), type: 'system', message: 'Action approved by user.' },
+              ],
+            }
+          : a,
+      ),
+    );
   };
 
   const rejectAgent = (id: string) => {
-      if (runtimeMode === 'kernel') {
-        const agent = agents.find(a => a.id === id);
-        if (agent?.pid) kernel.rejectAction(agent.pid);
-        return;
-      }
-      setAgents(prev => prev.map(a => a.id === id ? { ...a, status: 'thinking', logs: [...a.logs, { timestamp: Date.now(), type: 'system', message: 'Action denied. Re-evaluating strategy...' }] } : a));
+    if (runtimeMode === 'kernel') {
+      const agent = agents.find((a) => a.id === id);
+      if (agent?.pid) kernel.rejectAction(agent.pid);
+      return;
+    }
+    setAgents((prev) =>
+      prev.map((a) =>
+        a.id === id
+          ? {
+              ...a,
+              status: 'thinking',
+              logs: [
+                ...a.logs,
+                {
+                  timestamp: Date.now(),
+                  type: 'system',
+                  message: 'Action denied. Re-evaluating strategy...',
+                },
+              ],
+            }
+          : a,
+      ),
+    );
   };
 
   const [showGithubModal, setShowGithubModal] = useState(false);
   const [githubModalAgentId, setGithubModalAgentId] = useState<string | null>(null);
   const [githubRepoUrl, setGithubRepoUrl] = useState('');
-  const [githubCloneStatus, setGithubCloneStatus] = useState<'idle' | 'cloning' | 'done' | 'error'>('idle');
+  const [githubCloneStatus, setGithubCloneStatus] = useState<'idle' | 'cloning' | 'done' | 'error'>(
+    'idle',
+  );
 
   const syncGithub = (id: string) => {
-      const agent = agents.find(a => a.id === id);
-      if (!agent) return;
+    const agent = agents.find((a) => a.id === id);
+    if (!agent) return;
 
-      if (agent.githubSync) {
-        // Push changes — only with approval
-        if (runtimeMode === 'kernel' && agent.pid && agent.ttyId) {
-          const client = getKernelClient();
-          client.sendTerminalInput(agent.ttyId, 'git add . && git commit -m "Agent changes" && echo "Push requires approval. Run: git push"\n');
-          setAgents(prev => prev.map(a => a.id === id ? { ...a, logs: [...a.logs, { timestamp: Date.now(), type: 'system', message: 'Staging and committing changes...' }] } : a));
-        } else {
-          setAgents(prev => prev.map(a => a.id === id ? { ...a, githubSync: false, logs: [...a.logs, { timestamp: Date.now(), type: 'system', message: 'Disconnected from GitHub.' }] } : a));
-        }
+    if (agent.githubSync) {
+      // Push changes — only with approval
+      if (runtimeMode === 'kernel' && agent.pid && agent.ttyId) {
+        const client = getKernelClient();
+        client.sendTerminalInput(
+          agent.ttyId,
+          'git add . && git commit -m "Agent changes" && echo "Push requires approval. Run: git push"\n',
+        );
+        setAgents((prev) =>
+          prev.map((a) =>
+            a.id === id
+              ? {
+                  ...a,
+                  logs: [
+                    ...a.logs,
+                    {
+                      timestamp: Date.now(),
+                      type: 'system',
+                      message: 'Staging and committing changes...',
+                    },
+                  ],
+                }
+              : a,
+          ),
+        );
       } else {
-        // Open modal to enter repo URL
-        setGithubModalAgentId(id);
-        setGithubRepoUrl('');
-        setGithubCloneStatus('idle');
-        setShowGithubModal(true);
+        setAgents((prev) =>
+          prev.map((a) =>
+            a.id === id
+              ? {
+                  ...a,
+                  githubSync: false,
+                  logs: [
+                    ...a.logs,
+                    { timestamp: Date.now(), type: 'system', message: 'Disconnected from GitHub.' },
+                  ],
+                }
+              : a,
+          ),
+        );
       }
+    } else {
+      // Open modal to enter repo URL
+      setGithubModalAgentId(id);
+      setGithubRepoUrl('');
+      setGithubCloneStatus('idle');
+      setShowGithubModal(true);
+    }
   };
 
   const handleGithubClone = async () => {
     if (!githubRepoUrl.trim() || !githubModalAgentId) return;
-    const agent = agents.find(a => a.id === githubModalAgentId);
+    const agent = agents.find((a) => a.id === githubModalAgentId);
     if (!agent) return;
 
     setGithubCloneStatus('cloning');
@@ -753,17 +1118,33 @@ const App: React.FC = () => {
         const repoName = githubRepoUrl.split('/').pop()?.replace('.git', '') || 'repo';
         const homeDir = `/home/agent_${agent.pid}`;
         // Write clone script
-        await client.writeFile(`${homeDir}/.clone_repo.sh`, `#!/bin/bash\ncd ${homeDir}\ngit clone ${githubRepoUrl}\necho "Clone complete: ${repoName}"\n`);
+        await client.writeFile(
+          `${homeDir}/.clone_repo.sh`,
+          `#!/bin/bash\ncd ${homeDir}\ngit clone ${githubRepoUrl}\necho "Clone complete: ${repoName}"\n`,
+        );
         // Execute via TTY if the agent has one
         if (agent.ttyId) {
           client.sendTerminalInput(agent.ttyId, `cd ${homeDir} && git clone ${githubRepoUrl}\n`);
         }
 
-        setAgents(prev => prev.map(a => a.id === githubModalAgentId ? {
-          ...a,
-          githubSync: true,
-          logs: [...a.logs, { timestamp: Date.now(), type: 'system', message: `Cloning ${githubRepoUrl} into workspace...` }],
-        } : a));
+        setAgents((prev) =>
+          prev.map((a) =>
+            a.id === githubModalAgentId
+              ? {
+                  ...a,
+                  githubSync: true,
+                  logs: [
+                    ...a.logs,
+                    {
+                      timestamp: Date.now(),
+                      type: 'system',
+                      message: `Cloning ${githubRepoUrl} into workspace...`,
+                    },
+                  ],
+                }
+              : a,
+          ),
+        );
 
         setGithubCloneStatus('done');
         setTimeout(() => setShowGithubModal(false), 1500);
@@ -772,11 +1153,24 @@ const App: React.FC = () => {
       }
     } else {
       // Mock mode
-      setAgents(prev => prev.map(a => a.id === githubModalAgentId ? {
-        ...a,
-        githubSync: true,
-        logs: [...a.logs, { timestamp: Date.now(), type: 'system', message: `Connected to GitHub: ${githubRepoUrl}` }],
-      } : a));
+      setAgents((prev) =>
+        prev.map((a) =>
+          a.id === githubModalAgentId
+            ? {
+                ...a,
+                githubSync: true,
+                logs: [
+                  ...a.logs,
+                  {
+                    timestamp: Date.now(),
+                    type: 'system',
+                    message: `Connected to GitHub: ${githubRepoUrl}`,
+                  },
+                ],
+              }
+            : a,
+        ),
+      );
 
       setGithubCloneStatus('done');
       setTimeout(() => setShowGithubModal(false), 1500);
@@ -785,65 +1179,112 @@ const App: React.FC = () => {
 
   const renderAppContent = (windowState: WindowState) => {
     switch (windowState.appId) {
-      case AppID.NOTES: 
-        return <NotesApp 
-            initialContent={windowState.initialData?.content} 
-            onSave={(content) => windowState.initialData?.fileId && handleSaveFile(windowState.initialData.fileId, content)}
-        />;
-      case AppID.PHOTOS: return <PhotosApp initialImage={windowState.initialData?.image} />;
-      case AppID.CHAT: return <ChatApp />;
-      case AppID.FILES: return <FileExplorer files={files} onOpenFile={handleOpenFile} />;
-      case AppID.SETTINGS: return <SettingsApp />;
-      case AppID.TERMINAL: return <TerminalApp files={files} setFiles={setFiles} />;
-      case AppID.BROWSER: return <BrowserApp />;
-      case AppID.CALCULATOR: return <CalculatorApp />;
-      case AppID.CODE: 
-        return <CodeEditorApp 
-            initialContent={windowState.initialData?.content} 
+      case AppID.NOTES:
+        return (
+          <NotesApp
+            initialContent={windowState.initialData?.content}
+            onSave={(content) =>
+              windowState.initialData?.fileId &&
+              handleSaveFile(windowState.initialData.fileId, content)
+            }
+          />
+        );
+      case AppID.PHOTOS:
+        return <PhotosApp initialImage={windowState.initialData?.image} />;
+      case AppID.CHAT:
+        return <ChatApp />;
+      case AppID.FILES:
+        return <FileExplorer files={files} onOpenFile={handleOpenFile} />;
+      case AppID.SETTINGS:
+        return <SettingsApp />;
+      case AppID.TERMINAL:
+        return <TerminalApp files={files} setFiles={setFiles} />;
+      case AppID.BROWSER:
+        return <BrowserApp />;
+      case AppID.CALCULATOR:
+        return <CalculatorApp />;
+      case AppID.CODE:
+        return (
+          <CodeEditorApp
+            initialContent={windowState.initialData?.content}
             fileName={windowState.initialData?.fileName}
-            onSave={(content) => windowState.initialData?.fileId && handleSaveFile(windowState.initialData.fileId, content)}
-        />;
+            onSave={(content) =>
+              windowState.initialData?.fileId &&
+              handleSaveFile(windowState.initialData.fileId, content)
+            }
+          />
+        );
       case AppID.VIDEO:
-        return <VideoPlayerApp url={windowState.initialData?.url} title={windowState.initialData?.title} />;
+        return (
+          <VideoPlayerApp
+            url={windowState.initialData?.url}
+            title={windowState.initialData?.title}
+          />
+        );
       case AppID.AGENTS:
-        return <AgentDashboard 
-            agents={agents} 
-            onLaunchAgent={launchAgent} 
-            onOpenVM={(agentId) => openApp(AppID.VM, { agentId })} 
+        return (
+          <AgentDashboard
+            agents={agents}
+            onLaunchAgent={launchAgent}
+            onOpenVM={(agentId) => openApp(AppID.VM, { agentId })}
             onStopAgent={stopAgent}
-        />;
-      case AppID.SHEETS: return <SheetsApp />;
-      case AppID.CANVAS: return <CanvasApp />;
-      case AppID.WRITER: return <WriterApp />;
+          />
+        );
+      case AppID.SHEETS:
+        return <SheetsApp />;
+      case AppID.CANVAS:
+        return <CanvasApp />;
+      case AppID.WRITER:
+        return <WriterApp />;
+      case AppID.SYSTEM_MONITOR:
+        return <SystemMonitorApp />;
       case AppID.VM:
-         const agent = agents.find(a => a.id === windowState.initialData?.agentId);
-         if (!agent) return <div className="p-4 text-white">Agent not found or terminated.</div>;
-         return <AgentVM agent={agent} onApprove={approveAgent} onReject={rejectAgent} onStop={stopAgent} onSyncGithub={syncGithub} />;
-      default: return null;
+        const agent = agents.find((a) => a.id === windowState.initialData?.agentId);
+        if (!agent) return <div className="p-4 text-white">Agent not found or terminated.</div>;
+        return (
+          <AgentVM
+            agent={agent}
+            onApprove={approveAgent}
+            onReject={rejectAgent}
+            onStop={stopAgent}
+            onSyncGithub={syncGithub}
+          />
+        );
+      default:
+        return null;
     }
   };
 
   // Helper functions for existing apps
   const handleSaveFile = (fileId: string, content: string) => {
-    setFiles(prev => prev.map(f => {
+    setFiles((prev) =>
+      prev.map((f) => {
         if (f.id === fileId) {
-            return { ...f, content, size: `${(content.length / 1024).toFixed(1)} KB`, date: 'Just now' };
+          return {
+            ...f,
+            content,
+            size: `${(content.length / 1024).toFixed(1)} KB`,
+            date: 'Just now',
+          };
         }
         return f;
-    }));
+      }),
+    );
   };
 
   const handleOpenFile = (file: FileSystemItem) => {
     if (file.kind === 'text') {
-        openApp(AppID.NOTES, { content: file.content, fileId: file.id });
+      openApp(AppID.NOTES, { content: file.content, fileId: file.id });
     } else if (file.kind === 'code') {
-        openApp(AppID.CODE, { content: file.content, fileId: file.id, fileName: file.name });
+      openApp(AppID.CODE, { content: file.content, fileId: file.id, fileName: file.name });
     } else if (file.kind === 'image') {
-        openApp(AppID.PHOTOS, { image: file.url });
+      openApp(AppID.PHOTOS, { image: file.url });
     } else if (file.kind === 'video' || file.kind === 'audio') {
-        openApp(AppID.VIDEO, { url: file.url, title: file.name });
+      openApp(AppID.VIDEO, { url: file.url, title: file.name });
     } else {
-        openApp(AppID.NOTES, { content: `Cannot view file type: ${file.kind}\n\nMetadata:\nName: ${file.name}\nSize: ${file.size}` });
+      openApp(AppID.NOTES, {
+        content: `Cannot view file type: ${file.kind}\n\nMetadata:\nName: ${file.name}\nSize: ${file.size}`,
+      });
     }
   };
 
@@ -852,7 +1293,7 @@ const App: React.FC = () => {
     const client = getKernelClient();
 
     const unsubExit = client.on('process.exit', (data: any) => {
-      const proc = kernel.processes.find(p => p.pid === data.pid);
+      const proc = kernel.processes.find((p) => p.pid === data.pid);
       const name = proc?.name || `PID ${data.pid}`;
       if (data.code === 0) {
         notify({
@@ -874,7 +1315,7 @@ const App: React.FC = () => {
     });
 
     const unsubApproval = client.on('process.approval_required', (data: any) => {
-      const proc = kernel.processes.find(p => p.pid === data.pid);
+      const proc = kernel.processes.find((p) => p.pid === data.pid);
       const name = proc?.name || `PID ${data.pid}`;
       notify({
         type: 'warning',
@@ -889,9 +1330,17 @@ const App: React.FC = () => {
     let wasConnected = client.connected;
     const unsubConnection = client.on('connection', (data: any) => {
       if (data.connected && !wasConnected) {
-        notify({ type: 'info', title: 'Kernel connected', body: `Connected to Aether kernel v${client.version}` });
+        notify({
+          type: 'info',
+          title: 'Kernel connected',
+          body: `Connected to Aether kernel v${client.version}`,
+        });
       } else if (!data.connected && wasConnected) {
-        notify({ type: 'error', title: 'Kernel disconnected', body: 'Lost connection to kernel. Attempting to reconnect...' });
+        notify({
+          type: 'error',
+          title: 'Kernel disconnected',
+          body: 'Lost connection to kernel. Attempting to reconnect...',
+        });
       }
       wasConnected = data.connected;
     });
@@ -929,56 +1378,76 @@ const App: React.FC = () => {
   return (
     <div
       className="w-screen h-screen overflow-hidden bg-cover bg-center font-sans relative selection:bg-indigo-500/30"
-      style={{ backgroundImage: `url('https://images.unsplash.com/photo-1550684848-fac1c5b4e853?q=80&w=2670&auto=format&fit=crop')` }} // Changed to a darker, more tech-focused wallpaper
-      onContextMenu={(e) => { e.preventDefault(); setContextMenu({ isOpen: true, x: e.clientX, y: e.clientY }); }}
+      style={{
+        backgroundImage: `url('https://images.unsplash.com/photo-1550684848-fac1c5b4e853?q=80&w=2670&auto=format&fit=crop')`,
+      }} // Changed to a darker, more tech-focused wallpaper
+      onContextMenu={(e) => {
+        e.preventDefault();
+        setContextMenu({ isOpen: true, x: e.clientX, y: e.clientY });
+      }}
       onClick={() => setContextMenu(null)}
     >
-      
       {/* Menu Bar */}
       <div className="h-8 bg-black/40 backdrop-blur-md border-b border-white/5 flex items-center justify-between px-4 text-xs font-medium text-white/90 z-[9990] relative shadow-sm select-none">
         <div className="flex items-center gap-4">
           <span className="font-bold text-sm hover:text-white cursor-pointer"></span>
           <span className="hidden sm:inline font-semibold cursor-default">Aether OS</span>
-          <span className="hidden sm:inline opacity-70 hover:opacity-100 cursor-pointer">Agent Center</span>
-          <span className="hidden sm:inline opacity-70 hover:opacity-100 cursor-pointer">Window</span>
+          <span className="hidden sm:inline opacity-70 hover:opacity-100 cursor-pointer">
+            Agent Center
+          </span>
+          <span className="hidden sm:inline opacity-70 hover:opacity-100 cursor-pointer">
+            Window
+          </span>
           <span className="hidden sm:inline opacity-70 hover:opacity-100 cursor-pointer">Help</span>
         </div>
         <div className="flex items-center gap-4">
-           {/* Workspace Switcher */}
-           <WorkspaceSwitcher
-             currentWorkspace={currentWorkspace}
-             totalWorkspaces={totalWorkspaces}
-             windowCounts={workspaceWindowCounts}
-             onSwitch={(idx) => switchWorkspace(idx)}
-             onShowOverview={() => setShowWorkspaceOverview(true)}
-           />
-           {/* Kernel Status Indicator */}
-           <div className="flex items-center gap-1.5" title={kernel.connected ? `Kernel v${kernel.version} connected` : 'Kernel disconnected (mock mode)'}>
-             <div className={`w-1.5 h-1.5 rounded-full ${kernel.connected ? 'bg-green-400' : 'bg-orange-400'}`} />
-             <span className="text-[10px] opacity-60">{kernel.connected ? 'Kernel' : 'Mock'}</span>
-           </div>
-           <button
-             onClick={(e) => { e.stopPropagation(); setIsSmartBarOpen(true); }}
-             className="flex items-center gap-1 bg-white/10 hover:bg-white/20 px-2 py-0.5 rounded transition-colors"
-           >
-              <Search size={12} />
-              <span className="opacity-70">Search</span>
-              <div className="flex items-center text-[10px] opacity-50 ml-1">
-                 <Command size={10} />
-                 <span>K</span>
-              </div>
-           </button>
-           {/* Cluster Status Badge */}
-           {kernel.clusterInfo && kernel.clusterInfo.role !== 'standalone' && (
-             <div className="flex items-center gap-1 bg-white/5 px-2 py-0.5 rounded text-[10px]">
-               <Server size={10} className="text-indigo-400" />
-               <span className="opacity-60">
-                 {kernel.clusterInfo.role === 'hub'
-                   ? `Hub · ${kernel.clusterInfo.nodes.length} node${kernel.clusterInfo.nodes.length !== 1 ? 's' : ''}`
-                   : 'Node · Connected'}
-               </span>
-             </div>
-           )}
+          {/* Workspace Switcher */}
+          <WorkspaceSwitcher
+            currentWorkspace={currentWorkspace}
+            totalWorkspaces={totalWorkspaces}
+            windowCounts={workspaceWindowCounts}
+            onSwitch={(idx) => switchWorkspace(idx)}
+            onShowOverview={() => setShowWorkspaceOverview(true)}
+          />
+          {/* Kernel Status Indicator */}
+          <div
+            className="flex items-center gap-1.5"
+            title={
+              kernel.connected
+                ? `Kernel v${kernel.version} connected`
+                : 'Kernel disconnected (mock mode)'
+            }
+          >
+            <div
+              className={`w-1.5 h-1.5 rounded-full ${kernel.connected ? 'bg-green-400' : 'bg-orange-400'}`}
+            />
+            <span className="text-[10px] opacity-60">{kernel.connected ? 'Kernel' : 'Mock'}</span>
+          </div>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsSmartBarOpen(true);
+            }}
+            className="flex items-center gap-1 bg-white/10 hover:bg-white/20 px-2 py-0.5 rounded transition-colors"
+          >
+            <Search size={12} />
+            <span className="opacity-70">Search</span>
+            <div className="flex items-center text-[10px] opacity-50 ml-1">
+              <Command size={10} />
+              <span>K</span>
+            </div>
+          </button>
+          {/* Cluster Status Badge */}
+          {kernel.clusterInfo && kernel.clusterInfo.role !== 'standalone' && (
+            <div className="flex items-center gap-1 bg-white/5 px-2 py-0.5 rounded text-[10px]">
+              <Server size={10} className="text-indigo-400" />
+              <span className="opacity-60">
+                {kernel.clusterInfo.role === 'hub'
+                  ? `Hub · ${kernel.clusterInfo.nodes.length} node${kernel.clusterInfo.nodes.length !== 1 ? 's' : ''}`
+                  : 'Node · Connected'}
+              </span>
+            </div>
+          )}
           <NotificationBell />
           <Wifi size={14} />
           <Battery size={14} />
@@ -1024,7 +1493,9 @@ const App: React.FC = () => {
               gap: '8px',
             }}
           >
-            <span style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }}>&#8635;</span>
+            <span style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }}>
+              &#8635;
+            </span>
             Kernel disconnected — reconnecting...
           </div>
         </div>
@@ -1032,7 +1503,6 @@ const App: React.FC = () => {
 
       {/* Desktop Area */}
       <div className="relative w-full h-[calc(100vh-32px)]">
-
         {/* Desktop Widgets */}
         <ErrorBoundary fallbackTitle="Widget Error">
           <DesktopWidgets />
@@ -1042,16 +1512,17 @@ const App: React.FC = () => {
         <div
           className="absolute inset-0 transition-transform duration-200 ease-out"
           style={{
-            transform: workspaceTransitionDir === 'left'
-              ? 'translateX(40px)'
-              : workspaceTransitionDir === 'right'
-              ? 'translateX(-40px)'
-              : 'translateX(0)',
+            transform:
+              workspaceTransitionDir === 'left'
+                ? 'translateX(40px)'
+                : workspaceTransitionDir === 'right'
+                  ? 'translateX(-40px)'
+                  : 'translateX(0)',
             opacity: workspaceTransitionDir ? 0.7 : 1,
             transition: 'transform 200ms ease-out, opacity 150ms ease-out',
           }}
         >
-          {visibleWindows.map(window => (
+          {visibleWindows.map((window) => (
             <Window
               key={window.id}
               windowState={window}
@@ -1071,14 +1542,17 @@ const App: React.FC = () => {
 
         {/* Dock */}
         <ErrorBoundary fallbackTitle="Dock Error">
-          <Dock onAppClick={(id) => openApp(id)} openApps={visibleWindows.map(w => w.id)} />
+          <Dock onAppClick={(id) => openApp(id)} openApps={visibleWindows.map((w) => w.id)} />
         </ErrorBoundary>
 
         {/* Smart Bar (Spotlight) */}
         <SmartBar isOpen={isSmartBarOpen} onClose={() => setIsSmartBarOpen(false)} />
 
         {/* Shortcut Overlay (Cmd+/) */}
-        <ShortcutOverlay isOpen={isShortcutOverlayOpen} onClose={() => setIsShortcutOverlayOpen(false)} />
+        <ShortcutOverlay
+          isOpen={isShortcutOverlayOpen}
+          onClose={() => setIsShortcutOverlayOpen(false)}
+        />
 
         {/* Workspace Overview (Ctrl+Up) */}
         {showWorkspaceOverview && (
@@ -1093,30 +1567,56 @@ const App: React.FC = () => {
 
         {/* Context Menu */}
         {contextMenu && (
-            <ContextMenu 
-                x={contextMenu.x} 
-                y={contextMenu.y} 
-                onClose={() => setContextMenu(null)}
-                actions={[
-                    { label: 'New Folder', action: () => openApp(AppID.FILES), icon: <FolderPlus size={14}/> },
-                    { label: 'Mission Control', action: () => openApp(AppID.AGENTS), icon: <Monitor size={14}/> },
-                    { label: 'Change Wallpaper', action: () => openApp(AppID.SETTINGS), icon: <ImageIcon size={14}/> },
-                    { label: '', action: () => {}, separator: true },
-                    { label: 'Refresh', action: () => window.location.reload(), icon: <RefreshCw size={14}/> },
-                ]}
-            />
+          <ContextMenu
+            x={contextMenu.x}
+            y={contextMenu.y}
+            onClose={() => setContextMenu(null)}
+            actions={[
+              {
+                label: 'New Folder',
+                action: () => openApp(AppID.FILES),
+                icon: <FolderPlus size={14} />,
+              },
+              {
+                label: 'Mission Control',
+                action: () => openApp(AppID.AGENTS),
+                icon: <Monitor size={14} />,
+              },
+              {
+                label: 'Change Wallpaper',
+                action: () => openApp(AppID.SETTINGS),
+                icon: <ImageIcon size={14} />,
+              },
+              { label: '', action: () => {}, separator: true },
+              {
+                label: 'Refresh',
+                action: () => window.location.reload(),
+                icon: <RefreshCw size={14} />,
+              },
+            ]}
+          />
         )}
 
         {/* GitHub Clone Modal */}
         {showGithubModal && (
-          <div className="absolute inset-0 z-[10000] bg-black/60 backdrop-blur-sm flex items-center justify-center" onClick={() => setShowGithubModal(false)}>
-            <div className="bg-[#1a1d26] border border-white/10 rounded-2xl shadow-2xl p-6 w-full max-w-md animate-scale-in" onClick={e => e.stopPropagation()}>
+          <div
+            className="absolute inset-0 z-[10000] bg-black/60 backdrop-blur-sm flex items-center justify-center"
+            onClick={() => setShowGithubModal(false)}
+          >
+            <div
+              className="bg-[#1a1d26] border border-white/10 rounded-2xl shadow-2xl p-6 w-full max-w-md animate-scale-in"
+              onClick={(e) => e.stopPropagation()}
+            >
               <h2 className="text-lg font-light text-white mb-1">GitHub Sync</h2>
-              <p className="text-xs text-gray-500 mb-6">Clone a repository into the agent's workspace</p>
+              <p className="text-xs text-gray-500 mb-6">
+                Clone a repository into the agent's workspace
+              </p>
 
               <div className="space-y-4">
                 <div>
-                  <label className="block text-xs font-bold text-gray-400 mb-2 uppercase tracking-wider">Repository URL</label>
+                  <label className="block text-xs font-bold text-gray-400 mb-2 uppercase tracking-wider">
+                    Repository URL
+                  </label>
                   <input
                     type="text"
                     value={githubRepoUrl}
@@ -1137,12 +1637,17 @@ const App: React.FC = () => {
                   <div className="text-xs text-green-400">Repository cloned successfully.</div>
                 )}
                 {githubCloneStatus === 'error' && (
-                  <div className="text-xs text-red-400">Failed to clone repository. Check the URL and try again.</div>
+                  <div className="text-xs text-red-400">
+                    Failed to clone repository. Check the URL and try again.
+                  </div>
                 )}
               </div>
 
               <div className="flex justify-end gap-3 mt-6">
-                <button onClick={() => setShowGithubModal(false)} className="px-4 py-2 text-sm text-gray-400 hover:text-white transition-colors">
+                <button
+                  onClick={() => setShowGithubModal(false)}
+                  className="px-4 py-2 text-sm text-gray-400 hover:text-white transition-colors"
+                >
                   Cancel
                 </button>
                 <button

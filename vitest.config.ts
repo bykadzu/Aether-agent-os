@@ -9,7 +9,9 @@ export default defineConfig({
       'runtime/src/__tests__/**/*.test.ts',
       'shared/src/__tests__/**/*.test.ts',
       'server/src/__tests__/**/*.test.ts',
+      'components/**/__tests__/**/*.test.{ts,tsx}',
     ],
+    environmentMatchGlobs: [['components/**/__tests__/**', 'jsdom']],
     coverage: {
       provider: 'v8',
       include: ['kernel/src/**', 'runtime/src/**', 'shared/src/**', 'server/src/**'],
