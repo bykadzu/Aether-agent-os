@@ -21,6 +21,7 @@ import { LoginScreen } from './components/os/LoginScreen';
 import { UserMenu } from './components/os/UserMenu';
 import { ErrorBoundary } from './components/os/ErrorBoundary';
 import { Battery, Wifi, Search, Command, RefreshCw, FolderPlus, Monitor, Image as ImageIcon, Server } from 'lucide-react';
+import { NotificationBell, useNotifications } from './components/os/NotificationCenter';
 import { FileSystemItem, mockFileSystem } from './data/mockFileSystem';
 import { generateText, GeminiModel, getAgentDecision } from './services/geminiService';
 import { useKernel, AgentProcess } from './services/useKernel';
@@ -49,6 +50,9 @@ const App: React.FC = () => {
 
   // Kernel connection (real backend)
   const kernel = useKernel();
+
+  // Notification system
+  const { notify } = useNotifications();
 
   // Check for stored token on mount
   useEffect(() => {
@@ -599,6 +603,62 @@ const App: React.FC = () => {
     }
   };
 
+  // Wire kernel events to notification system
+  useEffect(() => {
+    const client = getKernelClient();
+
+    const unsubExit = client.on('process.exit', (data: any) => {
+      const proc = kernel.processes.find(p => p.pid === data.pid);
+      const name = proc?.name || `PID ${data.pid}`;
+      if (data.code === 0) {
+        notify({
+          type: 'success',
+          title: 'Agent completed',
+          body: `Agent '${name}' finished${proc?.goal ? ': ' + proc.goal : ''}`,
+          action: proc ? () => openApp(AppID.VM, { agentId: `agent_${proc.pid}` }) : undefined,
+          actionLabel: proc ? 'Open VM' : undefined,
+        });
+      } else {
+        notify({
+          type: 'error',
+          title: 'Agent failed',
+          body: `Agent '${name}' failed${data.signal ? ` (${data.signal})` : ` with code ${data.code}`}`,
+          action: proc ? () => openApp(AppID.VM, { agentId: `agent_${proc.pid}` }) : undefined,
+          actionLabel: proc ? 'Open VM' : undefined,
+        });
+      }
+    });
+
+    const unsubApproval = client.on('process.approval_required', (data: any) => {
+      const proc = kernel.processes.find(p => p.pid === data.pid);
+      const name = proc?.name || `PID ${data.pid}`;
+      notify({
+        type: 'warning',
+        title: 'Approval needed',
+        body: `Agent '${name}' wants to run: ${data.details || data.action || 'unknown action'}`,
+        duration: 0, // Don't auto-dismiss approval requests
+        action: proc ? () => openApp(AppID.VM, { agentId: `agent_${proc.pid}` }) : undefined,
+        actionLabel: 'Review',
+      });
+    });
+
+    let wasConnected = client.connected;
+    const unsubConnection = client.on('connection', (data: any) => {
+      if (data.connected && !wasConnected) {
+        notify({ type: 'info', title: 'Kernel connected', body: `Connected to Aether kernel v${client.version}` });
+      } else if (!data.connected && wasConnected) {
+        notify({ type: 'error', title: 'Kernel disconnected', body: 'Lost connection to kernel. Attempting to reconnect...' });
+      }
+      wasConnected = data.connected;
+    });
+
+    return () => {
+      unsubExit();
+      unsubApproval();
+      unsubConnection();
+    };
+  }, [kernel.processes, notify, openApp]);
+
   if (isBooting || authChecking) {
     return (
       <div className="w-screen h-screen bg-black flex flex-col items-center justify-center text-white">
@@ -667,6 +727,7 @@ const App: React.FC = () => {
                </span>
              </div>
            )}
+          <NotificationBell />
           <Wifi size={14} />
           <Battery size={14} />
           <span>{time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
