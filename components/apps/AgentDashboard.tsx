@@ -1,9 +1,46 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Bot, Monitor, List, Grid3x3, Filter, ExternalLink, Activity, Cpu, HardDrive, Clock, Zap, History, ChevronRight, Eye, Server } from 'lucide-react';
+import { Plus, Bot, Monitor, List, Grid3x3, Filter, ExternalLink, Activity, Cpu, HardDrive, Clock, Zap, History, ChevronRight, Eye, Server, Globe, Code, FileSearch, BarChart3, BookOpen, TestTube, Users, Wrench, ArrowLeft } from 'lucide-react';
 import { Agent, AgentStatus } from '../../types';
 import { VirtualDesktop } from '../os/VirtualDesktop';
 import { getKernelClient, ClusterInfo, GPUInfo } from '../../services/kernelClient';
 import { AgentTimeline } from './AgentTimeline';
+
+// Agent template type (mirrors runtime/src/templates.ts for UI use)
+interface AgentTemplate {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  category: 'development' | 'research' | 'data' | 'creative' | 'ops';
+  config: { role?: string; tools?: string[]; maxSteps?: number };
+  suggestedGoals: string[];
+}
+
+interface LLMProviderInfo {
+  name: string;
+  available: boolean;
+  models: string[];
+}
+
+// Icon mapping for template icons
+const templateIcons: Record<string, React.ReactNode> = {
+  Globe: <Globe size={20} />,
+  Code: <Code size={20} />,
+  FileSearch: <FileSearch size={20} />,
+  BarChart3: <BarChart3 size={20} />,
+  Server: <Server size={20} />,
+  BookOpen: <BookOpen size={20} />,
+  TestTube: <TestTube size={20} />,
+  Users: <Users size={20} />,
+};
+
+const categoryColors: Record<string, string> = {
+  development: 'text-blue-400 bg-blue-500/10 border-blue-500/20',
+  research: 'text-purple-400 bg-purple-500/10 border-purple-500/20',
+  data: 'text-orange-400 bg-orange-500/10 border-orange-500/20',
+  creative: 'text-pink-400 bg-pink-500/10 border-pink-500/20',
+  ops: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20',
+};
 
 type ViewMode = 'grid' | 'list';
 type FilterMode = 'all' | 'active' | 'completed' | 'failed';
@@ -21,6 +58,11 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
   const [newRole, setNewRole] = useState('Researcher');
   const [newGpuEnabled, setNewGpuEnabled] = useState(false);
   const [newGraphicalEnabled, setNewGraphicalEnabled] = useState(false);
+  const [newModel, setNewModel] = useState('');
+  const [templates, setTemplates] = useState<AgentTemplate[]>([]);
+  const [selectedTemplate, setSelectedTemplate] = useState<AgentTemplate | null>(null);
+  const [llmProviders, setLlmProviders] = useState<LLMProviderInfo[]>([]);
+  const [modalView, setModalView] = useState<'templates' | 'configure'>('templates');
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
   const [kernelMetrics, setKernelMetrics] = useState<{ uptime: number; memoryMB: number; cpuPercent: number } | null>(null);
@@ -76,6 +118,30 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
       }).catch(() => {});
     }
 
+    // Fetch agent templates
+    fetch('http://localhost:3001/api/templates')
+      .then(res => res.ok ? res.json() : [])
+      .then(data => setTemplates(data))
+      .catch(() => {
+        // Use built-in defaults if server unavailable
+        setTemplates([
+          { id: 'web-researcher', name: 'Web Researcher', description: 'Searches the web and compiles research summaries.', icon: 'Globe', category: 'research', config: { role: 'Researcher', tools: ['browse_web', 'write_file', 'think'], maxSteps: 30 }, suggestedGoals: ['Research the latest developments in AI agents'] },
+          { id: 'code-developer', name: 'Code Developer', description: 'Writes, reads, and executes code.', icon: 'Code', category: 'development', config: { role: 'Coder', tools: ['read_file', 'write_file', 'run_command', 'think'], maxSteps: 50 }, suggestedGoals: ['Build a REST API for a todo list'] },
+          { id: 'code-reviewer', name: 'Code Reviewer', description: 'Reviews code and provides feedback.', icon: 'FileSearch', category: 'development', config: { role: 'Reviewer', tools: ['read_file', 'list_files', 'think'], maxSteps: 20 }, suggestedGoals: ['Review the codebase for security issues'] },
+          { id: 'data-analyst', name: 'Data Analyst', description: 'Analyzes data and generates reports.', icon: 'BarChart3', category: 'data', config: { role: 'Analyst', tools: ['read_file', 'write_file', 'run_command', 'think'], maxSteps: 40 }, suggestedGoals: ['Analyze the dataset and generate a report'] },
+          { id: 'system-admin', name: 'System Admin', description: 'Manages systems and infrastructure.', icon: 'Server', category: 'ops', config: { role: 'SysAdmin', tools: ['run_command', 'read_file', 'write_file', 'think'], maxSteps: 40 }, suggestedGoals: ['Set up a development environment'] },
+          { id: 'technical-writer', name: 'Technical Writer', description: 'Creates documentation and tutorials.', icon: 'BookOpen', category: 'creative', config: { role: 'Writer', tools: ['read_file', 'write_file', 'browse_web', 'think'], maxSteps: 30 }, suggestedGoals: ['Write API documentation'] },
+          { id: 'test-engineer', name: 'Test Engineer', description: 'Writes tests and validates quality.', icon: 'TestTube', category: 'development', config: { role: 'Tester', tools: ['read_file', 'write_file', 'run_command', 'think'], maxSteps: 40 }, suggestedGoals: ['Write unit tests for the auth module'] },
+          { id: 'project-manager', name: 'Project Manager', description: 'Coordinates agents and tracks progress.', icon: 'Users', category: 'ops', config: { role: 'PM', tools: ['list_agents', 'send_message', 'check_messages', 'think'], maxSteps: 30 }, suggestedGoals: ['Coordinate the team to ship v2.0'] },
+        ]);
+      });
+
+    // Fetch LLM providers
+    fetch('http://localhost:3001/api/llm/providers')
+      .then(res => res.ok ? res.json() : [])
+      .then(data => setLlmProviders(data))
+      .catch(() => setLlmProviders([]));
+
     return unsub;
   }, []);
 
@@ -100,18 +166,43 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
 
   const handleCreate = () => {
     if (!newGoal.trim()) return;
-    // Pass GPU and graphical options encoded in the goal string as metadata
-    // The parent component can parse these out or we extend the interface
+    // Pass GPU, graphical, and model options encoded in the goal string as metadata
     let goal = newGoal;
     const meta: string[] = [];
     if (newGpuEnabled) meta.push('gpu:true');
     if (newGraphicalEnabled) meta.push('graphical:true');
+    if (newModel) meta.push(`model:${newModel}`);
     if (meta.length > 0) goal = `${newGoal} [${meta.join(',')}]`;
     onLaunchAgent(newRole, goal);
     setNewGoal('');
     setNewGpuEnabled(false);
     setNewGraphicalEnabled(false);
+    setNewModel('');
+    setSelectedTemplate(null);
+    setModalView('templates');
     setShowNewAgentModal(false);
+  };
+
+  const handleSelectTemplate = (template: AgentTemplate) => {
+    setSelectedTemplate(template);
+    setNewRole(template.config.role || 'Assistant');
+    setNewGoal('');
+    setModalView('configure');
+  };
+
+  const handleOpenCustom = () => {
+    setSelectedTemplate(null);
+    setNewRole('Researcher');
+    setNewGoal('');
+    setModalView('configure');
+  };
+
+  const handleCloseModal = () => {
+    setShowNewAgentModal(false);
+    setSelectedTemplate(null);
+    setModalView('templates');
+    setNewGoal('');
+    setNewModel('');
   };
 
   const handleDetach = (e: React.MouseEvent, agentId: string) => {
@@ -530,92 +621,181 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
         </div>
       )}
 
-      {/* New Agent Modal */}
+      {/* New Agent Modal — Template-First UI */}
       {showNewAgentModal && (
         <div className="absolute inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-[#1a1d26] border border-white/10 rounded-2xl shadow-2xl p-6 animate-scale-in">
-             <h2 className="text-xl font-light text-white mb-6">Initialize New Agent</h2>
+          <div className={`bg-[#1a1d26] border border-white/10 rounded-2xl shadow-2xl animate-scale-in ${modalView === 'templates' ? 'w-full max-w-2xl' : 'w-full max-w-md'}`}>
 
-             <div className="space-y-5">
-                <div>
-                  <label className="block text-xs font-bold text-gray-400 mb-2 uppercase tracking-wider">Role Configuration</label>
-                  <div className="grid grid-cols-2 gap-2">
-                      {['Researcher', 'Coder', 'Analyst', 'Assistant'].map(role => (
+            {/* Template Selection View */}
+            {modalView === 'templates' && (
+              <div className="p-6">
+                <h2 className="text-xl font-light text-white mb-1">Deploy New Agent</h2>
+                <p className="text-xs text-gray-500 mb-6">Choose a template or start from scratch</p>
+
+                <div className="grid grid-cols-3 gap-3 mb-4">
+                  {templates.map(template => (
+                    <button
+                      key={template.id}
+                      onClick={() => handleSelectTemplate(template)}
+                      className="p-4 rounded-xl border border-white/5 bg-black/20 hover:bg-white/5 hover:border-indigo-500/30 transition-all text-left group"
+                    >
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-3 border ${categoryColors[template.category] || 'text-gray-400 bg-gray-500/10 border-gray-500/20'}`}>
+                        {templateIcons[template.icon] || <Bot size={20} />}
+                      </div>
+                      <div className="text-sm font-medium text-white group-hover:text-indigo-300 transition-colors">{template.name}</div>
+                      <div className="text-[10px] text-gray-500 mt-1 line-clamp-2">{template.description}</div>
+                      <div className="text-[9px] text-gray-600 mt-2 uppercase tracking-wide">{template.category}</div>
+                    </button>
+                  ))}
+
+                  {/* Custom template card */}
+                  <button
+                    onClick={handleOpenCustom}
+                    className="p-4 rounded-xl border border-dashed border-white/10 bg-black/10 hover:bg-white/5 hover:border-indigo-500/30 transition-all text-left group"
+                  >
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3 border border-white/10 bg-white/5 text-gray-400">
+                      <Wrench size={20} />
+                    </div>
+                    <div className="text-sm font-medium text-white group-hover:text-indigo-300 transition-colors">Custom Agent</div>
+                    <div className="text-[10px] text-gray-500 mt-1">Configure role, tools, and goal manually</div>
+                    <div className="text-[9px] text-gray-600 mt-2 uppercase tracking-wide">manual</div>
+                  </button>
+                </div>
+
+                <div className="flex justify-end">
+                  <button onClick={handleCloseModal} className="px-4 py-2 text-sm text-gray-400 hover:text-white transition-colors">
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Configure View (after template selection or custom) */}
+            {modalView === 'configure' && (
+              <div className="p-6">
+                <div className="flex items-center gap-3 mb-6">
+                  <button onClick={() => setModalView('templates')} className="text-gray-400 hover:text-white p-1 rounded transition-colors">
+                    <ArrowLeft size={16} />
+                  </button>
+                  {selectedTemplate ? (
+                    <div className="flex items-center gap-3">
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center border ${categoryColors[selectedTemplate.category] || 'text-gray-400 bg-gray-500/10 border-gray-500/20'}`}>
+                        {templateIcons[selectedTemplate.icon] || <Bot size={16} />}
+                      </div>
+                      <div>
+                        <h2 className="text-lg font-light text-white">{selectedTemplate.name}</h2>
+                        <p className="text-[10px] text-gray-500">{selectedTemplate.description}</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <h2 className="text-lg font-light text-white">Custom Agent</h2>
+                  )}
+                </div>
+
+                <div className="space-y-5">
+                  {/* Role selector (only for custom) */}
+                  {!selectedTemplate && (
+                    <div>
+                      <label className="block text-xs font-bold text-gray-400 mb-2 uppercase tracking-wider">Role</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {['Researcher', 'Coder', 'Analyst', 'Assistant', 'DevOps', 'Designer', 'Tester'].map(role => (
                           <button
                             key={role}
                             onClick={() => setNewRole(role)}
-                            className={`p-3 rounded-xl border text-sm font-medium transition-all ${newRole === role ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg' : 'bg-black/20 border-white/5 text-gray-400 hover:bg-white/5'}`}
+                            className={`p-2.5 rounded-xl border text-sm font-medium transition-all ${newRole === role ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg' : 'bg-black/20 border-white/5 text-gray-400 hover:bg-white/5'}`}
                           >
-                              {role}
+                            {role}
                           </button>
-                      ))}
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-gray-400 mb-2 uppercase tracking-wider">Primary Directive</label>
-                  <textarea
-                     value={newGoal}
-                     onChange={(e) => setNewGoal(e.target.value)}
-                     className="w-full bg-black/20 border border-white/10 rounded-xl p-4 text-sm text-white focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 min-h-[100px] transition-all"
-                     placeholder="Describe the task in detail..."
-                  />
-                </div>
-
-                {/* Hardware Options */}
-                <div>
-                  <label className="block text-xs font-bold text-gray-400 mb-2 uppercase tracking-wider">Hardware Options</label>
-                  <div className="space-y-2">
-                    {gpuInfo.available && (
-                      <label className="flex items-center gap-3 p-3 rounded-xl border border-white/5 bg-black/20 cursor-pointer hover:bg-white/5 transition-all">
-                        <input
-                          type="checkbox"
-                          checked={newGpuEnabled}
-                          onChange={(e) => setNewGpuEnabled(e.target.checked)}
-                          className="accent-yellow-500 w-4 h-4"
-                        />
-                        <div className="flex-1">
-                          <div className="text-sm text-white font-medium">GPU Enabled</div>
-                          <div className="text-[10px] text-gray-500">
-                            {gpuInfo.count} GPU(s) available: {gpuInfo.gpus.map(g => g.name).join(', ')}
-                          </div>
-                        </div>
-                        <Monitor size={16} className="text-yellow-400" />
-                      </label>
-                    )}
-                    <label className="flex items-center gap-3 p-3 rounded-xl border border-white/5 bg-black/20 cursor-pointer hover:bg-white/5 transition-all">
-                      <input
-                        type="checkbox"
-                        checked={newGraphicalEnabled}
-                        onChange={(e) => setNewGraphicalEnabled(e.target.checked)}
-                        className="accent-indigo-500 w-4 h-4"
-                      />
-                      <div className="flex-1">
-                        <div className="text-sm text-white font-medium">Graphical Desktop</div>
-                        <div className="text-[10px] text-gray-500">
-                          Run Xvfb + VNC for graphical apps (browser, IDE, etc.)
-                        </div>
+                        ))}
                       </div>
-                      <Monitor size={16} className="text-indigo-400" />
-                    </label>
+                    </div>
+                  )}
+
+                  {/* Goal input with suggested goals */}
+                  <div>
+                    <label className="block text-xs font-bold text-gray-400 mb-2 uppercase tracking-wider">Primary Directive</label>
+                    <textarea
+                      value={newGoal}
+                      onChange={(e) => setNewGoal(e.target.value)}
+                      className="w-full bg-black/20 border border-white/10 rounded-xl p-4 text-sm text-white focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 min-h-[80px] transition-all"
+                      placeholder="Describe the task in detail..."
+                    />
+                    {selectedTemplate && selectedTemplate.suggestedGoals.length > 0 && (
+                      <div className="mt-2 space-y-1">
+                        <span className="text-[10px] text-gray-600 uppercase tracking-wider">Suggested:</span>
+                        {selectedTemplate.suggestedGoals.map((goal, idx) => (
+                          <button
+                            key={idx}
+                            onClick={() => setNewGoal(goal)}
+                            className="block w-full text-left text-[11px] text-gray-500 hover:text-indigo-400 p-1.5 rounded hover:bg-white/5 transition-all truncate"
+                          >
+                            {goal}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Model selector */}
+                  <div>
+                    <label className="block text-xs font-bold text-gray-400 mb-2 uppercase tracking-wider">LLM Model</label>
+                    <select
+                      value={newModel}
+                      onChange={(e) => setNewModel(e.target.value)}
+                      className="w-full bg-black/20 border border-white/10 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-indigo-500/50 appearance-none cursor-pointer"
+                    >
+                      <option value="">Auto-detect (first available)</option>
+                      {llmProviders.map(provider => (
+                        <optgroup key={provider.name} label={`${provider.name.toUpperCase()} ${provider.available ? '(available)' : '(not configured)'}`}>
+                          {provider.models.map(model => (
+                            <option key={`${provider.name}:${model}`} value={`${provider.name}:${model}`} disabled={!provider.available}>
+                              {provider.name}:{model}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Hardware Options */}
+                  <div>
+                    <label className="block text-xs font-bold text-gray-400 mb-2 uppercase tracking-wider">Hardware</label>
+                    <div className="space-y-2">
+                      {gpuInfo.available && (
+                        <label className="flex items-center gap-3 p-3 rounded-xl border border-white/5 bg-black/20 cursor-pointer hover:bg-white/5 transition-all">
+                          <input type="checkbox" checked={newGpuEnabled} onChange={(e) => setNewGpuEnabled(e.target.checked)} className="accent-yellow-500 w-4 h-4" />
+                          <div className="flex-1">
+                            <div className="text-sm text-white font-medium">GPU Enabled</div>
+                            <div className="text-[10px] text-gray-500">{gpuInfo.count} GPU(s) available</div>
+                          </div>
+                          <Monitor size={16} className="text-yellow-400" />
+                        </label>
+                      )}
+                      <label className="flex items-center gap-3 p-3 rounded-xl border border-white/5 bg-black/20 cursor-pointer hover:bg-white/5 transition-all">
+                        <input type="checkbox" checked={newGraphicalEnabled} onChange={(e) => setNewGraphicalEnabled(e.target.checked)} className="accent-indigo-500 w-4 h-4" />
+                        <div className="flex-1">
+                          <div className="text-sm text-white font-medium">Graphical Desktop</div>
+                          <div className="text-[10px] text-gray-500">Xvfb + VNC for graphical apps</div>
+                        </div>
+                        <Monitor size={16} className="text-indigo-400" />
+                      </label>
+                    </div>
                   </div>
                 </div>
-             </div>
 
-             <div className="flex justify-end gap-3 mt-8">
-                <button
-                  onClick={() => setShowNewAgentModal(false)}
-                  className="px-4 py-2 text-sm text-gray-400 hover:text-white transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleCreate}
-                  className="bg-white text-black hover:bg-gray-200 px-6 py-2 rounded-xl text-sm font-bold transition-colors shadow-lg shadow-white/10"
-                >
-                  Boot Agent
-                </button>
-             </div>
+                <div className="flex justify-end gap-3 mt-8">
+                  <button onClick={handleCloseModal} className="px-4 py-2 text-sm text-gray-400 hover:text-white transition-colors">Cancel</button>
+                  <button
+                    onClick={handleCreate}
+                    disabled={!newGoal.trim()}
+                    className="bg-white text-black hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed px-6 py-2 rounded-xl text-sm font-bold transition-colors shadow-lg shadow-white/10"
+                  >
+                    Boot Agent
+                  </button>
+                </div>
+              </div>
+            )}
+
           </div>
         </div>
       )}

@@ -68,22 +68,22 @@ What's missing is the polish, hardening, and "last mile" work that turns a worki
 - Password reset flow
 
 ### 3.2 Desktop App Improvements
-- **File Explorer:** Connect fully to kernel filesystem (currently partially mock)
-- **Code Editor:** Syntax highlighting, save to kernel FS, open from File Explorer
+- ~~**File Explorer:** Connect fully to kernel filesystem~~ **DONE** — Kernel FS browsing, breadcrumb nav, file stats, refresh
+- ~~**Code Editor:** Syntax highlighting, save to kernel FS, open from File Explorer~~ **DONE** — Regex syntax highlighting, kernel read/write, cursor tracking, unsaved dot
 - **Browser App:** Render fetched pages more faithfully, handle navigation
-- **Notes App:** Persist to kernel filesystem instead of localStorage
-- **Settings App:** Actually apply settings (theme, API keys, resource limits)
+- ~~**Notes App:** Persist to kernel filesystem instead of localStorage~~ **DONE** — Kernel FS persistence at `/home/root/Documents/notes/`, auto-save with debounce
+- ~~**Settings App:** Actually apply settings (theme, API keys, resource limits)~~ **DONE** — Kernel status, LLM providers with green/red indicators, GPU/Docker/cluster info, Gemini API key in mock mode
 
 ### 3.3 Agent Capabilities
 - **Conversation memory:** Let agents remember context across restarts (load previous logs)
-- **Agent templates:** Pre-built configs for common roles (e.g., "Web Researcher" with web tools, "Code Reviewer" with file + shell tools)
+- ~~**Agent templates:** Pre-built configs for common roles~~ **DONE** — 8 templates (Web Researcher, Code Developer, Code Reviewer, Data Analyst, System Admin, Technical Writer, Test Engineer, Project Manager) with template-first deploy UI
 - **Tool permissions per agent:** Configure which tools each agent role can use
 - **Step budget management:** UI controls for adjusting max steps, pausing/resuming the loop
 
 ### 3.4 GitHub Integration
-- The "GitHub Sync" button exists in the UI but the handler isn't implemented
-- Add ability to clone repos into an agent's workspace
-- Push agent-created code to branches
+- ~~The "GitHub Sync" button exists in the UI but the handler isn't implemented~~ **DONE** — Modal for repo URL entry, clone into agent workspace
+- ~~Add ability to clone repos into an agent's workspace~~ **DONE** — Via kernel TTY or clone script
+- ~~Push agent-created code to branches~~ **DONE** — Commit via TTY with approval gating
 - Display PR/issue status in Mission Control
 
 ---
@@ -153,11 +153,11 @@ What's missing is the polish, hardening, and "last mile" work that turns a worki
 - Common plugins: GitHub, Slack, database, email, calendar
 - Plugin isolation (run plugins in their own sandbox)
 
-### 6.2 Multi-LLM Support
-- Abstract the LLM layer — support OpenAI, Anthropic, local models (Ollama)
-- Per-agent model selection in the UI
+### 6.2 Multi-LLM Support — **DONE**
+- ~~Abstract the LLM layer — support OpenAI, Anthropic, local models (Ollama)~~ **DONE** — `runtime/src/llm/` with provider interface, 4 providers, auto-detection
+- ~~Per-agent model selection in the UI~~ **DONE** — Model selector in deploy modal, format: `provider:model`
 - Cost/quality tradeoff settings (fast model for simple tasks, smart model for hard ones)
-- Local model support for air-gapped deployments
+- ~~Local model support for air-gapped deployments~~ **DONE** — OllamaProvider with prompt-based tool calling fallback
 
 ### 6.3 API & Integrations
 - REST API for external systems to spawn and monitor agents
