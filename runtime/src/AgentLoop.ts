@@ -254,6 +254,8 @@ export async function runAgentLoop(
 // LLM Integration
 // ---------------------------------------------------------------------------
 
+const MAX_LLM_RETRIES = 3;
+
 async function getNextAction(
   state: AgentState,
   config: AgentConfig,
@@ -265,45 +267,85 @@ async function getNextAction(
     return getHeuristicAction(state, config);
   }
 
-  try {
-    const { GoogleGenAI } = await import('@google/genai');
-    const ai = new GoogleGenAI({ apiKey });
+  let lastError: Error | null = null;
 
-    const prompt = buildPrompt(state, tools);
+  for (let attempt = 0; attempt < MAX_LLM_RETRIES; attempt++) {
+    try {
+      const { GoogleGenAI } = await import('@google/genai');
+      const ai = new GoogleGenAI({ apiKey });
 
-    const response = await ai.models.generateContent({
-      model: config.model || 'gemini-2.5-flash',
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: 'object' as any,
-          properties: {
-            reasoning: { type: 'string' as any, description: 'Your step-by-step reasoning' },
-            tool: { type: 'string' as any, description: 'The tool to use' },
-            args: { type: 'object' as any, description: 'Arguments for the tool' },
+      const prompt = buildPrompt(state, tools);
+
+      const response = await ai.models.generateContent({
+        model: config.model || 'gemini-2.5-flash',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: 'object' as any,
+            properties: {
+              reasoning: { type: 'string' as any, description: 'Your step-by-step reasoning' },
+              tool: { type: 'string' as any, description: 'The tool to use' },
+              args: { type: 'object' as any, description: 'Arguments for the tool' },
+            },
+            required: ['reasoning', 'tool', 'args'],
           },
-          required: ['reasoning', 'tool', 'args'],
         },
-      },
-    });
+      });
 
-    const text = response.text || '{}';
-    const parsed = JSON.parse(text);
+      const text = response.text || '{}';
 
-    return {
-      reasoning: parsed.reasoning || 'No reasoning provided',
-      tool: parsed.tool || 'think',
-      args: parsed.args || {},
-    };
-  } catch (err: any) {
-    console.error('[AgentLoop] LLM call failed:', err.message);
-    return {
-      reasoning: `LLM call failed: ${err.message}. Using heuristic.`,
-      tool: 'think',
-      args: { thought: `LLM error: ${err.message}` },
-    };
+      // Handle malformed LLM responses gracefully
+      let parsed: any;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        console.warn(`[AgentLoop] Malformed LLM response (not valid JSON), skipping step. Response: ${text.substring(0, 200)}`);
+        return {
+          reasoning: 'LLM returned malformed response. Retrying with a think step.',
+          tool: 'think',
+          args: { thought: `Malformed response received, re-evaluating approach.` },
+        };
+      }
+
+      if (!parsed.tool || typeof parsed.tool !== 'string') {
+        console.warn('[AgentLoop] LLM response missing tool field, using think');
+        return {
+          reasoning: parsed.reasoning || 'LLM response missing tool selection.',
+          tool: 'think',
+          args: { thought: 'Re-evaluating which tool to use.' },
+        };
+      }
+
+      return {
+        reasoning: parsed.reasoning || 'No reasoning provided',
+        tool: parsed.tool,
+        args: parsed.args || {},
+      };
+    } catch (err: any) {
+      lastError = err;
+      const isRateLimit = err.message?.includes('429') || err.message?.toLowerCase().includes('rate limit');
+      const isServerError = err.message?.includes('500') || err.message?.includes('503');
+
+      if ((isRateLimit || isServerError) && attempt < MAX_LLM_RETRIES - 1) {
+        const backoffMs = Math.pow(2, attempt + 1) * 1000; // 2s, 4s, 8s
+        console.warn(`[AgentLoop] LLM rate limited/server error (attempt ${attempt + 1}/${MAX_LLM_RETRIES}), retrying in ${backoffMs}ms`);
+        await sleep(backoffMs);
+        continue;
+      }
+
+      break;
+    }
   }
+
+  // All retries exhausted
+  const msg = lastError?.message || 'Unknown error';
+  console.error(`[AgentLoop] LLM call failed after ${MAX_LLM_RETRIES} attempts:`, msg);
+  return {
+    reasoning: `LLM call failed after ${MAX_LLM_RETRIES} retries: ${msg}. Using heuristic.`,
+    tool: 'think',
+    args: { thought: `LLM error: ${msg}` },
+  };
 }
 
 function buildSystemPrompt(config: AgentConfig, tools: ToolDefinition[]): string {

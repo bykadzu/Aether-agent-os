@@ -279,28 +279,70 @@ export class ClusterManager {
   /**
    * Connect to the hub (node mode). Called by the server layer with the WS instance.
    */
+  private _reconnectAttempt = 0;
+  private _maxReconnectAttempts = 10;
+  private _reconnectTimer?: ReturnType<typeof setTimeout>;
+
   connectToHub(ws: any): void {
     if (this.role !== 'node') return;
 
     this.hubWs = ws;
+    this._reconnectAttempt = 0;
+
+    // Handle disconnection with backoff reconnection
+    ws.on('close', () => {
+      console.warn('[Cluster] Hub connection lost');
+      this.hubWs = null;
+      if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);
+      this.bus.emit('cluster.hubDisconnected', {});
+      this._scheduleReconnect();
+    });
+
+    ws.on('error', (err: any) => {
+      console.error('[Cluster] Hub connection error:', err.message);
+    });
 
     // Send registration
-    ws.send(JSON.stringify({
-      type: 'cluster.register',
-      node: {
-        id: this.nodeId,
-        host: process.env.AETHER_NODE_HOST || 'localhost',
-        port: parseInt(process.env.AETHER_PORT || '3001', 10),
-        capacity: this.localCapacity,
-        load: this.localLoad,
-        gpuAvailable: this.localGpuAvailable,
-        dockerAvailable: this.localDockerAvailable,
-      },
-    }));
+    try {
+      ws.send(JSON.stringify({
+        type: 'cluster.register',
+        node: {
+          id: this.nodeId,
+          host: process.env.AETHER_NODE_HOST || 'localhost',
+          port: parseInt(process.env.AETHER_PORT || '3001', 10),
+          capacity: this.localCapacity,
+          load: this.localLoad,
+          gpuAvailable: this.localGpuAvailable,
+          dockerAvailable: this.localDockerAvailable,
+        },
+      }));
+    } catch (err: any) {
+      console.error('[Cluster] Failed to send registration:', err.message);
+      return;
+    }
 
     // Start heartbeats
     this.startHeartbeat();
     console.log('[Cluster] Connected to hub');
+  }
+
+  /**
+   * Schedule reconnection to hub with exponential backoff.
+   */
+  private _scheduleReconnect(): void {
+    if (this._reconnectAttempt >= this._maxReconnectAttempts) {
+      console.error(`[Cluster] Max reconnect attempts (${this._maxReconnectAttempts}) reached. Operating standalone.`);
+      this.bus.emit('cluster.reconnectFailed', {});
+      return;
+    }
+
+    const backoffMs = Math.min(1000 * Math.pow(2, this._reconnectAttempt), 30_000);
+    this._reconnectAttempt++;
+    console.log(`[Cluster] Reconnecting to hub in ${backoffMs}ms (attempt ${this._reconnectAttempt}/${this._maxReconnectAttempts})`);
+
+    this._reconnectTimer = setTimeout(() => {
+      this.bus.emit('cluster.reconnecting', { attempt: this._reconnectAttempt });
+    }, backoffMs);
   }
 
   /**
@@ -419,6 +461,9 @@ export class ClusterManager {
     }
     if (this.healthCheckInterval) {
       clearInterval(this.healthCheckInterval);
+    }
+    if (this._reconnectTimer) {
+      clearTimeout(this._reconnectTimer);
     }
 
     // Close all node connections (hub mode)

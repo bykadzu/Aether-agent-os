@@ -214,8 +214,15 @@ export class VirtualFS {
    */
   async readFile(virtualPath: string): Promise<{ content: string; size: number }> {
     const realPath = this.resolvePath(virtualPath);
-    const content = await fs.readFile(realPath, 'utf-8');
-    return { content, size: Buffer.byteLength(content) };
+    try {
+      const content = await fs.readFile(realPath, 'utf-8');
+      return { content, size: Buffer.byteLength(content) };
+    } catch (err: any) {
+      if (err.code === 'EACCES') {
+        throw new Error(`Permission denied: cannot read ${virtualPath}`);
+      }
+      throw err;
+    }
   }
 
   /**
@@ -226,7 +233,17 @@ export class VirtualFS {
 
     // Ensure parent directory exists
     await fs.mkdir(path.dirname(realPath), { recursive: true });
-    await fs.writeFile(realPath, content, 'utf-8');
+    try {
+      await fs.writeFile(realPath, content, 'utf-8');
+    } catch (err: any) {
+      if (err.code === 'ENOSPC') {
+        throw new Error(`Disk full: cannot write to ${virtualPath}`);
+      }
+      if (err.code === 'EACCES') {
+        throw new Error(`Permission denied: cannot write to ${virtualPath}`);
+      }
+      throw err;
+    }
 
     // Track file ownership
     if (ownerUid) {
@@ -244,7 +261,17 @@ export class VirtualFS {
    */
   async mkdir(virtualPath: string, recursive = false): Promise<void> {
     const realPath = this.resolvePath(virtualPath);
-    await fs.mkdir(realPath, { recursive });
+    try {
+      await fs.mkdir(realPath, { recursive });
+    } catch (err: any) {
+      if (err.code === 'ENOSPC') {
+        throw new Error(`Disk full: cannot create directory ${virtualPath}`);
+      }
+      if (err.code === 'EACCES') {
+        throw new Error(`Permission denied: cannot create directory ${virtualPath}`);
+      }
+      throw err;
+    }
 
     this.bus.emit('fs.changed', {
       path: virtualPath,
