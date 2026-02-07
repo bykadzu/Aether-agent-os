@@ -528,6 +528,97 @@ export function createToolSet(): ToolDefinition[] {
       },
     },
 
+    // ----- Memory Tools (v0.3 Wave 1) -----
+    {
+      name: 'remember',
+      description:
+        'Store a memory for future sessions. Args: content (string), layer (episodic|semantic|procedural|social), tags (string[], optional), importance (0-1, optional)',
+      execute: async (args, ctx) => {
+        try {
+          if (!ctx.kernel.memory) {
+            return { success: false, output: 'Memory subsystem not available' };
+          }
+          const layer = args.layer || 'episodic';
+          if (!['episodic', 'semantic', 'procedural', 'social'].includes(layer)) {
+            return {
+              success: false,
+              output: `Invalid layer: ${layer}. Must be episodic, semantic, procedural, or social.`,
+            };
+          }
+          const memory = ctx.kernel.memory.store({
+            agent_uid: ctx.uid,
+            layer,
+            content: args.content,
+            tags: args.tags || [],
+            importance: args.importance ?? 0.5,
+            source_pid: ctx.pid,
+          });
+          return {
+            success: true,
+            output: `Stored ${layer} memory (id: ${memory.id}): "${args.content.substring(0, 100)}${args.content.length > 100 ? '...' : ''}"`,
+          };
+        } catch (err: any) {
+          return { success: false, output: `Error: ${err.message}` };
+        }
+      },
+    },
+
+    {
+      name: 'recall',
+      description:
+        'Recall memories from previous sessions. Args: query (string, optional), layer (string, optional), tags (string[], optional), limit (number, optional, default 10)',
+      execute: async (args, ctx) => {
+        try {
+          if (!ctx.kernel.memory) {
+            return { success: false, output: 'Memory subsystem not available' };
+          }
+          const memories = ctx.kernel.memory.recall({
+            agent_uid: ctx.uid,
+            query: args.query,
+            layer: args.layer,
+            tags: args.tags,
+            limit: args.limit || 10,
+          });
+          if (memories.length === 0) {
+            return { success: true, output: 'No memories found matching the query.' };
+          }
+          const formatted = memories
+            .map(
+              (m, i) =>
+                `${i + 1}. [${m.layer}] ${m.content.substring(0, 200)} (importance: ${m.importance.toFixed(2)}, tags: ${m.tags.join(', ') || 'none'})`,
+            )
+            .join('\n');
+          return {
+            success: true,
+            output: `Found ${memories.length} memor${memories.length === 1 ? 'y' : 'ies'}:\n${formatted}`,
+          };
+        } catch (err: any) {
+          return { success: false, output: `Error: ${err.message}` };
+        }
+      },
+    },
+
+    {
+      name: 'forget',
+      description: 'Delete a specific memory by ID. Args: memoryId (string)',
+      execute: async (args, ctx) => {
+        try {
+          if (!ctx.kernel.memory) {
+            return { success: false, output: 'Memory subsystem not available' };
+          }
+          if (!args.memoryId) {
+            return { success: false, output: 'memoryId is required' };
+          }
+          const deleted = ctx.kernel.memory.forget(args.memoryId, ctx.uid);
+          return deleted
+            ? { success: true, output: `Memory ${args.memoryId} has been forgotten.` }
+            : { success: false, output: `Memory ${args.memoryId} not found or not owned by you.` };
+        } catch (err: any) {
+          return { success: false, output: `Error: ${err.message}` };
+        }
+      },
+    },
+
     // ----- Thinking/Planning -----
     {
       name: 'think',

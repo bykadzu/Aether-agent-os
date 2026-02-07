@@ -9,5 +9,7 @@ export { BrowserManager } from './BrowserManager.js';
 export { PluginManager } from './PluginManager.js';
 export { SnapshotManager } from './SnapshotManager.js';
 export { StateStore } from './StateStore.js';
+export { MemoryManager } from './MemoryManager.js';
+export { CronManager } from './CronManager.js';
 export { AuthManager } from './AuthManager.js';
 export { ClusterManager } from './ClusterManager.js';

@@ -16,8 +16,20 @@
  */
 
 import { Kernel } from '@aether/kernel';
-import { PID, AgentConfig, AGENT_STEP_INTERVAL, DEFAULT_AGENT_MAX_STEPS } from '@aether/shared';
-import { createToolSet, getToolsForAgent, ToolDefinition, ToolResult, ToolContext } from './tools.js';
+import {
+  PID,
+  AgentConfig,
+  MemoryRecord,
+  AGENT_STEP_INTERVAL,
+  DEFAULT_AGENT_MAX_STEPS,
+} from '@aether/shared';
+import {
+  createToolSet,
+  getToolsForAgent,
+  ToolDefinition,
+  ToolResult,
+  ToolContext,
+} from './tools.js';
 import { getProviderFromModelString, getProvider } from './llm/index.js';
 import type { LLMProvider, ChatMessage, ToolDefinition as LLMToolDef } from './llm/index.js';
 
@@ -54,7 +66,7 @@ export async function runAgentLoop(
   options: {
     apiKey?: string;
     signal?: AbortSignal;
-  } = {}
+  } = {},
 ): Promise<void> {
   const proc = kernel.processes.get(pid);
   if (!proc) throw new Error(`Process ${pid} not found`);
@@ -64,10 +76,8 @@ export async function runAgentLoop(
     await kernel.plugins.loadPluginsForAgent(pid, proc.info.uid);
   }
 
-  const tools = kernel.plugins
-    ? getToolsForAgent(pid, kernel.plugins)
-    : createToolSet();
-  const toolMap = new Map(tools.map(t => [t.name, t]));
+  const tools = kernel.plugins ? getToolsForAgent(pid, kernel.plugins) : createToolSet();
+  const toolMap = new Map(tools.map((t) => [t.name, t]));
 
   // Resolve LLM provider from config.model string or environment
   const provider = resolveProvider(config, options.apiKey);
@@ -87,10 +97,20 @@ export async function runAgentLoop(
     cwd: proc.info.cwd,
   };
 
+  // Load relevant memories for context (v0.3 memory-aware loop)
+  let contextMemories: MemoryRecord[] = [];
+  if (kernel.memory) {
+    try {
+      contextMemories = kernel.memory.getMemoriesForContext(proc.info.uid, config.goal, 10);
+    } catch (err) {
+      console.warn(`[AgentLoop] Failed to load memories for ${proc.info.uid}:`, err);
+    }
+  }
+
   // System prompt
   state.history.push({
     role: 'system',
-    content: buildSystemPrompt(config, tools),
+    content: buildSystemPrompt(config, tools, contextMemories),
     timestamp: Date.now(),
   });
 
@@ -205,6 +225,22 @@ export async function runAgentLoop(
         state.artifacts.push(...result.artifacts);
       }
 
+      // Auto-journal significant observations as episodic memory (v0.3)
+      if (kernel.memory && result.success && decision.tool !== 'think') {
+        try {
+          kernel.memory.store({
+            agent_uid: proc.info.uid,
+            layer: 'episodic',
+            content: `[Step ${state.step + 1}] Used ${decision.tool}: ${result.output.substring(0, 300)}`,
+            tags: ['auto-journal', decision.tool],
+            importance: decision.tool === 'complete' ? 0.8 : 0.3,
+            source_pid: pid,
+          });
+        } catch {
+          // Non-critical — don't break the agent loop for journaling failures
+        }
+      }
+
       // Check if agent completed
       if (decision.tool === 'complete') {
         kernel.bus.emit('agent.progress', {
@@ -226,7 +262,6 @@ export async function runAgentLoop(
 
       // Rate limit between steps
       await sleep(AGENT_STEP_INTERVAL);
-
     } catch (err: any) {
       console.error(`[AgentLoop] Error in step ${state.step} for PID ${pid}:`, err);
       kernel.bus.emit('agent.thought', {
@@ -305,7 +340,7 @@ async function getNextAction(
   for (let attempt = 0; attempt < MAX_LLM_RETRIES; attempt++) {
     try {
       // Convert state history to ChatMessage format for the provider
-      const messages: ChatMessage[] = state.history.slice(-10).map(msg => ({
+      const messages: ChatMessage[] = state.history.slice(-10).map((msg) => ({
         role: msg.role === 'agent' ? 'assistant' : msg.role === 'tool' ? 'user' : msg.role,
         content: msg.content,
       }));
@@ -317,7 +352,7 @@ async function getNextAction(
       });
 
       // Convert tool definitions to LLM format
-      const llmTools: LLMToolDef[] = tools.map(t => ({
+      const llmTools: LLMToolDef[] = tools.map((t) => ({
         name: t.name,
         description: t.description,
         parameters: {
@@ -376,12 +411,15 @@ async function getNextAction(
       };
     } catch (err: any) {
       lastError = err;
-      const isRateLimit = err.message?.includes('429') || err.message?.toLowerCase().includes('rate limit');
+      const isRateLimit =
+        err.message?.includes('429') || err.message?.toLowerCase().includes('rate limit');
       const isServerError = err.message?.includes('500') || err.message?.includes('503');
 
       if ((isRateLimit || isServerError) && attempt < MAX_LLM_RETRIES - 1) {
         const backoffMs = Math.pow(2, attempt + 1) * 1000; // 2s, 4s, 8s
-        console.warn(`[AgentLoop] LLM rate limited/server error (attempt ${attempt + 1}/${MAX_LLM_RETRIES}), retrying in ${backoffMs}ms`);
+        console.warn(
+          `[AgentLoop] LLM rate limited/server error (attempt ${attempt + 1}/${MAX_LLM_RETRIES}), retrying in ${backoffMs}ms`,
+        );
         await sleep(backoffMs);
         continue;
       }
@@ -400,10 +438,14 @@ async function getNextAction(
   };
 }
 
-function buildSystemPrompt(config: AgentConfig, tools: ToolDefinition[]): string {
-  const toolList = tools.map(t => `- ${t.name}: ${t.description}`).join('\n');
+function buildSystemPrompt(
+  config: AgentConfig,
+  tools: ToolDefinition[],
+  memories: MemoryRecord[] = [],
+): string {
+  const toolList = tools.map((t) => `- ${t.name}: ${t.description}`).join('\n');
 
-  return [
+  const sections = [
     `You are an AI agent running inside Aether OS, a purpose-built operating system for AI agents.`,
     ``,
     `## Your Identity`,
@@ -415,6 +457,7 @@ function buildSystemPrompt(config: AgentConfig, tools: ToolDefinition[]): string
     `- You have a real filesystem with your home directory`,
     `- You can create files, run commands, and browse the web`,
     `- Your actions are observable by the human operator`,
+    `- You have persistent memory across sessions (use remember/recall tools)`,
     ``,
     `## Available Tools`,
     toolList,
@@ -425,7 +468,22 @@ function buildSystemPrompt(config: AgentConfig, tools: ToolDefinition[]): string
     `3. Create files in your home directory when producing artifacts`,
     `4. Call 'complete' when you've achieved your goal`,
     `5. Be efficient - don't repeat actions unnecessarily`,
-  ].join('\n');
+    `6. Use 'remember' to save important discoveries for future sessions`,
+    `7. Use 'recall' to retrieve relevant knowledge from past sessions`,
+  ];
+
+  // Inject relevant memories if any were loaded
+  if (memories.length > 0) {
+    sections.push(``);
+    sections.push(`## Recalled Memories (from previous sessions)`);
+    for (const m of memories) {
+      const layerTag = `[${m.layer}]`;
+      const tagsStr = m.tags.length > 0 ? ` (${m.tags.join(', ')})` : '';
+      sections.push(`- ${layerTag} ${m.content.substring(0, 200)}${tagsStr}`);
+    }
+  }
+
+  return sections.join('\n');
 }
 
 /**
@@ -496,7 +554,9 @@ function getHeuristicAction(state: AgentState, config: AgentConfig): LLMDecision
     return {
       reasoning: 'Initial setup complete. Marking task as done for this demo iteration.',
       tool: 'complete',
-      args: { summary: `Completed initial setup for: ${config.goal}. Created project structure and initial files.` },
+      args: {
+        summary: `Completed initial setup for: ${config.goal}. Created project structure and initial files.`,
+      },
     };
   }
 
@@ -546,5 +606,5 @@ async function waitForApproval(kernel: Kernel, pid: PID, signal?: AbortSignal): 
 }
 
 function sleep(ms: number): Promise<void> {
-  return new Promise(r => setTimeout(r, ms));
+  return new Promise((r) => setTimeout(r, ms));
 }

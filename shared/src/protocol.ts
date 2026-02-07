@@ -26,27 +26,34 @@ export type AuthToken = string & { readonly __brand: 'AuthToken' };
 export type FD = number;
 
 /** Unix-style signal */
-export type Signal = 'SIGTERM' | 'SIGKILL' | 'SIGSTOP' | 'SIGCONT' | 'SIGINT' | 'SIGUSR1' | 'SIGUSR2';
+export type Signal =
+  | 'SIGTERM'
+  | 'SIGKILL'
+  | 'SIGSTOP'
+  | 'SIGCONT'
+  | 'SIGINT'
+  | 'SIGUSR1'
+  | 'SIGUSR2';
 
 /** Process states following Unix conventions */
 export type ProcessState =
-  | 'created'     // Process object exists, not yet started
-  | 'running'     // Actively executing
-  | 'sleeping'    // Waiting for I/O or event
-  | 'stopped'     // Paused by signal (SIGSTOP)
-  | 'zombie'      // Terminated but not yet reaped
-  | 'dead';       // Fully cleaned up
+  | 'created' // Process object exists, not yet started
+  | 'running' // Actively executing
+  | 'sleeping' // Waiting for I/O or event
+  | 'stopped' // Paused by signal (SIGSTOP)
+  | 'zombie' // Terminated but not yet reaped
+  | 'dead'; // Fully cleaned up
 
 /** Agent-specific states layered on top of process states */
 export type AgentPhase =
-  | 'booting'       // Initializing sandbox and tools
-  | 'thinking'      // LLM is reasoning
-  | 'executing'     // Running a tool/command
-  | 'waiting'       // Waiting for human approval
-  | 'observing'     // Reading tool output
-  | 'idle'          // Waiting for next task
-  | 'completed'     // Goal achieved
-  | 'failed';       // Unrecoverable error
+  | 'booting' // Initializing sandbox and tools
+  | 'thinking' // LLM is reasoning
+  | 'executing' // Running a tool/command
+  | 'waiting' // Waiting for human approval
+  | 'observing' // Reading tool output
+  | 'idle' // Waiting for next task
+  | 'completed' // Goal achieved
+  | 'failed'; // Unrecoverable error
 
 /** File types in the virtual filesystem */
 export type FileType = 'file' | 'directory' | 'symlink' | 'pipe' | 'device';
@@ -75,48 +82,48 @@ export interface UserInfo {
 
 export interface ProcessInfo {
   pid: PID;
-  ppid: PID;                  // Parent process ID (0 = init)
-  uid: string;                // Owner (agent ID or 'root')
-  ownerUid?: string;          // User who spawned the agent
-  name: string;               // Process name
-  command: string;             // Full command string
+  ppid: PID; // Parent process ID (0 = init)
+  uid: string; // Owner (agent ID or 'root')
+  ownerUid?: string; // User who spawned the agent
+  name: string; // Process name
+  command: string; // Full command string
   state: ProcessState;
-  agentPhase?: AgentPhase;    // Only for agent processes
-  cwd: string;                // Current working directory
+  agentPhase?: AgentPhase; // Only for agent processes
+  cwd: string; // Current working directory
   env: Record<string, string>;
-  createdAt: number;           // Unix timestamp ms
-  cpuPercent: number;          // 0-100
-  memoryMB: number;            // Memory usage in MB
-  ttyId?: string;             // Attached terminal ID
-  containerId?: string;       // Docker container ID (if sandboxed)
+  createdAt: number; // Unix timestamp ms
+  cpuPercent: number; // 0-100
+  memoryMB: number; // Memory usage in MB
+  ttyId?: string; // Attached terminal ID
+  containerId?: string; // Docker container ID (if sandboxed)
   containerStatus?: ContainerStatus;
 }
 
 export interface AgentConfig {
-  role: string;                // Agent role (Researcher, Coder, etc.)
-  goal: string;                // Primary directive
-  model?: string;              // LLM model to use
-  tools?: string[];            // Allowed tools
-  maxSteps?: number;           // Max autonomous steps before pause
+  role: string; // Agent role (Researcher, Coder, etc.)
+  goal: string; // Primary directive
+  model?: string; // LLM model to use
+  tools?: string[]; // Allowed tools
+  maxSteps?: number; // Max autonomous steps before pause
   sandbox?: SandboxConfig;
 }
 
 export interface SandboxConfig {
   type: 'process' | 'container' | 'vm';
   memoryLimitMB?: number;
-  cpuLimit?: number;           // 0.0 - 1.0
+  cpuLimit?: number; // 0.0 - 1.0
   networkAccess?: boolean;
-  allowedPaths?: string[];     // Filesystem paths the agent can access
-  timeout?: number;            // Max runtime in seconds
-  image?: string;              // Docker image to use
-  graphical?: boolean;         // Enable Xvfb + x11vnc for graphical apps
-  gpu?: GPUConfig;             // GPU passthrough configuration
+  allowedPaths?: string[]; // Filesystem paths the agent can access
+  timeout?: number; // Max runtime in seconds
+  image?: string; // Docker image to use
+  graphical?: boolean; // Enable Xvfb + x11vnc for graphical apps
+  gpu?: GPUConfig; // GPU passthrough configuration
 }
 
 export interface GPUConfig {
   enabled: boolean;
-  count?: number;              // Number of GPUs to allocate
-  deviceIds?: string[];        // Specific GPU device IDs (e.g. ['0', '1'])
+  count?: number; // Number of GPUs to allocate
+  deviceIds?: string[]; // Specific GPU device IDs (e.g. ['0', '1'])
 }
 
 // ---------------------------------------------------------------------------
@@ -130,13 +137,13 @@ export interface ContainerInfo {
   pid: PID;
   image: string;
   status: ContainerStatus;
-  mountedVolume: string;       // Host path of mounted volume
+  mountedVolume: string; // Host path of mounted volume
   networkEnabled: boolean;
   memoryLimitMB: number;
   cpuLimit: number;
   createdAt: number;
-  vncPort?: number;            // Host-side VNC port (if graphical)
-  gpuIds?: number[];           // Assigned GPU device IDs
+  vncPort?: number; // Host-side VNC port (if graphical)
+  gpuIds?: number[]; // Assigned GPU device IDs
 }
 
 // ---------------------------------------------------------------------------
@@ -149,8 +156,8 @@ export interface IPCMessage {
   toPid: PID;
   fromUid: string;
   toUid: string;
-  channel: string;             // Message channel/topic
-  payload: any;                // Message content
+  channel: string; // Message channel/topic
+  payload: any; // Message content
   timestamp: number;
   delivered: boolean;
 }
@@ -163,9 +170,9 @@ export interface FileStat {
   path: string;
   name: string;
   type: FileType;
-  size: number;                // Bytes
+  size: number; // Bytes
   mode: FileMode;
-  uid: string;                 // Owner
+  uid: string; // Owner
   createdAt: number;
   modifiedAt: number;
   isHidden: boolean;
@@ -173,7 +180,7 @@ export interface FileStat {
 
 export interface FileContent {
   path: string;
-  content: string;             // UTF-8 text content
+  content: string; // UTF-8 text content
   encoding: 'utf-8' | 'base64';
   size: number;
 }
@@ -184,7 +191,7 @@ export interface FileContent {
 
 export interface TerminalInfo {
   id: string;
-  pid: PID;                    // Attached process
+  pid: PID; // Attached process
   cols: number;
   rows: number;
   title: string;
@@ -211,7 +218,7 @@ export interface AgentLogEntry {
   id?: number;
   pid: PID;
   step: number;
-  phase: string;               // 'thought' | 'action' | 'observation'
+  phase: string; // 'thought' | 'action' | 'observation'
   tool?: string;
   content: string;
   timestamp: number;
@@ -232,6 +239,79 @@ export interface KernelMetricRecord {
   cpuPercent: number;
   memoryMB: number;
   containerCount: number;
+}
+
+// ---------------------------------------------------------------------------
+// Memory Types (v0.3 Wave 1)
+// ---------------------------------------------------------------------------
+
+/** Memory layers following cognitive architecture */
+export type MemoryLayer = 'episodic' | 'semantic' | 'procedural' | 'social';
+
+export interface MemoryRecord {
+  id: string; // UUID
+  agent_uid: string; // Owner agent
+  layer: MemoryLayer;
+  content: string; // The memory content
+  tags: string[]; // Searchable tags
+  importance: number; // 0.0 - 1.0
+  access_count: number;
+  created_at: number; // Unix timestamp ms
+  last_accessed: number; // Unix timestamp ms
+  expires_at?: number; // Optional expiration
+  source_pid?: number; // PID that created this memory
+  related_memories?: string[]; // IDs of related memories
+}
+
+export interface MemoryQuery {
+  query?: string; // FTS5 search query
+  layer?: MemoryLayer;
+  tags?: string[];
+  agent_uid: string;
+  limit?: number;
+  min_importance?: number;
+}
+
+export interface MemoryStoreRequest {
+  agent_uid: string;
+  layer: MemoryLayer;
+  content: string;
+  tags?: string[];
+  importance?: number;
+  source_pid?: number;
+  expires_at?: number;
+  related_memories?: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Cron & Scheduling Types (v0.3 Wave 1)
+// ---------------------------------------------------------------------------
+
+export interface CronJob {
+  id: string; // UUID
+  name: string;
+  cron_expression: string; // 5-field: min hour dom month dow
+  agent_config: AgentConfig; // Full config for spawned agent
+  enabled: boolean;
+  owner_uid: string;
+  last_run?: number;
+  next_run: number;
+  run_count: number;
+  created_at: number;
+}
+
+export interface EventTrigger {
+  id: string; // UUID
+  name: string;
+  event_type: string; // Event bus event type to match
+  event_filter?: Record<string, any>; // Optional filter on event data
+  agent_config: AgentConfig;
+  enabled: boolean;
+  owner_uid: string;
+  cooldown_ms: number; // Minimum time between firings (default 60000)
+  last_fired?: number;
+  fire_count: number;
+  created_at: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -263,14 +343,14 @@ export interface VNCInfo {
 export interface GPUInfo {
   id: number;
   name: string;
-  memoryTotal: number;         // MB
-  memoryFree: number;          // MB
-  utilization: number;         // 0-100 percent
+  memoryTotal: number; // MB
+  memoryFree: number; // MB
+  utilization: number; // 0-100 percent
 }
 
 export interface GPUStats extends GPUInfo {
-  temperature: number;         // Celsius
-  powerUsage: number;          // Watts
+  temperature: number; // Celsius
+  powerUsage: number; // Watts
 }
 
 export interface GPUAllocation {
@@ -424,7 +504,14 @@ export type KernelCommand =
   // Browser
   | { type: 'browser:create'; id: string; sessionId: string; options?: BrowserSessionOptions }
   | { type: 'browser:navigate'; id: string; sessionId: string; url: string }
-  | { type: 'browser:click'; id: string; sessionId: string; x: number; y: number; button?: 'left' | 'right' }
+  | {
+      type: 'browser:click';
+      id: string;
+      sessionId: string;
+      x: number;
+      y: number;
+      button?: 'left' | 'right';
+    }
   | { type: 'browser:type'; id: string; sessionId: string; text: string }
   | { type: 'browser:keypress'; id: string; sessionId: string; key: string }
   | { type: 'browser:scroll'; id: string; sessionId: string; deltaX: number; deltaY: number }
@@ -436,6 +523,40 @@ export type KernelCommand =
   | { type: 'browser:forward'; id: string; sessionId: string }
   | { type: 'browser:reload'; id: string; sessionId: string }
   | { type: 'browser:dom_snapshot'; id: string; sessionId: string }
+
+  // Memory (v0.3)
+  | { type: 'memory.store'; id: string; memory: MemoryStoreRequest }
+  | { type: 'memory.recall'; id: string; query: MemoryQuery }
+  | { type: 'memory.forget'; id: string; memoryId: string; agent_uid: string }
+  | { type: 'memory.share'; id: string; memoryId: string; from_uid: string; to_uid: string }
+  | { type: 'memory.list'; id: string; agent_uid: string; layer?: MemoryLayer }
+  | { type: 'memory.consolidate'; id: string; agent_uid: string }
+
+  // Cron & Triggers (v0.3)
+  | {
+      type: 'cron.create';
+      id: string;
+      name: string;
+      cron_expression: string;
+      agent_config: AgentConfig;
+      owner_uid: string;
+    }
+  | { type: 'cron.delete'; id: string; jobId: string }
+  | { type: 'cron.enable'; id: string; jobId: string }
+  | { type: 'cron.disable'; id: string; jobId: string }
+  | { type: 'cron.list'; id: string }
+  | {
+      type: 'trigger.create';
+      id: string;
+      name: string;
+      event_type: string;
+      agent_config: AgentConfig;
+      owner_uid: string;
+      cooldown_ms?: number;
+      event_filter?: Record<string, any>;
+    }
+  | { type: 'trigger.delete'; id: string; triggerId: string }
+  | { type: 'trigger.list'; id: string }
 
   // LLM Providers
   | { type: 'llm.list'; id: string }
@@ -540,12 +661,35 @@ export type KernelEvent =
   | { type: 'browser:destroyed'; sessionId: string }
   | { type: 'browser:error'; sessionId: string; error: string }
 
+  // Memory events (v0.3)
+  | { type: 'memory.stored'; memoryId: string; agent_uid: string; layer: MemoryLayer }
+  | { type: 'memory.recalled'; agent_uid: string; memories: MemoryRecord[] }
+  | { type: 'memory.forgotten'; memoryId: string; agent_uid: string }
+  | { type: 'memory.shared'; memoryId: string; from_uid: string; to_uid: string }
+  | { type: 'memory.consolidated'; agent_uid: string; removed: number }
+
+  // Cron & Trigger events (v0.3)
+  | { type: 'cron.created'; job: CronJob }
+  | { type: 'cron.deleted'; jobId: string }
+  | { type: 'cron.fired'; jobId: string; pid: PID }
+  | { type: 'cron.list'; jobs: CronJob[] }
+  | { type: 'trigger.created'; trigger: EventTrigger }
+  | { type: 'trigger.deleted'; triggerId: string }
+  | { type: 'trigger.fired'; triggerId: string; pid: PID; event_type: string }
+  | { type: 'trigger.list'; triggers: EventTrigger[] }
+
   // LLM events
   | { type: 'llm.list'; providers: LLMProviderInfo[] }
 
   // System events
   | { type: 'kernel.ready'; version: string; uptime: number }
-  | { type: 'kernel.metrics'; processCount: number; cpuPercent: number; memoryMB: number; containerCount?: number };
+  | {
+      type: 'kernel.metrics';
+      processCount: number;
+      cpuPercent: number;
+      memoryMB: number;
+      containerCount?: number;
+    };
 
 // ---------------------------------------------------------------------------
 // Plugin Types
@@ -578,6 +722,4 @@ export function createMessageId(): string {
 }
 
 /** Standard result type for kernel operations */
-export type KernelResult<T> =
-  | { ok: true; data: T }
-  | { ok: false; error: string; code?: string };
+export type KernelResult<T> = { ok: true; data: T } | { ok: false; error: string; code?: string };
