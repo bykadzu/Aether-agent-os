@@ -387,6 +387,9 @@ export type KernelCommand =
   | { type: 'cluster.nodes'; id: string }
   | { type: 'cluster.drain'; id: string; nodeId: string }
 
+  // LLM Providers
+  | { type: 'llm.list'; id: string }
+
   // System
   | { type: 'kernel.status'; id: string }
   | { type: 'kernel.shutdown'; id: string };
@@ -479,6 +482,9 @@ export type KernelEvent =
   | { type: 'cluster.nodeOffline'; nodeId: string }
   | { type: 'cluster.status'; info: ClusterInfo }
 
+  // LLM events
+  | { type: 'llm.list'; providers: LLMProviderInfo[] }
+
   // System events
   | { type: 'kernel.ready'; version: string; uptime: number }
   | { type: 'kernel.metrics'; processCount: number; cpuPercent: number; memoryMB: number; containerCount?: number };
@@ -497,6 +503,13 @@ export interface PluginInfo {
 // ---------------------------------------------------------------------------
 // Utility Types
 // ---------------------------------------------------------------------------
+
+/** LLM provider availability info */
+export interface LLMProviderInfo {
+  name: string;
+  available: boolean;
+  models: string[];
+}
 
 /** A message on the wire is either a command or an event */
 export type WireMessage = KernelCommand | KernelEvent;

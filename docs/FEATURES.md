@@ -43,7 +43,8 @@ Status legend:
 | Step budget / max steps | Done | Configurable per agent, defaults to 50 |
 | Gemini integration | Done | Flash model for fast decisions, Pro for deeper reasoning |
 | Agent memory / context window | Partial | Agents have context within a session but no cross-session memory |
-| Multi-LLM support | Planned | Currently Gemini-only |
+| Multi-LLM support | Done | `runtime/src/llm/` — Gemini, OpenAI, Anthropic, Ollama providers with auto-detection |
+| Agent templates | Done | `runtime/src/templates.ts` — 8 pre-built templates (Researcher, Coder, Reviewer, Analyst, SysAdmin, Writer, Tester, PM) |
 
 ## Desktop UI
 
@@ -73,22 +74,22 @@ Status legend:
 | Agent Timeline | Done | Color-coded history of thoughts, actions, observations |
 | Terminal | Done | `xterm.js` wrapper, connects to kernel PTY or host shell |
 | Chat | Done | Gemini-powered chat interface with streaming |
-| File Explorer | Partial | Shows files, connected to kernel FS but browsing is limited |
-| Code Editor | Partial | Basic editor, syntax highlighting absent, save functionality basic |
+| File Explorer | Done | Connected to kernel FS with real directory browsing, breadcrumb navigation, file stats |
+| Code Editor | Done | Kernel read/write, regex-based syntax highlighting, cursor tracking, unsaved indicator |
 | Browser | Partial | URL bar + iframe, many sites block iframe embedding |
-| Notes | Done | localStorage-based, working but not persisted to kernel FS |
+| Notes | Done | Persists to kernel FS at `/home/root/Documents/notes/`, auto-save with 2s debounce, localStorage fallback |
 | Calculator | Done | Fully functional calculator |
 | Photos | Partial | Gallery UI exists, Gemini image analysis, but no real photo source |
 | Video Player | Partial | Player UI exists but no video source integration |
-| Settings | Stub | UI exists but most settings don't apply changes |
-| GitHub Sync | Stub | Button exists in agent UI but handler not implemented |
+| Settings | Done | Shows kernel status, LLM providers with availability, GPU/Docker/cluster info, API key config |
+| GitHub Sync | Done | Clone repos into agent workspace via modal, push changes with approval gating |
 
 ## Networking & Communication
 
 | Feature | Status | Details |
 |---------|--------|---------|
 | WebSocket (UI ↔ kernel) | Done | `services/kernelClient.ts` — auto-reconnect, typed messages |
-| HTTP API | Done | `/health`, `/api/auth/*`, `/api/processes`, `/api/gpu`, `/api/cluster` |
+| HTTP API | Done | `/health`, `/api/auth/*`, `/api/processes`, `/api/gpu`, `/api/cluster`, `/api/llm/providers`, `/api/templates` |
 | Cluster WebSocket | Done | `/cluster` path for node-to-hub communication |
 | React kernel hook | Done | `services/useKernel.ts` — manages WS lifecycle, syncs state |
 | Gemini service | Done | `services/geminiService.ts` — text, image, chat, agent decisions |

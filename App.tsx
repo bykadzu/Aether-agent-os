@@ -467,11 +467,75 @@ const App: React.FC = () => {
       setAgents(prev => prev.map(a => a.id === id ? { ...a, status: 'thinking', logs: [...a.logs, { timestamp: Date.now(), type: 'system', message: 'Action denied. Re-evaluating strategy...' }] } : a));
   };
 
+  const [showGithubModal, setShowGithubModal] = useState(false);
+  const [githubModalAgentId, setGithubModalAgentId] = useState<string | null>(null);
+  const [githubRepoUrl, setGithubRepoUrl] = useState('');
+  const [githubCloneStatus, setGithubCloneStatus] = useState<'idle' | 'cloning' | 'done' | 'error'>('idle');
+
   const syncGithub = (id: string) => {
-      // GitHub sync is a UI-only toggle for now in both modes
-      if (runtimeMode === 'mock') {
-        setAgents(prev => prev.map(a => a.id === id ? { ...a, githubSync: !a.githubSync, logs: [...a.logs, { timestamp: Date.now(), type: 'system', message: !a.githubSync ? 'Connected to GitHub repository.' : 'Disconnected from GitHub.' }] } : a));
+      const agent = agents.find(a => a.id === id);
+      if (!agent) return;
+
+      if (agent.githubSync) {
+        // Push changes — only with approval
+        if (runtimeMode === 'kernel' && agent.pid && agent.ttyId) {
+          const client = getKernelClient();
+          client.sendTerminalInput(agent.ttyId, 'git add . && git commit -m "Agent changes" && echo "Push requires approval. Run: git push"\n');
+          setAgents(prev => prev.map(a => a.id === id ? { ...a, logs: [...a.logs, { timestamp: Date.now(), type: 'system', message: 'Staging and committing changes...' }] } : a));
+        } else {
+          setAgents(prev => prev.map(a => a.id === id ? { ...a, githubSync: false, logs: [...a.logs, { timestamp: Date.now(), type: 'system', message: 'Disconnected from GitHub.' }] } : a));
+        }
+      } else {
+        // Open modal to enter repo URL
+        setGithubModalAgentId(id);
+        setGithubRepoUrl('');
+        setGithubCloneStatus('idle');
+        setShowGithubModal(true);
       }
+  };
+
+  const handleGithubClone = async () => {
+    if (!githubRepoUrl.trim() || !githubModalAgentId) return;
+    const agent = agents.find(a => a.id === githubModalAgentId);
+    if (!agent) return;
+
+    setGithubCloneStatus('cloning');
+
+    if (runtimeMode === 'kernel' && agent.pid) {
+      // Clone via kernel: write a clone script and use TTY if available
+      try {
+        const client = getKernelClient();
+        const repoName = githubRepoUrl.split('/').pop()?.replace('.git', '') || 'repo';
+        const homeDir = `/home/agent_${agent.pid}`;
+        // Write clone script
+        await client.writeFile(`${homeDir}/.clone_repo.sh`, `#!/bin/bash\ncd ${homeDir}\ngit clone ${githubRepoUrl}\necho "Clone complete: ${repoName}"\n`);
+        // Execute via TTY if the agent has one
+        if (agent.ttyId) {
+          client.sendTerminalInput(agent.ttyId, `cd ${homeDir} && git clone ${githubRepoUrl}\n`);
+        }
+
+        setAgents(prev => prev.map(a => a.id === githubModalAgentId ? {
+          ...a,
+          githubSync: true,
+          logs: [...a.logs, { timestamp: Date.now(), type: 'system', message: `Cloning ${githubRepoUrl} into workspace...` }],
+        } : a));
+
+        setGithubCloneStatus('done');
+        setTimeout(() => setShowGithubModal(false), 1500);
+      } catch (err) {
+        setGithubCloneStatus('error');
+      }
+    } else {
+      // Mock mode
+      setAgents(prev => prev.map(a => a.id === githubModalAgentId ? {
+        ...a,
+        githubSync: true,
+        logs: [...a.logs, { timestamp: Date.now(), type: 'system', message: `Connected to GitHub: ${githubRepoUrl}` }],
+      } : a));
+
+      setGithubCloneStatus('done');
+      setTimeout(() => setShowGithubModal(false), 1500);
+    }
   };
 
   const renderAppContent = (windowState: WindowState) => {
@@ -701,6 +765,56 @@ const App: React.FC = () => {
                     { label: 'Refresh', action: () => window.location.reload(), icon: <RefreshCw size={14}/> },
                 ]}
             />
+        )}
+
+        {/* GitHub Clone Modal */}
+        {showGithubModal && (
+          <div className="absolute inset-0 z-[10000] bg-black/60 backdrop-blur-sm flex items-center justify-center" onClick={() => setShowGithubModal(false)}>
+            <div className="bg-[#1a1d26] border border-white/10 rounded-2xl shadow-2xl p-6 w-full max-w-md animate-scale-in" onClick={e => e.stopPropagation()}>
+              <h2 className="text-lg font-light text-white mb-1">GitHub Sync</h2>
+              <p className="text-xs text-gray-500 mb-6">Clone a repository into the agent's workspace</p>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-gray-400 mb-2 uppercase tracking-wider">Repository URL</label>
+                  <input
+                    type="text"
+                    value={githubRepoUrl}
+                    onChange={(e) => setGithubRepoUrl(e.target.value)}
+                    placeholder="https://github.com/user/repo.git"
+                    className="w-full bg-black/20 border border-white/10 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-indigo-500/50 transition-all"
+                    disabled={githubCloneStatus === 'cloning'}
+                  />
+                </div>
+
+                {githubCloneStatus === 'cloning' && (
+                  <div className="flex items-center gap-2 text-xs text-indigo-400">
+                    <div className="w-3 h-3 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin" />
+                    Cloning repository...
+                  </div>
+                )}
+                {githubCloneStatus === 'done' && (
+                  <div className="text-xs text-green-400">Repository cloned successfully.</div>
+                )}
+                {githubCloneStatus === 'error' && (
+                  <div className="text-xs text-red-400">Failed to clone repository. Check the URL and try again.</div>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-3 mt-6">
+                <button onClick={() => setShowGithubModal(false)} className="px-4 py-2 text-sm text-gray-400 hover:text-white transition-colors">
+                  Cancel
+                </button>
+                <button
+                  onClick={handleGithubClone}
+                  disabled={!githubRepoUrl.trim() || githubCloneStatus === 'cloning'}
+                  className="bg-white text-black hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed px-6 py-2 rounded-xl text-sm font-bold transition-colors"
+                >
+                  Clone
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </div>

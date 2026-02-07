@@ -12,12 +12,14 @@
  *   5. Repeat until goal is achieved or limit reached
  *
  * This runs server-side, within the kernel's process space.
- * The LLM integration uses the Gemini API.
+ * Supports multiple LLM providers via the llm/ abstraction layer.
  */
 
 import { Kernel } from '@aether/kernel';
 import { PID, AgentConfig, AGENT_STEP_INTERVAL, DEFAULT_AGENT_MAX_STEPS } from '@aether/shared';
 import { createToolSet, getToolsForAgent, ToolDefinition, ToolResult, ToolContext } from './tools.js';
+import { getProviderFromModelString, getProvider } from './llm/index.js';
+import type { LLMProvider, ChatMessage, ToolDefinition as LLMToolDef } from './llm/index.js';
 
 interface AgentState {
   step: number;
@@ -66,6 +68,9 @@ export async function runAgentLoop(
     ? getToolsForAgent(pid, kernel.plugins)
     : createToolSet();
   const toolMap = new Map(tools.map(t => [t.name, t]));
+
+  // Resolve LLM provider from config.model string or environment
+  const provider = resolveProvider(config, options.apiKey);
 
   const state: AgentState = {
     step: 0,
@@ -129,7 +134,7 @@ export async function runAgentLoop(
       // Phase 1: Think - ask LLM for next action
       kernel.processes.setState(pid, 'running', 'thinking');
 
-      const decision = await getNextAction(state, config, tools, options.apiKey);
+      const decision = await getNextAction(state, config, tools, provider, options.apiKey);
 
       // Log the reasoning
       kernel.bus.emit('agent.thought', { pid, thought: decision.reasoning });
@@ -251,6 +256,33 @@ export async function runAgentLoop(
 }
 
 // ---------------------------------------------------------------------------
+// LLM Provider Resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the appropriate LLM provider based on agent config and environment.
+ */
+function resolveProvider(config: AgentConfig, apiKey?: string): LLMProvider | null {
+  // If config.model specifies a provider:model string, use that
+  if (config.model) {
+    const provider = getProviderFromModelString(config.model);
+    if (provider && provider.isAvailable()) return provider;
+    // If the explicit provider isn't available, fall through to auto-detect
+  }
+
+  // If an API key was passed explicitly (legacy GEMINI_API_KEY path),
+  // and no provider was specified, default to Gemini
+  if (apiKey) {
+    const { GeminiProvider } = require('./llm/GeminiProvider.js');
+    const gemini = new GeminiProvider(config.model);
+    return gemini;
+  }
+
+  // Auto-detect first available provider
+  return getProvider();
+}
+
+// ---------------------------------------------------------------------------
 // LLM Integration
 // ---------------------------------------------------------------------------
 
@@ -260,10 +292,11 @@ async function getNextAction(
   state: AgentState,
   config: AgentConfig,
   tools: ToolDefinition[],
+  provider: LLMProvider | null,
   apiKey?: string,
 ): Promise<LLMDecision> {
-  // If no API key, use a simple heuristic fallback
-  if (!apiKey) {
+  // If no provider is available (and no API key), use heuristic fallback
+  if (!provider || (!provider.isAvailable() && !apiKey)) {
     return getHeuristicAction(state, config);
   }
 
@@ -271,44 +304,63 @@ async function getNextAction(
 
   for (let attempt = 0; attempt < MAX_LLM_RETRIES; attempt++) {
     try {
-      const { GoogleGenAI } = await import('@google/genai');
-      const ai = new GoogleGenAI({ apiKey });
+      // Convert state history to ChatMessage format for the provider
+      const messages: ChatMessage[] = state.history.slice(-10).map(msg => ({
+        role: msg.role === 'agent' ? 'assistant' : msg.role === 'tool' ? 'user' : msg.role,
+        content: msg.content,
+      }));
 
-      const prompt = buildPrompt(state, tools);
-
-      const response = await ai.models.generateContent({
-        model: config.model || 'gemini-2.5-flash',
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: 'object' as any,
-            properties: {
-              reasoning: { type: 'string' as any, description: 'Your step-by-step reasoning' },
-              tool: { type: 'string' as any, description: 'The tool to use' },
-              args: { type: 'object' as any, description: 'Arguments for the tool' },
-            },
-            required: ['reasoning', 'tool', 'args'],
-          },
-        },
+      // Add the step instruction
+      messages.push({
+        role: 'user',
+        content: `Step ${state.step + 1}/${state.maxSteps}. What tool should you use next?`,
       });
 
-      const text = response.text || '{}';
+      // Convert tool definitions to LLM format
+      const llmTools: LLMToolDef[] = tools.map(t => ({
+        name: t.name,
+        description: t.description,
+        parameters: {
+          type: 'object',
+          properties: {},
+        },
+      }));
 
-      // Handle malformed LLM responses gracefully
-      let parsed: any;
-      try {
-        parsed = JSON.parse(text);
-      } catch {
-        console.warn(`[AgentLoop] Malformed LLM response (not valid JSON), skipping step. Response: ${text.substring(0, 200)}`);
+      const response = await provider.chat(messages, llmTools);
+
+      // Extract tool call from response
+      if (response.toolCalls && response.toolCalls.length > 0) {
+        const tc = response.toolCalls[0];
         return {
-          reasoning: 'LLM returned malformed response. Retrying with a think step.',
-          tool: 'think',
-          args: { thought: `Malformed response received, re-evaluating approach.` },
+          reasoning: response.content || 'No reasoning provided',
+          tool: tc.name,
+          args: tc.arguments,
         };
       }
 
-      if (!parsed.tool || typeof parsed.tool !== 'string') {
+      // Try to parse JSON from text response (for Gemini-style responses)
+      if (response.content) {
+        let parsed: any;
+        try {
+          parsed = JSON.parse(response.content);
+        } catch {
+          // Not JSON, use as reasoning
+          return {
+            reasoning: response.content,
+            tool: 'think',
+            args: { thought: response.content },
+          };
+        }
+
+        if (parsed.tool && typeof parsed.tool === 'string') {
+          return {
+            reasoning: parsed.reasoning || response.content,
+            tool: parsed.tool,
+            args: parsed.args || {},
+          };
+        }
+
+        // Response parsed but missing tool field
         console.warn('[AgentLoop] LLM response missing tool field, using think');
         return {
           reasoning: parsed.reasoning || 'LLM response missing tool selection.',
@@ -318,9 +370,9 @@ async function getNextAction(
       }
 
       return {
-        reasoning: parsed.reasoning || 'No reasoning provided',
-        tool: parsed.tool,
-        args: parsed.args || {},
+        reasoning: 'No response from LLM',
+        tool: 'think',
+        args: { thought: 'LLM returned empty response' },
       };
     } catch (err: any) {
       lastError = err;
@@ -374,26 +426,6 @@ function buildSystemPrompt(config: AgentConfig, tools: ToolDefinition[]): string
     `4. Call 'complete' when you've achieved your goal`,
     `5. Be efficient - don't repeat actions unnecessarily`,
   ].join('\n');
-}
-
-function buildPrompt(state: AgentState, tools: ToolDefinition[]): string {
-  // Build a conversation-style prompt from history
-  const recentHistory = state.history.slice(-10); // Last 10 messages
-  let prompt = '';
-
-  for (const msg of recentHistory) {
-    if (msg.role === 'system') {
-      prompt += `${msg.content}\n\n`;
-    } else if (msg.role === 'agent') {
-      prompt += `Previous action: ${msg.content}\n\n`;
-    } else {
-      prompt += `Tool result: ${msg.content}\n\n`;
-    }
-  }
-
-  prompt += `Step ${state.step + 1}/${state.maxSteps}. What tool should you use next? Respond with JSON: { "reasoning": "...", "tool": "...", "args": {...} }`;
-
-  return prompt;
 }
 
 /**
