@@ -226,6 +226,30 @@ export class VirtualFS {
   }
 
   /**
+   * Read a file as a raw Buffer (for binary files like images, audio, video).
+   */
+  async readFileRaw(virtualPath: string): Promise<Buffer> {
+    const realPath = this.resolvePath(virtualPath);
+    try {
+      return await fs.readFile(realPath);
+    } catch (err: any) {
+      if (err.code === 'EACCES') {
+        throw new Error(`Permission denied: cannot read ${virtualPath}`);
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Create a readable stream for a file (for streaming large binary files).
+   * Supports optional start/end byte offsets for Range requests.
+   */
+  createReadStream(virtualPath: string, options?: { start?: number; end?: number }): fsSync.ReadStream {
+    const realPath = this.resolvePath(virtualPath);
+    return fsSync.createReadStream(realPath, options);
+  }
+
+  /**
    * Write content to a file (creates if doesn't exist).
    */
   async writeFile(virtualPath: string, content: string, ownerUid?: string): Promise<void> {
