@@ -62,7 +62,7 @@ Status legend:
 | VNC viewer | Done | `components/os/VNCViewer.tsx` — renders graphical agent desktops |
 | Virtual desktop | Done | `components/os/VirtualDesktop.tsx` — renders agent's simulated desktop windows |
 | Dark theme | Done | Tokyo Night inspired, glassmorphism throughout |
-| Light theme toggle | Stub | UI is dark-only currently |
+| Light/Dark/System theme toggle | Done | `services/themeManager.ts` — ThemeProvider context, useTheme() hook, CSS custom properties, dark/light/system modes, ThemeToggle in menu bar, localStorage persistence |
 | Notification center | Done | `components/os/NotificationCenter.tsx` — toast notifications |
 | Keyboard shortcut overlay | Done | `components/os/ShortcutOverlay.tsx` — Cmd+? help overlay |
 | Workspace switcher | Done | `components/os/WorkspaceSwitcher.tsx` — virtual workspace switching |
@@ -80,15 +80,17 @@ Status legend:
 | Chat | Done | Gemini-powered chat interface with streaming |
 | File Explorer | Done | Connected to kernel FS with real directory browsing, breadcrumb navigation, file stats |
 | Code Editor | Done | Monaco Editor with multi-tab support, file tree sidebar, language auto-detection (18 languages), kernel FS read/write, VS Code dark theme |
-| Browser | Done | Playwright-based Chromium instances via BrowserManager, WebSocket protocol for navigation/screenshots/input |
+| Browser | Done | Full browser UI with tab bar, navigation chrome, canvas viewport rendering, keyboard/mouse event forwarding, dual-mode (Chromium kernel / iframe fallback), Playwright-based BrowserManager |
 | Notes | Done | Persists to kernel FS at `/home/root/Documents/notes/`, auto-save with 2s debounce, localStorage fallback |
 | Calculator | Done | Fully functional calculator |
 | Photos | Partial | Gallery UI exists, Gemini image analysis, but no real photo source |
 | Video Player | Partial | Player UI exists but no video source integration |
-| Sheets (Spreadsheet) | Done | `components/apps/SheetsApp.tsx` — spreadsheet app |
-| Canvas (Drawing) | Done | `components/apps/CanvasApp.tsx` — drawing canvas |
-| Writer (Document Editor) | Done | `components/apps/WriterApp.tsx` — document editor |
-| Settings | Done | Shows kernel status, LLM providers with availability, GPU/Docker/cluster info, API key config |
+| Sheets (Spreadsheet) | Done | `components/apps/SheetsApp.tsx` — formula engine (SUM, AVERAGE, COUNT, MIN, MAX, IF), virtual-scrolled grid (1000 rows), cell formatting, CSV import/export, kernel FS persistence |
+| Canvas (Drawing) | Done | `components/apps/CanvasApp.tsx` — 8 tools (pen, line, rect, circle, arrow, text, eraser, select), undo/redo, export PNG, pan/zoom, color picker, stroke/fill controls |
+| Writer (Document Editor) | Done | `components/apps/WriterApp.tsx` — split view with live markdown preview, formatting toolbar, AI writing assist via Gemini, file management |
+| Music/Audio Player | Done | `components/apps/MusicApp.tsx` — HTML5 audio with /api/fs/raw streaming, play/pause/seek/volume, shuffle/repeat, Web Audio API frequency visualizer, TTS tab with speechSynthesis, file browser sidebar |
+| Documents/PDF Viewer | Done | `components/apps/DocumentsApp.tsx` — PDF rendering via embed, page navigation, zoom controls, file browser sidebar, AI summarization via Gemini, search, dual view modes |
+| Settings | Done | Shows kernel status, LLM providers with availability, GPU/Docker/cluster info, API key config, Appearance tab with theme toggle |
 | GitHub Sync | Done | Clone repos into agent workspace via modal, push changes with approval gating |
 | System Monitor | Done | `components/apps/SystemMonitorApp.tsx` — real-time CPU/memory/disk/network charts, 2s polling, per-agent resource breakdown, `/api/system/stats` endpoint |
 

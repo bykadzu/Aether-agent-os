@@ -12,6 +12,8 @@ import {
   Palette,
   FileEdit,
   Activity,
+  Music,
+  FileText,
 } from 'lucide-react';
 
 interface DockProps {
@@ -30,6 +32,8 @@ export const Dock: React.FC<DockProps> = ({ onAppClick, openApps }) => {
     { id: AppID.SHEETS, icon: Table2, label: 'Sheets', color: 'bg-green-100 text-green-600' },
     { id: AppID.CANVAS, icon: Palette, label: 'Canvas', color: 'bg-purple-100 text-purple-600' },
     { id: AppID.WRITER, icon: FileEdit, label: 'Writer', color: 'bg-orange-100 text-orange-600' },
+    { id: AppID.MUSIC, icon: Music, label: 'Music', color: 'bg-pink-100 text-pink-600' },
+    { id: AppID.DOCUMENTS, icon: FileText, label: 'Documents', color: 'bg-sky-100 text-sky-600' },
     {
       id: AppID.SYSTEM_MONITOR,
       icon: Activity,

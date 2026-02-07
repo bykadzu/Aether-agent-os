@@ -15,6 +15,8 @@ export enum AppID {
   CANVAS = 'canvas',
   WRITER = 'writer',
   SYSTEM_MONITOR = 'system_monitor',
+  MUSIC = 'music',
+  DOCUMENTS = 'documents',
 }
 
 export interface WindowState {
