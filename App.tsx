@@ -19,6 +19,7 @@ import { DesktopWidgets } from './components/os/DesktopWidgets';
 import { ContextMenu } from './components/os/ContextMenu';
 import { LoginScreen } from './components/os/LoginScreen';
 import { UserMenu } from './components/os/UserMenu';
+import { ErrorBoundary } from './components/os/ErrorBoundary';
 import { Battery, Wifi, Search, Command, RefreshCw, FolderPlus, Monitor, Image as ImageIcon, Server } from 'lucide-react';
 import { FileSystemItem, mockFileSystem } from './data/mockFileSystem';
 import { generateText, GeminiModel, getAgentDecision } from './services/geminiService';
@@ -680,11 +681,49 @@ const App: React.FC = () => {
         </div>
       </div>
 
+      {/* WebSocket Reconnecting Banner */}
+      {kernel.reconnecting && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 32,
+            left: 0,
+            right: 0,
+            zIndex: 9999,
+            display: 'flex',
+            justifyContent: 'center',
+            padding: '8px',
+            pointerEvents: 'none',
+          }}
+        >
+          <div
+            style={{
+              background: 'rgba(255, 165, 0, 0.15)',
+              backdropFilter: 'blur(12px)',
+              border: '1px solid rgba(255, 165, 0, 0.3)',
+              borderRadius: '8px',
+              padding: '8px 20px',
+              color: 'rgba(255, 200, 100, 0.95)',
+              fontSize: '13px',
+              fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+            }}
+          >
+            <span style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }}>&#8635;</span>
+            Kernel disconnected — reconnecting...
+          </div>
+        </div>
+      )}
+
       {/* Desktop Area */}
       <div className="relative w-full h-[calc(100vh-32px)]">
-        
+
         {/* Desktop Widgets */}
-        <DesktopWidgets />
+        <ErrorBoundary fallbackTitle="Widget Error">
+          <DesktopWidgets />
+        </ErrorBoundary>
 
         {/* Windows */}
         {windows.map(window => (
@@ -698,12 +737,16 @@ const App: React.FC = () => {
             onMove={moveWindow}
             onResize={resizeWindow}
           >
-            {renderAppContent(window)}
+            <ErrorBoundary fallbackTitle="Application Error">
+              {renderAppContent(window)}
+            </ErrorBoundary>
           </Window>
         ))}
 
         {/* Dock */}
-        <Dock onAppClick={(id) => openApp(id)} openApps={windows.map(w => w.id)} />
+        <ErrorBoundary fallbackTitle="Dock Error">
+          <Dock onAppClick={(id) => openApp(id)} openApps={windows.map(w => w.id)} />
+        </ErrorBoundary>
 
         {/* Smart Bar (Spotlight) */}
         <SmartBar isOpen={isSmartBarOpen} onClose={() => setIsSmartBarOpen(false)} />

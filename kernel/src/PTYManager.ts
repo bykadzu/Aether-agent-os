@@ -99,7 +99,17 @@ export class PTYManager {
     }
 
     // Use node-pty for local shell
-    return this.setupLocalSession(id, pid, shell, cwd, cols, rows, options.env);
+    try {
+      return this.setupLocalSession(id, pid, shell, cwd, cols, rows, options.env);
+    } catch (err: any) {
+      console.error(`[PTYManager] Failed to spawn PTY for PID ${pid}:`, err.message);
+      this.bus.emit('tty.error', {
+        ttyId: id,
+        pid,
+        error: `Failed to open terminal: ${err.message}`,
+      });
+      throw new Error(`PTY spawn failed for PID ${pid}: ${err.message}`);
+    }
   }
 
   /**

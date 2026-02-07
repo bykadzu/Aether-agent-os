@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [22]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Install root dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Install kernel dependencies
+        run: cd kernel && npm install
+
+      - name: Install runtime dependencies
+        run: cd runtime && npm install
+
+      - name: Install server dependencies
+        run: cd server && npm install
+
+      - name: Lint
+        run: npx eslint .
+
+      - name: Test
+        run: npx vitest run

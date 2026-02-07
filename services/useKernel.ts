@@ -36,6 +36,7 @@ export interface AgentLog {
 
 interface KernelState {
   connected: boolean;
+  reconnecting: boolean;
   version: string;
   processes: AgentProcess[];
   metrics: { processCount: number; cpuPercent: number; memoryMB: number };
@@ -47,6 +48,7 @@ export function useKernel(wsUrl?: string) {
   const clientRef = useRef<KernelClient | null>(null);
   const [state, setState] = useState<KernelState>({
     connected: false,
+    reconnecting: false,
     version: '',
     processes: [],
     metrics: { processCount: 0, cpuPercent: 0, memoryMB: 0 },
@@ -59,9 +61,23 @@ export function useKernel(wsUrl?: string) {
     const client = getKernelClient(wsUrl);
     clientRef.current = client;
 
-    // Connection state
+    // Connection state with reconnect handling
+    let wasConnected = false;
     const unsubConnection = client.on('connection', (data: any) => {
-      setState(prev => ({ ...prev, connected: data.connected, version: client.version }));
+      const isConnected = data.connected;
+
+      if (!isConnected && wasConnected) {
+        // Connection dropped — show reconnecting state
+        setState(prev => ({ ...prev, connected: false, reconnecting: true }));
+      } else if (isConnected && !wasConnected && wasConnected !== undefined) {
+        // Reconnected — refresh process list to sync state
+        setState(prev => ({ ...prev, connected: true, reconnecting: false, version: client.version }));
+        client.listProcesses().catch(() => {});
+      } else {
+        setState(prev => ({ ...prev, connected: isConnected, reconnecting: false, version: client.version }));
+      }
+
+      wasConnected = isConnected;
     });
 
     // Process events

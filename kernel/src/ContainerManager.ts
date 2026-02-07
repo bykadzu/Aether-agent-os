@@ -94,7 +94,20 @@ export class ContainerManager {
    * Create and start a container for an agent process.
    */
   async create(pid: PID, hostVolumePath: string, sandbox?: SandboxConfig): Promise<ContainerInfo | null> {
-    if (!this.dockerAvailable) return null;
+    if (!this.dockerAvailable) {
+      this.bus.emit('container.fallback', { pid, reason: 'Docker not available' });
+      return null;
+    }
+
+    // Re-check Docker availability in case it went down after init
+    try {
+      execFileSync('docker', ['info'], { stdio: 'ignore', timeout: 5000 });
+    } catch {
+      console.warn('[ContainerManager] Docker became unavailable after init, falling back to child_process');
+      this.dockerAvailable = false;
+      this.bus.emit('container.fallback', { pid, reason: 'Docker became unavailable' });
+      return null;
+    }
 
     const graphical = sandbox?.graphical ?? false;
     const image = sandbox?.image || (graphical ? DEFAULT_GRAPHICAL_IMAGE : DEFAULT_CONTAINER_IMAGE);
@@ -480,13 +493,23 @@ export class ContainerManager {
 
   private dockerExec(cmd: string, args: string[], timeout = 30_000): Promise<string> {
     return new Promise((resolve, reject) => {
-      execFile(cmd, args, { timeout }, (error, stdout, stderr) => {
+      const child = execFile(cmd, args, { timeout }, (error, stdout, stderr) => {
         if (error) {
-          reject(new Error(stderr?.trim() || error.message));
+          const isTimeout = (error as any).killed || (error as any).code === 'ETIMEDOUT';
+          const msg = isTimeout
+            ? `Docker command timed out after ${timeout}ms: ${cmd} ${args.slice(0, 3).join(' ')}`
+            : stderr?.trim() || error.message;
+          reject(new Error(msg));
         } else {
           resolve(stdout);
         }
       });
+
+      // Extra safety: force kill if the child process hangs beyond timeout
+      const safetyTimer = setTimeout(() => {
+        try { child.kill('SIGKILL'); } catch { /* ignore */ }
+      }, timeout + 5000);
+      child.on('exit', () => clearTimeout(safetyTimer));
     });
   }
 

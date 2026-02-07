@@ -69,6 +69,8 @@ export class StateStore {
     getProcessesByOwner: Database.Statement;
   };
 
+  private _persistenceDisabled = false;
+
   constructor(bus: EventBus, dbPath?: string) {
     this.bus = bus;
     const resolvedPath = dbPath || STATE_DB_PATH;
@@ -76,9 +78,31 @@ export class StateStore {
     // Ensure parent directory exists
     fs.mkdirSync(path.dirname(resolvedPath), { recursive: true });
 
-    this.db = new Database(resolvedPath);
-    this.db.pragma('journal_mode = WAL');
-    this.db.pragma('synchronous = NORMAL');
+    try {
+      this.db = new Database(resolvedPath);
+      this.db.pragma('journal_mode = WAL');
+      this.db.pragma('synchronous = NORMAL');
+    } catch (err: any) {
+      // If DB is corrupted or locked, try to recreate it
+      console.error(`[StateStore] Failed to open database at ${resolvedPath}: ${err.message}`);
+      console.warn('[StateStore] Attempting to recreate database...');
+      try {
+        // Remove corrupt file and try again
+        try { fs.unlinkSync(resolvedPath); } catch { /* may not exist */ }
+        try { fs.unlinkSync(resolvedPath + '-wal'); } catch { /* ignore */ }
+        try { fs.unlinkSync(resolvedPath + '-shm'); } catch { /* ignore */ }
+        this.db = new Database(resolvedPath);
+        this.db.pragma('journal_mode = WAL');
+        this.db.pragma('synchronous = NORMAL');
+        console.log('[StateStore] Database recreated successfully');
+      } catch (retryErr: any) {
+        console.error(`[StateStore] Failed to recreate database: ${retryErr.message}`);
+        console.warn('[StateStore] Persistence disabled — kernel will operate in-memory only');
+        // Use in-memory database as last resort
+        this.db = new Database(':memory:');
+        this._persistenceDisabled = true;
+      }
+    }
 
     this.initSchema();
     this.initStatements();

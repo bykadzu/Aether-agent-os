@@ -120,8 +120,11 @@ Status legend:
 | SQLite database | Done | WAL mode, prepared statements, automatic schema creation |
 | Docker support | Done | Auto-detected, graceful fallback to child_process |
 | GPU detection | Done | nvidia-smi parsing |
-| Automated tests | Not started | No test files exist |
-| CI/CD pipeline | Not started | No GitHub Actions or similar |
-| Linting / formatting | Not started | No ESLint/Prettier config |
+| Automated tests | Done | Vitest — 149 tests across 10 suites (kernel, runtime, shared, integration) |
+| CI/CD pipeline | Done | `.github/workflows/ci.yml` — lint + test on push/PR |
+| Linting / formatting | Done | ESLint (flat config) + Prettier, `npm run lint` / `npm run format` |
+| Error boundaries (React) | Done | `ErrorBoundary` wraps windows, dock, widgets; WS reconnect banner |
+| Error handling audit | Done | Graceful degradation for Docker, SQLite, PTY, VFS, API rate limits |
+| Setup script | Done | `scripts/setup.sh` — checks deps, installs packages, creates `.env` |
 | Production Dockerfile | Not started | No containerized deployment |
 | Documentation | Partial | You're reading it |

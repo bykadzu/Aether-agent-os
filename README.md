@@ -7,6 +7,8 @@
 
 Real processes. Real filesystems. Real terminals. Beautiful UI.
 
+[![CI](https://github.com/bykadzu/Aether-agent-os/actions/workflows/ci.yml/badge.svg)](https://github.com/bykadzu/Aether-agent-os/actions/workflows/ci.yml)
+
 [Getting Started](#getting-started) | [Architecture](#architecture) | [How It Works](#how-it-works) | [Roadmap](#roadmap)
 
 </div>

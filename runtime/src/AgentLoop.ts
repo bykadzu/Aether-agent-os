@@ -286,6 +286,8 @@ function resolveProvider(config: AgentConfig, apiKey?: string): LLMProvider | nu
 // LLM Integration
 // ---------------------------------------------------------------------------
 
+const MAX_LLM_RETRIES = 3;
+
 async function getNextAction(
   state: AgentState,
   config: AgentConfig,
@@ -298,76 +300,104 @@ async function getNextAction(
     return getHeuristicAction(state, config);
   }
 
-  try {
-    // Convert state history to ChatMessage format for the provider
-    const messages: ChatMessage[] = state.history.slice(-10).map(msg => ({
-      role: msg.role === 'agent' ? 'assistant' : msg.role === 'tool' ? 'user' : msg.role,
-      content: msg.content,
-    }));
+  let lastError: Error | null = null;
 
-    // Add the step instruction
-    messages.push({
-      role: 'user',
-      content: `Step ${state.step + 1}/${state.maxSteps}. What tool should you use next?`,
-    });
+  for (let attempt = 0; attempt < MAX_LLM_RETRIES; attempt++) {
+    try {
+      // Convert state history to ChatMessage format for the provider
+      const messages: ChatMessage[] = state.history.slice(-10).map(msg => ({
+        role: msg.role === 'agent' ? 'assistant' : msg.role === 'tool' ? 'user' : msg.role,
+        content: msg.content,
+      }));
 
-    // Convert tool definitions to LLM format
-    const llmTools: LLMToolDef[] = tools.map(t => ({
-      name: t.name,
-      description: t.description,
-      parameters: {
-        type: 'object',
-        properties: {},
-      },
-    }));
+      // Add the step instruction
+      messages.push({
+        role: 'user',
+        content: `Step ${state.step + 1}/${state.maxSteps}. What tool should you use next?`,
+      });
 
-    const response = await provider.chat(messages, llmTools);
+      // Convert tool definitions to LLM format
+      const llmTools: LLMToolDef[] = tools.map(t => ({
+        name: t.name,
+        description: t.description,
+        parameters: {
+          type: 'object',
+          properties: {},
+        },
+      }));
 
-    // Extract tool call from response
-    if (response.toolCalls && response.toolCalls.length > 0) {
-      const tc = response.toolCalls[0];
-      return {
-        reasoning: response.content || 'No reasoning provided',
-        tool: tc.name,
-        args: tc.arguments,
-      };
-    }
+      const response = await provider.chat(messages, llmTools);
 
-    // Try to parse JSON from text response (for Gemini-style responses)
-    if (response.content) {
-      try {
-        const parsed = JSON.parse(response.content);
-        if (parsed.tool) {
+      // Extract tool call from response
+      if (response.toolCalls && response.toolCalls.length > 0) {
+        const tc = response.toolCalls[0];
+        return {
+          reasoning: response.content || 'No reasoning provided',
+          tool: tc.name,
+          args: tc.arguments,
+        };
+      }
+
+      // Try to parse JSON from text response (for Gemini-style responses)
+      if (response.content) {
+        let parsed: any;
+        try {
+          parsed = JSON.parse(response.content);
+        } catch {
+          // Not JSON, use as reasoning
+          return {
+            reasoning: response.content,
+            tool: 'think',
+            args: { thought: response.content },
+          };
+        }
+
+        if (parsed.tool && typeof parsed.tool === 'string') {
           return {
             reasoning: parsed.reasoning || response.content,
             tool: parsed.tool,
             args: parsed.args || {},
           };
         }
-      } catch {
-        // Not JSON, use as reasoning
+
+        // Response parsed but missing tool field
+        console.warn('[AgentLoop] LLM response missing tool field, using think');
+        return {
+          reasoning: parsed.reasoning || 'LLM response missing tool selection.',
+          tool: 'think',
+          args: { thought: 'Re-evaluating which tool to use.' },
+        };
       }
 
       return {
-        reasoning: response.content,
+        reasoning: 'No response from LLM',
         tool: 'think',
-        args: { thought: response.content },
+        args: { thought: 'LLM returned empty response' },
       };
-    }
+    } catch (err: any) {
+      lastError = err;
+      const isRateLimit = err.message?.includes('429') || err.message?.toLowerCase().includes('rate limit');
+      const isServerError = err.message?.includes('500') || err.message?.includes('503');
 
-    return {
-      reasoning: 'No response from LLM',
-      tool: 'think',
-      args: { thought: 'LLM returned empty response' },
-    };
-  } catch (err: any) {
-    console.error('[AgentLoop] LLM call failed:', err.message);
-    return {
-      reasoning: `LLM call failed: ${err.message}. Using heuristic.`,
-      tool: 'think',
-      args: { thought: `LLM error: ${err.message}` },
-    };
+      if ((isRateLimit || isServerError) && attempt < MAX_LLM_RETRIES - 1) {
+        const backoffMs = Math.pow(2, attempt + 1) * 1000; // 2s, 4s, 8s
+        console.warn(`[AgentLoop] LLM rate limited/server error (attempt ${attempt + 1}/${MAX_LLM_RETRIES}), retrying in ${backoffMs}ms`);
+        await sleep(backoffMs);
+        continue;
+      }
+
+      break;
+    }
   }
+
+  // All retries exhausted
+  const msg = lastError?.message || 'Unknown error';
+  console.error(`[AgentLoop] LLM call failed after ${MAX_LLM_RETRIES} attempts:`, msg);
+  return {
+    reasoning: `LLM call failed after ${MAX_LLM_RETRIES} retries: ${msg}. Using heuristic.`,
+    tool: 'think',
+    args: { thought: `LLM error: ${msg}` },
+  };
 }
 
 function buildSystemPrompt(config: AgentConfig, tools: ToolDefinition[]): string {
