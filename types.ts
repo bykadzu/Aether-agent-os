@@ -13,7 +13,8 @@ export enum AppID {
   VM = 'vm', // The Individual Agent View
   SHEETS = 'sheets',
   CANVAS = 'canvas',
-  WRITER = 'writer'
+  WRITER = 'writer',
+  SYSTEM_MONITOR = 'system_monitor',
 }
 
 export interface WindowState {
@@ -57,7 +58,13 @@ export interface ChatMessage {
 }
 
 // Agent System Types (legacy mock types, kept for backward compat)
-export type AgentStatus = 'idle' | 'thinking' | 'working' | 'waiting_approval' | 'completed' | 'error';
+export type AgentStatus =
+  | 'idle'
+  | 'thinking'
+  | 'working'
+  | 'waiting_approval'
+  | 'completed'
+  | 'error';
 
 export interface AgentLog {
   timestamp: number;
@@ -67,18 +74,18 @@ export interface AgentLog {
 
 export interface Agent {
   id: string;
-  pid?: number;          // Kernel process ID (set when using real kernel)
+  pid?: number; // Kernel process ID (set when using real kernel)
   name: string;
   role: string;
   goal: string;
   status: AgentStatus;
-  phase?: string;        // Kernel AgentPhase (more granular than status)
+  phase?: string; // Kernel AgentPhase (more granular than status)
   thumbnailUrl?: string;
   logs: AgentLog[];
   currentUrl?: string;
   currentCode?: string;
   progress: number;
-  ttyId?: string;        // Terminal session ID (set when using real kernel)
+  ttyId?: string; // Terminal session ID (set when using real kernel)
   isWaiting?: boolean;
   githubSync?: boolean;
 }

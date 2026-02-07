@@ -1,6 +1,18 @@
 import React from 'react';
 import { AppID } from '../../types';
-import { StickyNote, FolderOpen, Settings as SettingsIcon, Terminal, Globe, Code, Bot, Table2, Palette, FileEdit } from 'lucide-react';
+import {
+  StickyNote,
+  FolderOpen,
+  Settings as SettingsIcon,
+  Terminal,
+  Globe,
+  Code,
+  Bot,
+  Table2,
+  Palette,
+  FileEdit,
+  Activity,
+} from 'lucide-react';
 
 interface DockProps {
   onAppClick: (id: AppID) => void;
@@ -18,6 +30,12 @@ export const Dock: React.FC<DockProps> = ({ onAppClick, openApps }) => {
     { id: AppID.SHEETS, icon: Table2, label: 'Sheets', color: 'bg-green-100 text-green-600' },
     { id: AppID.CANVAS, icon: Palette, label: 'Canvas', color: 'bg-purple-100 text-purple-600' },
     { id: AppID.WRITER, icon: FileEdit, label: 'Writer', color: 'bg-orange-100 text-orange-600' },
+    {
+      id: AppID.SYSTEM_MONITOR,
+      icon: Activity,
+      label: 'System Monitor',
+      color: 'bg-red-100 text-red-600',
+    },
   ];
 
   return (
@@ -29,33 +47,35 @@ export const Dock: React.FC<DockProps> = ({ onAppClick, openApps }) => {
             onClick={() => onAppClick(app.id)}
             className="group relative flex flex-col items-center gap-1 transition-all hover:-translate-y-2 duration-300"
           >
-            <div className={`w-12 h-12 rounded-2xl ${app.color} shadow-lg flex items-center justify-center border border-white/30 transition-transform active:scale-95`}>
+            <div
+              className={`w-12 h-12 rounded-2xl ${app.color} shadow-lg flex items-center justify-center border border-white/30 transition-transform active:scale-95`}
+            >
               <app.icon size={24} />
             </div>
-            {openApps.some(id => id.startsWith(app.id)) && (
+            {openApps.some((id) => id.startsWith(app.id)) && (
               <div className="w-1 h-1 bg-black/40 rounded-full absolute -bottom-2"></div>
             )}
             <span className="absolute -top-10 bg-black/70 backdrop-blur-sm text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-                {app.label}
+              {app.label}
             </span>
           </button>
         ))}
-        
+
         <div className="w-[1px] h-10 bg-white/20 mx-1"></div>
 
-        <button 
-           onClick={() => onAppClick(AppID.SETTINGS)}
-           className="group relative flex flex-col items-center gap-1 transition-all hover:-translate-y-2 duration-300"
+        <button
+          onClick={() => onAppClick(AppID.SETTINGS)}
+          className="group relative flex flex-col items-center gap-1 transition-all hover:-translate-y-2 duration-300"
         >
-             <div className="w-12 h-12 rounded-2xl bg-gray-200 text-gray-600 shadow-lg flex items-center justify-center border border-white/30 transition-transform active:scale-95">
-              <SettingsIcon size={24} />
-            </div>
-            {openApps.some(id => id.startsWith(AppID.SETTINGS)) && (
-              <div className="w-1 h-1 bg-black/40 rounded-full absolute -bottom-2"></div>
-            )}
-             <span className="absolute -top-10 bg-black/70 backdrop-blur-sm text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-                Settings
-            </span>
+          <div className="w-12 h-12 rounded-2xl bg-gray-200 text-gray-600 shadow-lg flex items-center justify-center border border-white/30 transition-transform active:scale-95">
+            <SettingsIcon size={24} />
+          </div>
+          {openApps.some((id) => id.startsWith(AppID.SETTINGS)) && (
+            <div className="w-1 h-1 bg-black/40 rounded-full absolute -bottom-2"></div>
+          )}
+          <span className="absolute -top-10 bg-black/70 backdrop-blur-sm text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+            Settings
+          </span>
         </button>
       </div>
     </div>
