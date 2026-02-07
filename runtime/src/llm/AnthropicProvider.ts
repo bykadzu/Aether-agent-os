@@ -5,7 +5,13 @@
  * Supports Claude models via tool_use content blocks.
  */
 
-import type { LLMProvider, ChatMessage, LLMResponse, ToolDefinition, ToolCall } from './LLMProvider.js';
+import type {
+  LLMProvider,
+  ChatMessage,
+  LLMResponse,
+  ToolDefinition,
+  ToolCall,
+} from './LLMProvider.js';
 
 export class AnthropicProvider implements LLMProvider {
   name = 'anthropic';
@@ -19,6 +25,58 @@ export class AnthropicProvider implements LLMProvider {
 
   isAvailable(): boolean {
     return !!process.env.ANTHROPIC_API_KEY;
+  }
+
+  supportsVision(): boolean {
+    return true; // Claude models support vision
+  }
+
+  async analyzeImage(imageBase64: string, prompt: string): Promise<LLMResponse> {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': this.apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: this.model || 'claude-sonnet-4-5-20250929',
+        max_tokens: 1024,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: 'image/png',
+                  data: imageBase64,
+                },
+              },
+              {
+                type: 'text',
+                text: prompt || 'Describe what you see in this image in detail.',
+              },
+            ],
+          },
+        ],
+      }),
+    });
+
+    const data = await response.json();
+    if (data.error) throw new Error(data.error.message || data.error.type);
+
+    const textContent = data.content?.find((c: any) => c.type === 'text');
+    return {
+      content: textContent?.text || 'No description generated.',
+      usage: data.usage
+        ? {
+            inputTokens: data.usage.input_tokens || 0,
+            outputTokens: data.usage.output_tokens || 0,
+          }
+        : undefined,
+    };
   }
 
   async chat(messages: ChatMessage[], tools: ToolDefinition[]): Promise<LLMResponse> {
@@ -53,11 +111,13 @@ export class AnthropicProvider implements LLMProvider {
       } else if (msg.role === 'tool') {
         anthropicMessages.push({
           role: 'user',
-          content: [{
-            type: 'tool_result',
-            tool_use_id: msg.toolCallId || 'unknown',
-            content: msg.content,
-          }],
+          content: [
+            {
+              type: 'tool_result',
+              tool_use_id: msg.toolCallId || 'unknown',
+              content: msg.content,
+            },
+          ],
         });
       }
     }
@@ -68,7 +128,7 @@ export class AnthropicProvider implements LLMProvider {
     }
 
     // Map tools to Anthropic format
-    const anthropicTools = tools.map(tool => ({
+    const anthropicTools = tools.map((tool) => ({
       name: tool.name,
       description: tool.description,
       input_schema: tool.parameters,

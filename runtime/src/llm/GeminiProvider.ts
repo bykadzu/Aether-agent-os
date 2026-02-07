@@ -5,7 +5,13 @@
  * This is the original LLM backend that was previously hardcoded in AgentLoop.ts.
  */
 
-import type { LLMProvider, ChatMessage, LLMResponse, ToolDefinition, ToolCall } from './LLMProvider.js';
+import type {
+  LLMProvider,
+  ChatMessage,
+  LLMResponse,
+  ToolDefinition,
+  ToolCall,
+} from './LLMProvider.js';
 
 export class GeminiProvider implements LLMProvider {
   name = 'gemini';
@@ -50,15 +56,53 @@ export class GeminiProvider implements LLMProvider {
 
     return {
       content: parsed.reasoning || text,
-      toolCalls: parsed.tool ? [{
-        id: `call_${Date.now()}`,
-        name: parsed.tool,
-        arguments: parsed.args || {},
-      }] : undefined,
-      usage: response.usageMetadata ? {
-        inputTokens: response.usageMetadata.promptTokenCount || 0,
-        outputTokens: response.usageMetadata.candidatesTokenCount || 0,
-      } : undefined,
+      toolCalls: parsed.tool
+        ? [
+            {
+              id: `call_${Date.now()}`,
+              name: parsed.tool,
+              arguments: parsed.args || {},
+            },
+          ]
+        : undefined,
+      usage: response.usageMetadata
+        ? {
+            inputTokens: response.usageMetadata.promptTokenCount || 0,
+            outputTokens: response.usageMetadata.candidatesTokenCount || 0,
+          }
+        : undefined,
+    };
+  }
+
+  supportsVision(): boolean {
+    return true; // Gemini models support vision natively
+  }
+
+  async analyzeImage(imageBase64: string, prompt: string): Promise<LLMResponse> {
+    const { GoogleGenAI } = await import('@google/genai');
+    const ai = new GoogleGenAI({ apiKey: this.apiKey });
+
+    const response = await ai.models.generateContent({
+      model: this.model,
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { inlineData: { mimeType: 'image/png', data: imageBase64 } },
+            { text: prompt || 'Describe what you see in this image in detail.' },
+          ],
+        },
+      ],
+    });
+
+    return {
+      content: response.text || 'No description generated.',
+      usage: response.usageMetadata
+        ? {
+            inputTokens: response.usageMetadata.promptTokenCount || 0,
+            outputTokens: response.usageMetadata.candidatesTokenCount || 0,
+          }
+        : undefined,
     };
   }
 

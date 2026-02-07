@@ -471,6 +471,113 @@ export function createToolSet(): ToolDefinition[] {
       },
     },
 
+    // ----- Collaboration Protocols (v0.3 Wave 4) -----
+    {
+      name: 'request_review',
+      description:
+        'Request another agent to review your work. Args: pid (number - target agent PID), subject (string), content (string), context (string, optional), urgency (low|medium|high, default medium)',
+      execute: async (args, ctx) => {
+        try {
+          const { requestReview } = await import('./collaboration.js');
+          const toPid = Number(args.pid);
+          if (isNaN(toPid)) return { success: false, output: 'Invalid PID' };
+
+          const correlationId = requestReview(ctx.kernel, ctx.pid, toPid, {
+            subject: args.subject || 'Review request',
+            content: args.content || '',
+            context: args.context,
+            urgency: args.urgency || 'medium',
+          });
+
+          return {
+            success: true,
+            output: `Review request sent to PID ${toPid} (correlation: ${correlationId}). Check messages later for the response.`,
+          };
+        } catch (err: any) {
+          return { success: false, output: `Error: ${err.message}` };
+        }
+      },
+    },
+
+    {
+      name: 'respond_to_review',
+      description:
+        'Respond to a review request from another agent. Args: pid (number - requester PID), correlation_id (string), approved (boolean), feedback (string), suggestions (string[], optional)',
+      execute: async (args, ctx) => {
+        try {
+          const { respondToReview } = await import('./collaboration.js');
+          const toPid = Number(args.pid);
+          if (isNaN(toPid)) return { success: false, output: 'Invalid PID' };
+
+          respondToReview(ctx.kernel, ctx.pid, toPid, args.correlation_id || '', {
+            approved: !!args.approved,
+            feedback: args.feedback || '',
+            suggestions: args.suggestions,
+          });
+
+          return {
+            success: true,
+            output: `Review response sent to PID ${toPid}. ${args.approved ? 'Approved' : 'Changes requested'}.`,
+          };
+        } catch (err: any) {
+          return { success: false, output: `Error: ${err.message}` };
+        }
+      },
+    },
+
+    {
+      name: 'delegate_task',
+      description:
+        'Delegate a task to another agent. Args: pid (number - target agent PID), goal (string), context (string), priority (low|medium|high, default medium)',
+      execute: async (args, ctx) => {
+        try {
+          const { delegateTask } = await import('./collaboration.js');
+          const toPid = Number(args.pid);
+          if (isNaN(toPid)) return { success: false, output: 'Invalid PID' };
+
+          const correlationId = delegateTask(ctx.kernel, ctx.pid, toPid, {
+            goal: args.goal || '',
+            context: args.context || '',
+            priority: args.priority || 'medium',
+          });
+
+          return {
+            success: true,
+            output: `Task delegated to PID ${toPid} (correlation: ${correlationId}): "${args.goal}"`,
+          };
+        } catch (err: any) {
+          return { success: false, output: `Error: ${err.message}` };
+        }
+      },
+    },
+
+    {
+      name: 'share_knowledge',
+      description:
+        'Share a piece of knowledge with another agent. Args: pid (number - target agent PID), topic (string), content (string), layer (episodic|semantic|procedural|social, default semantic), tags (string[], optional)',
+      execute: async (args, ctx) => {
+        try {
+          const { shareKnowledge } = await import('./collaboration.js');
+          const toPid = Number(args.pid);
+          if (isNaN(toPid)) return { success: false, output: 'Invalid PID' };
+
+          shareKnowledge(ctx.kernel, ctx.pid, toPid, {
+            topic: args.topic || '',
+            content: args.content || '',
+            layer: args.layer || 'semantic',
+            tags: args.tags || [],
+          });
+
+          return {
+            success: true,
+            output: `Knowledge shared with PID ${toPid}: "${args.topic}"`,
+          };
+        } catch (err: any) {
+          return { success: false, output: `Error: ${err.message}` };
+        }
+      },
+    },
+
     // ----- Shared Workspaces -----
     {
       name: 'create_shared_workspace',
@@ -623,6 +730,60 @@ export function createToolSet(): ToolDefinition[] {
             : { success: false, output: `Memory ${args.memoryId} not found or not owned by you.` };
         } catch (err: any) {
           return { success: false, output: `Error: ${err.message}` };
+        }
+      },
+    },
+
+    // ----- Vision Tools (v0.3 Wave 4) -----
+    {
+      name: 'analyze_image',
+      description:
+        'Analyze an image using a vision-capable LLM. Can analyze screenshots from browser or uploaded images. Args: image_base64 (string - base64 encoded image), prompt (string, optional - what to analyze), screenshot (boolean, optional - if true, takes a screenshot first)',
+      execute: async (args, ctx) => {
+        try {
+          // If screenshot mode, grab the current browser screenshot
+          let imageData = args.image_base64;
+
+          if (args.screenshot && ctx.kernel.browser?.isAvailable()) {
+            const sessionId = `browser_${ctx.pid}`;
+            try {
+              imageData = await ctx.kernel.browser.getScreenshot(sessionId);
+            } catch (err: any) {
+              return { success: false, output: `Screenshot failed: ${err.message}` };
+            }
+          }
+
+          if (!imageData) {
+            return {
+              success: false,
+              output: 'No image data provided. Use image_base64 or set screenshot=true.',
+            };
+          }
+
+          // Find a vision-capable provider
+          const { getProvider } = await import('./llm/index.js');
+          const provider = getProvider();
+
+          if (!provider || !provider.supportsVision?.() || !provider.analyzeImage) {
+            return {
+              success: false,
+              output:
+                'No vision-capable LLM provider available. Ensure you have a Gemini, OpenAI, or Anthropic API key set.',
+            };
+          }
+
+          const prompt =
+            args.prompt ||
+            'Describe what you see in this image. Be specific about UI elements, text, layout, and any notable details.';
+          const response = await provider.analyzeImage(imageData, prompt);
+
+          return {
+            success: true,
+            output: response.content || 'Image analyzed but no description returned.',
+            artifacts: [{ type: 'analysis', content: response.content }],
+          };
+        } catch (err: any) {
+          return { success: false, output: `Vision analysis failed: ${err.message}` };
         }
       },
     },

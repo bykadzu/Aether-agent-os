@@ -36,6 +36,10 @@ vi.mock('lucide-react', () => {
     Hash: createIcon('hash'),
     Link2: createIcon('link'),
     AlertTriangle: createIcon('alert'),
+    Target: createIcon('target'),
+    TrendingUp: createIcon('trending-up'),
+    Star: createIcon('star'),
+    Zap: createIcon('zap'),
   };
 });
 

@@ -245,5 +245,24 @@ function storeReflection(
   // Emit event
   kernel.bus.emit('reflection.stored', { reflection: record });
 
+  // Update agent profile with task outcome (v0.3 Wave 4)
+  if (kernel.memory) {
+    try {
+      kernel.memory.updateProfileAfterTask(input.agentUid, {
+        success: result.quality_rating >= 3,
+        steps: input.steps,
+        quality_rating: result.quality_rating,
+        goal: config.goal,
+        tags: config.goal
+          .toLowerCase()
+          .split(/\s+/)
+          .filter((w) => w.length > 3)
+          .slice(0, 5),
+      });
+    } catch (err) {
+      console.warn(`[Reflection] Failed to update profile:`, err);
+    }
+  }
+
   return record;
 }

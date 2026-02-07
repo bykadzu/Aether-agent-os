@@ -10,6 +10,10 @@ export interface LLMProvider {
   name: string;
   chat(messages: ChatMessage[], tools: ToolDefinition[]): Promise<LLMResponse>;
   isAvailable(): boolean;
+  /** Whether this provider supports vision/image input */
+  supportsVision?(): boolean;
+  /** Analyze an image with an optional prompt */
+  analyzeImage?(imageBase64: string, prompt: string): Promise<LLMResponse>;
 }
 
 export interface ChatMessage {
@@ -17,6 +21,10 @@ export interface ChatMessage {
   content: string;
   toolCallId?: string;
   toolCalls?: ToolCall[];
+  /** Base64-encoded image data for vision requests */
+  imageData?: string;
+  /** MIME type of the image (default: image/png) */
+  imageMimeType?: string;
 }
 
 export interface ToolCall {

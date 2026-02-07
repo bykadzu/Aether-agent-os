@@ -5,7 +5,13 @@
  * Supports gpt-4o, gpt-4o-mini, gpt-3.5-turbo via function calling.
  */
 
-import type { LLMProvider, ChatMessage, LLMResponse, ToolDefinition, ToolCall } from './LLMProvider.js';
+import type {
+  LLMProvider,
+  ChatMessage,
+  LLMResponse,
+  ToolDefinition,
+  ToolCall,
+} from './LLMProvider.js';
 
 export class OpenAIProvider implements LLMProvider {
   name = 'openai';
@@ -26,10 +32,10 @@ export class OpenAIProvider implements LLMProvider {
     const client = new OpenAI({ apiKey: this.apiKey });
 
     // Map messages to OpenAI format
-    const openaiMessages = messages.map(msg => this.toOpenAIMessage(msg));
+    const openaiMessages = messages.map((msg) => this.toOpenAIMessage(msg));
 
     // Map tools to OpenAI function calling format
-    const openaiTools = tools.map(tool => ({
+    const openaiTools = tools.map((tool) => ({
       type: 'function' as const,
       function: {
         name: tool.name,
@@ -60,10 +66,59 @@ export class OpenAIProvider implements LLMProvider {
     return {
       content: choice.message.content || undefined,
       toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-      usage: response.usage ? {
-        inputTokens: response.usage.prompt_tokens,
-        outputTokens: response.usage.completion_tokens,
-      } : undefined,
+      usage: response.usage
+        ? {
+            inputTokens: response.usage.prompt_tokens,
+            outputTokens: response.usage.completion_tokens,
+          }
+        : undefined,
+    };
+  }
+
+  supportsVision(): boolean {
+    return true; // GPT-4o models support vision
+  }
+
+  async analyzeImage(imageBase64: string, prompt: string): Promise<LLMResponse> {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${this.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: this.model || 'gpt-4o',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'image_url',
+                image_url: { url: `data:image/png;base64,${imageBase64}` },
+              },
+              {
+                type: 'text',
+                text: prompt || 'Describe what you see in this image in detail.',
+              },
+            ],
+          },
+        ],
+        max_tokens: 1024,
+      }),
+    });
+
+    const data = await response.json();
+    if (data.error) throw new Error(data.error.message);
+
+    const choice = data.choices?.[0];
+    return {
+      content: choice?.message?.content || 'No description generated.',
+      usage: data.usage
+        ? {
+            inputTokens: data.usage.prompt_tokens || 0,
+            outputTokens: data.usage.completion_tokens || 0,
+          }
+        : undefined,
     };
   }
 
@@ -79,7 +134,7 @@ export class OpenAIProvider implements LLMProvider {
       return {
         role: 'assistant',
         content: msg.content || null,
-        tool_calls: msg.toolCalls.map(tc => ({
+        tool_calls: msg.toolCalls.map((tc) => ({
           id: tc.id,
           type: 'function',
           function: {

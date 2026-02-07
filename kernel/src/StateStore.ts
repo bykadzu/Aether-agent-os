@@ -120,6 +120,10 @@ export class StateStore {
     getFeedbackByPid: Database.Statement;
     getFeedbackByAgent: Database.Statement;
     getFeedback: Database.Statement;
+    // Profile statements (v0.3 Wave 4)
+    upsertProfile: Database.Statement;
+    getProfile: Database.Statement;
+    getAllProfiles: Database.Statement;
   };
 
   private _persistenceDisabled = false;
@@ -376,6 +380,23 @@ export class StateStore {
 
       CREATE INDEX IF NOT EXISTS idx_feedback_pid ON agent_feedback(pid);
       CREATE INDEX IF NOT EXISTS idx_feedback_agent ON agent_feedback(agent_uid);
+
+      -- Agent profiles table (v0.3 Wave 4)
+      CREATE TABLE IF NOT EXISTS agent_profiles (
+        agent_uid TEXT PRIMARY KEY,
+        display_name TEXT NOT NULL DEFAULT '',
+        total_tasks INTEGER NOT NULL DEFAULT 0,
+        successful_tasks INTEGER NOT NULL DEFAULT 0,
+        failed_tasks INTEGER NOT NULL DEFAULT 0,
+        success_rate REAL NOT NULL DEFAULT 0.0,
+        expertise TEXT NOT NULL DEFAULT '[]',
+        personality_traits TEXT NOT NULL DEFAULT '[]',
+        avg_quality_rating REAL NOT NULL DEFAULT 0.0,
+        total_steps INTEGER NOT NULL DEFAULT 0,
+        first_seen INTEGER NOT NULL,
+        last_active INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
     `);
   }
 
@@ -657,6 +678,19 @@ export class StateStore {
       getFeedback: this.db.prepare(`
         SELECT id, pid, step, rating, comment, agent_uid, created_at
         FROM agent_feedback WHERE id = ?
+      `),
+      // Profile statements (v0.3 Wave 4)
+      upsertProfile: this.db.prepare(`
+        INSERT OR REPLACE INTO agent_profiles (agent_uid, display_name, total_tasks, successful_tasks, failed_tasks, success_rate, expertise, personality_traits, avg_quality_rating, total_steps, first_seen, last_active, updated_at)
+        VALUES (@agent_uid, @display_name, @total_tasks, @successful_tasks, @failed_tasks, @success_rate, @expertise, @personality_traits, @avg_quality_rating, @total_steps, @first_seen, @last_active, @updated_at)
+      `),
+      getProfile: this.db.prepare(`
+        SELECT agent_uid, display_name, total_tasks, successful_tasks, failed_tasks, success_rate, expertise, personality_traits, avg_quality_rating, total_steps, first_seen, last_active, updated_at
+        FROM agent_profiles WHERE agent_uid = ?
+      `),
+      getAllProfiles: this.db.prepare(`
+        SELECT agent_uid, display_name, total_tasks, successful_tasks, failed_tasks, success_rate, expertise, personality_traits, avg_quality_rating, total_steps, first_seen, last_active, updated_at
+        FROM agent_profiles ORDER BY last_active DESC
       `),
     };
   }
@@ -1309,6 +1343,36 @@ export class StateStore {
 
   getFeedback(id: string): any | undefined {
     return this.stmts.getFeedback.get(id);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Agent Profiles (v0.3 Wave 4)
+  // ---------------------------------------------------------------------------
+
+  upsertProfile(record: {
+    agent_uid: string;
+    display_name: string;
+    total_tasks: number;
+    successful_tasks: number;
+    failed_tasks: number;
+    success_rate: number;
+    expertise: string;
+    personality_traits: string;
+    avg_quality_rating: number;
+    total_steps: number;
+    first_seen: number;
+    last_active: number;
+    updated_at: number;
+  }): void {
+    this.stmts.upsertProfile.run(record);
+  }
+
+  getProfile(agent_uid: string): any | undefined {
+    return this.stmts.getProfile.get(agent_uid);
+  }
+
+  getAllProfiles(): any[] {
+    return this.stmts.getAllProfiles.all() as any[];
   }
 
   /** Expose the underlying database for direct queries (used by MemoryManager for FTS5) */

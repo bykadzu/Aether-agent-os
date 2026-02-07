@@ -28,6 +28,32 @@ export {
   getPlanProgress,
 } from './planner.js';
 
+// Collaboration Protocols (v0.3 Wave 4)
+export {
+  sendCollaborationMessage,
+  drainCollaborationMessages,
+  requestReview,
+  respondToReview,
+  delegateTask,
+  acceptTask,
+  rejectTask,
+  completeTask,
+  broadcastStatus,
+  shareKnowledge,
+} from './collaboration.js';
+export type {
+  CollaborationProtocol,
+  CollaborationMessage,
+  ReviewRequest,
+  ReviewResponse,
+  TaskDelegation,
+  TaskAccepted,
+  TaskRejected,
+  TaskCompleted,
+  StatusUpdate,
+  KnowledgeShare,
+} from './collaboration.js';
+
 // Agent templates
 export { AGENT_TEMPLATES, getTemplate, getTemplatesByCategory } from './templates.js';
 export type { AgentTemplate } from './templates.js';

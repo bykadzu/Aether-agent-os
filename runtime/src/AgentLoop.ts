@@ -23,6 +23,7 @@ import {
   AGENT_STEP_INTERVAL,
   DEFAULT_AGENT_MAX_STEPS,
 } from '@aether/shared';
+import type { AgentProfile } from '@aether/shared';
 import {
   createToolSet,
   getToolsForAgent,
@@ -120,10 +121,20 @@ export async function runAgentLoop(
     // Non-critical
   }
 
+  // Load agent profile if available (v0.3 Wave 4)
+  let agentProfile: AgentProfile | undefined;
+  if (kernel.memory) {
+    try {
+      agentProfile = kernel.memory.getProfile(proc.info.uid);
+    } catch (err) {
+      console.warn(`[AgentLoop] Failed to load profile for ${proc.info.uid}:`, err);
+    }
+  }
+
   // System prompt
   state.history.push({
     role: 'system',
-    content: buildSystemPrompt(config, tools, contextMemories, planMarkdown),
+    content: buildSystemPrompt(config, tools, contextMemories, planMarkdown, agentProfile),
     timestamp: Date.now(),
   });
 
@@ -473,6 +484,7 @@ function buildSystemPrompt(
   tools: ToolDefinition[],
   memories: MemoryRecord[] = [],
   planMarkdown?: string,
+  profile?: AgentProfile,
 ): string {
   const toolList = tools.map((t) => `- ${t.name}: ${t.description}`).join('\n');
 
@@ -502,6 +514,23 @@ function buildSystemPrompt(
     `6. Use 'remember' to save important discoveries for future sessions`,
     `7. Use 'recall' to retrieve relevant knowledge from past sessions`,
   ];
+
+  // Inject agent profile if available (v0.3 Wave 4)
+  if (profile && profile.total_tasks > 0) {
+    sections.push(``);
+    sections.push(`## Your Profile (auto-tracked)`);
+    sections.push(
+      `- Tasks completed: ${profile.total_tasks} (${Math.round(profile.success_rate * 100)}% success rate)`,
+    );
+    sections.push(`- Average quality rating: ${profile.avg_quality_rating.toFixed(1)}/5`);
+    sections.push(`- Total steps across all tasks: ${profile.total_steps}`);
+    if (profile.expertise.length > 0) {
+      sections.push(`- Areas of expertise: ${profile.expertise.join(', ')}`);
+    }
+    if (profile.personality_traits.length > 0) {
+      sections.push(`- Known traits: ${profile.personality_traits.join(', ')}`);
+    }
+  }
 
   // Inject relevant memories if any were loaded
   if (memories.length > 0) {
