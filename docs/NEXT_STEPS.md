@@ -17,7 +17,7 @@ What's missing is the polish, hardening, and "last mile" work that turns a worki
 - **Integration tests** for the full spawn → signal → exit cycle
 - **Protocol tests** — every command/event type constructable, constants verified
 - **Runtime tests** — all tools tested with mocked kernel
-- 149 tests across 10 suites, all passing (Vitest)
+- 304 tests across 16 suites, all passing (Vitest)
 
 ### 1.2 Error Handling Audit ✅
 - ContainerManager: Docker re-check + fallback if Docker disappears mid-session, command timeout safety
@@ -74,8 +74,8 @@ What's missing is the polish, hardening, and "last mile" work that turns a worki
 
 ### 3.2 Desktop App Improvements
 - ~~**File Explorer:** Connect fully to kernel filesystem~~ **DONE** — Kernel FS browsing, breadcrumb nav, file stats, refresh
-- ~~**Code Editor:** Syntax highlighting, save to kernel FS, open from File Explorer~~ **DONE** — Regex syntax highlighting, kernel read/write, cursor tracking, unsaved dot
-- **Browser App:** Render fetched pages more faithfully, handle navigation
+- ~~**Code Editor:** Syntax highlighting, save to kernel FS, open from File Explorer~~ **DONE** — Monaco Editor with multi-tab, file tree sidebar, language auto-detection, kernel read/write
+- ~~**Browser App:** Render fetched pages more faithfully, handle navigation~~ **DONE** — Playwright-based BrowserManager replaces iframe approach; agents can browse via real Chromium
 - ~~**Notes App:** Persist to kernel filesystem instead of localStorage~~ **DONE** — Kernel FS persistence at `/home/root/Documents/notes/`, auto-save with debounce
 - ~~**Settings App:** Actually apply settings (theme, API keys, resource limits)~~ **DONE** — Kernel status, LLM providers with green/red indicators, GPU/Docker/cluster info, Gemini API key in mock mode
 

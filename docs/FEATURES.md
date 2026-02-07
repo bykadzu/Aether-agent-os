@@ -34,7 +34,7 @@ Status legend:
 | Think-act-observe loop | Done | `runtime/src/AgentLoop.ts` — iterative cycle calling Gemini, executing tools, logging |
 | File I/O tools | Done | read, write, list, mkdir, rm, stat, mv, cp, watch |
 | Shell command execution | Done | run_command tool — executes in agent's sandbox |
-| Web browsing | Done | browse_web tool — HTTP fetch + text extraction |
+| Web browsing | Done | browse_web tool — Playwright BrowserManager with HTTP fetch fallback; screenshot_page, click_element, type_text agent tools |
 | IPC messaging | Done | send_message, check_messages, list_agents |
 | Shared workspace tools | Done | create_shared_workspace, mount_workspace, list_workspaces |
 | Plugin tools | Done | Custom tools loaded from plugin manifests |
@@ -79,8 +79,8 @@ Status legend:
 | Terminal | Done | `xterm.js` wrapper, connects to kernel PTY or host shell |
 | Chat | Done | Gemini-powered chat interface with streaming |
 | File Explorer | Done | Connected to kernel FS with real directory browsing, breadcrumb navigation, file stats |
-| Code Editor | Done | Kernel read/write, regex-based syntax highlighting, cursor tracking, unsaved indicator |
-| Browser | Partial | URL bar + iframe, many sites block iframe embedding |
+| Code Editor | Done | Monaco Editor with multi-tab support, file tree sidebar, language auto-detection (18 languages), kernel FS read/write, VS Code dark theme |
+| Browser | Done | Playwright-based Chromium instances via BrowserManager, WebSocket protocol for navigation/screenshots/input |
 | Notes | Done | Persists to kernel FS at `/home/root/Documents/notes/`, auto-save with 2s debounce, localStorage fallback |
 | Calculator | Done | Fully functional calculator |
 | Photos | Partial | Gallery UI exists, Gemini image analysis, but no real photo source |
@@ -90,13 +90,14 @@ Status legend:
 | Writer (Document Editor) | Done | `components/apps/WriterApp.tsx` — document editor |
 | Settings | Done | Shows kernel status, LLM providers with availability, GPU/Docker/cluster info, API key config |
 | GitHub Sync | Done | Clone repos into agent workspace via modal, push changes with approval gating |
+| System Monitor | Done | `components/apps/SystemMonitorApp.tsx` — real-time CPU/memory/disk/network charts, 2s polling, per-agent resource breakdown, `/api/system/stats` endpoint |
 
 ## Networking & Communication
 
 | Feature | Status | Details |
 |---------|--------|---------|
 | WebSocket (UI ↔ kernel) | Done | `services/kernelClient.ts` — auto-reconnect, typed messages |
-| HTTP API | Done | `/health`, `/api/auth/*`, `/api/processes`, `/api/gpu`, `/api/cluster`, `/api/llm/providers`, `/api/templates` |
+| HTTP API | Done | `/health`, `/api/auth/*`, `/api/processes`, `/api/gpu`, `/api/cluster`, `/api/llm/providers`, `/api/templates`, `/api/system/stats` |
 | Cluster WebSocket | Done | `/cluster` path for node-to-hub communication |
 | React kernel hook | Done | `services/useKernel.ts` — manages WS lifecycle, syncs state |
 | Gemini service | Done | `services/geminiService.ts` — text, image, chat, agent decisions |
@@ -127,7 +128,7 @@ Status legend:
 | SQLite database | Done | WAL mode, prepared statements, automatic schema creation |
 | Docker support | Done | Auto-detected, graceful fallback to child_process |
 | GPU detection | Done | nvidia-smi parsing |
-| Automated tests | Done | Vitest — 149 tests across 10 suites (kernel, runtime, shared, integration) |
+| Automated tests | Done | Vitest — 304 tests across 16 suites (kernel, runtime, shared, server integration, component tests) |
 | CI/CD pipeline | Done | `.github/workflows/ci.yml` — lint + test on push/PR |
 | Linting / formatting | Done | ESLint (flat config) + Prettier, `npm run lint` / `npm run format` |
 | Error boundaries (React) | Done | `ErrorBoundary` wraps windows, dock, widgets; WS reconnect banner |
