@@ -694,6 +694,74 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
     return;
   }
 
+  // ----- Feedback Endpoints (v0.3 Wave 2) -----
+
+  // Submit feedback for an agent action
+  if (url.pathname === '/api/feedback' && req.method === 'POST') {
+    const body = await readBody(req);
+    try {
+      const { pid, step, rating, comment, agent_uid } = JSON.parse(body);
+      if (pid === undefined || step === undefined || rating === undefined) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'pid, step, and rating are required' }));
+        return;
+      }
+      if (rating !== 1 && rating !== -1) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'rating must be 1 (thumbs up) or -1 (thumbs down)' }));
+        return;
+      }
+
+      // Look up agent_uid from process if not provided
+      let resolvedUid = agent_uid;
+      if (!resolvedUid) {
+        const proc = kernel.processes.get(pid);
+        resolvedUid = proc?.info.uid || 'unknown';
+      }
+
+      const id = `fb_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+      const record = {
+        id,
+        pid: Number(pid),
+        step: Number(step),
+        rating: rating as number,
+        comment: comment || null,
+        agent_uid: resolvedUid,
+        created_at: Date.now(),
+      };
+
+      kernel.state.insertFeedback(record);
+      kernel.bus.emit('feedback.submitted', { feedback: record });
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, id: record.id }));
+    } catch (err: any) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
+  // Get feedback for a specific process
+  if (url.pathname.match(/^\/api\/feedback\/\d+$/) && req.method === 'GET') {
+    const pidStr = url.pathname.split('/').pop();
+    const pid = parseInt(pidStr || '', 10);
+    if (isNaN(pid)) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid PID' }));
+      return;
+    }
+    try {
+      const feedback = kernel.state.getFeedbackByPid(pid);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(feedback));
+    } catch (err: any) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
   // ----- Agent Template Endpoints -----
 
   // List available agent templates

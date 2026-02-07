@@ -27,6 +27,10 @@ import {
   CronJob,
   EventTrigger,
   AgentConfig,
+  ReflectionRecord,
+  PlanRecord,
+  PlanNode,
+  FeedbackRecord,
   STATE_DB_PATH,
 } from '@aether/shared';
 
@@ -100,6 +104,22 @@ export class StateStore {
     updateTriggerFired: Database.Statement;
     updateTriggerEnabled: Database.Statement;
     deleteTrigger: Database.Statement;
+    // Reflection statements (v0.3 Wave 2)
+    insertReflection: Database.Statement;
+    getReflectionsByAgent: Database.Statement;
+    getReflectionsByPid: Database.Statement;
+    getReflection: Database.Statement;
+    // Plan statements (v0.3 Wave 2)
+    insertPlan: Database.Statement;
+    getPlan: Database.Statement;
+    getActivePlanByPid: Database.Statement;
+    getPlansByAgent: Database.Statement;
+    updatePlan: Database.Statement;
+    // Feedback statements (v0.3 Wave 2)
+    insertFeedback: Database.Statement;
+    getFeedbackByPid: Database.Statement;
+    getFeedbackByAgent: Database.Statement;
+    getFeedback: Database.Statement;
   };
 
   private _persistenceDisabled = false;
@@ -310,6 +330,52 @@ export class StateStore {
 
       CREATE INDEX IF NOT EXISTS idx_triggers_event ON event_triggers(event_type);
       CREATE INDEX IF NOT EXISTS idx_triggers_enabled ON event_triggers(enabled);
+
+      -- Reflections table (v0.3 Wave 2)
+      CREATE TABLE IF NOT EXISTS agent_reflections (
+        id TEXT PRIMARY KEY,
+        agent_uid TEXT NOT NULL,
+        pid INTEGER NOT NULL,
+        goal TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        quality_rating INTEGER NOT NULL CHECK(quality_rating BETWEEN 1 AND 5),
+        justification TEXT NOT NULL,
+        lessons_learned TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_reflections_agent ON agent_reflections(agent_uid);
+      CREATE INDEX IF NOT EXISTS idx_reflections_pid ON agent_reflections(pid);
+
+      -- Plans table (v0.3 Wave 2)
+      CREATE TABLE IF NOT EXISTS agent_plans (
+        id TEXT PRIMARY KEY,
+        agent_uid TEXT NOT NULL,
+        pid INTEGER NOT NULL,
+        goal TEXT NOT NULL,
+        plan_tree TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'completed', 'abandoned')),
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_plans_agent ON agent_plans(agent_uid);
+      CREATE INDEX IF NOT EXISTS idx_plans_pid ON agent_plans(pid);
+      CREATE INDEX IF NOT EXISTS idx_plans_status ON agent_plans(status);
+
+      -- Feedback table (v0.3 Wave 2)
+      CREATE TABLE IF NOT EXISTS agent_feedback (
+        id TEXT PRIMARY KEY,
+        pid INTEGER NOT NULL,
+        step INTEGER NOT NULL,
+        rating INTEGER NOT NULL CHECK(rating IN (1, -1)),
+        comment TEXT,
+        agent_uid TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_feedback_pid ON agent_feedback(pid);
+      CREATE INDEX IF NOT EXISTS idx_feedback_agent ON agent_feedback(agent_uid);
     `);
   }
 
@@ -538,6 +604,60 @@ export class StateStore {
         UPDATE event_triggers SET enabled = ? WHERE id = ?
       `),
       deleteTrigger: this.db.prepare(`DELETE FROM event_triggers WHERE id = ?`),
+      // Reflection statements (v0.3 Wave 2)
+      insertReflection: this.db.prepare(`
+        INSERT INTO agent_reflections (id, agent_uid, pid, goal, summary, quality_rating, justification, lessons_learned, created_at)
+        VALUES (@id, @agent_uid, @pid, @goal, @summary, @quality_rating, @justification, @lessons_learned, @created_at)
+      `),
+      getReflectionsByAgent: this.db.prepare(`
+        SELECT id, agent_uid, pid, goal, summary, quality_rating, justification, lessons_learned, created_at
+        FROM agent_reflections WHERE agent_uid = ? ORDER BY created_at DESC
+      `),
+      getReflectionsByPid: this.db.prepare(`
+        SELECT id, agent_uid, pid, goal, summary, quality_rating, justification, lessons_learned, created_at
+        FROM agent_reflections WHERE pid = ? ORDER BY created_at DESC
+      `),
+      getReflection: this.db.prepare(`
+        SELECT id, agent_uid, pid, goal, summary, quality_rating, justification, lessons_learned, created_at
+        FROM agent_reflections WHERE id = ?
+      `),
+      // Plan statements (v0.3 Wave 2)
+      insertPlan: this.db.prepare(`
+        INSERT INTO agent_plans (id, agent_uid, pid, goal, plan_tree, status, created_at, updated_at)
+        VALUES (@id, @agent_uid, @pid, @goal, @plan_tree, @status, @created_at, @updated_at)
+      `),
+      getPlan: this.db.prepare(`
+        SELECT id, agent_uid, pid, goal, plan_tree, status, created_at, updated_at
+        FROM agent_plans WHERE id = ?
+      `),
+      getActivePlanByPid: this.db.prepare(`
+        SELECT id, agent_uid, pid, goal, plan_tree, status, created_at, updated_at
+        FROM agent_plans WHERE pid = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1
+      `),
+      getPlansByAgent: this.db.prepare(`
+        SELECT id, agent_uid, pid, goal, plan_tree, status, created_at, updated_at
+        FROM agent_plans WHERE agent_uid = ? ORDER BY created_at DESC
+      `),
+      updatePlan: this.db.prepare(`
+        UPDATE agent_plans SET plan_tree = @plan_tree, status = @status, updated_at = @updated_at WHERE id = @id
+      `),
+      // Feedback statements (v0.3 Wave 2)
+      insertFeedback: this.db.prepare(`
+        INSERT INTO agent_feedback (id, pid, step, rating, comment, agent_uid, created_at)
+        VALUES (@id, @pid, @step, @rating, @comment, @agent_uid, @created_at)
+      `),
+      getFeedbackByPid: this.db.prepare(`
+        SELECT id, pid, step, rating, comment, agent_uid, created_at
+        FROM agent_feedback WHERE pid = ? ORDER BY created_at DESC
+      `),
+      getFeedbackByAgent: this.db.prepare(`
+        SELECT id, pid, step, rating, comment, agent_uid, created_at
+        FROM agent_feedback WHERE agent_uid = ? ORDER BY created_at DESC LIMIT ?
+      `),
+      getFeedback: this.db.prepare(`
+        SELECT id, pid, step, rating, comment, agent_uid, created_at
+        FROM agent_feedback WHERE id = ?
+      `),
     };
   }
 
@@ -768,9 +888,7 @@ export class StateStore {
     return this.stmts.getAllSnapshots.all() as any[];
   }
 
-  getSnapshotsByPid(
-    pid: PID,
-  ): Array<{
+  getSnapshotsByPid(pid: PID): Array<{
     id: string;
     pid: PID;
     timestamp: number;
@@ -783,9 +901,7 @@ export class StateStore {
     return this.stmts.getSnapshotsByPid.all(pid) as any[];
   }
 
-  getSnapshotById(
-    id: string,
-  ):
+  getSnapshotById(id: string):
     | {
         id: string;
         pid: PID;
@@ -858,9 +974,7 @@ export class StateStore {
     this.stmts.insertUser.run(record);
   }
 
-  getUserById(
-    id: string,
-  ):
+  getUserById(id: string):
     | {
         id: string;
         username: string;
@@ -874,9 +988,7 @@ export class StateStore {
     return this.stmts.getUserById.get(id) as any;
   }
 
-  getUserByUsername(
-    username: string,
-  ):
+  getUserByUsername(username: string):
     | {
         id: string;
         username: string;
@@ -1101,6 +1213,102 @@ export class StateStore {
 
   deleteTrigger(id: string): void {
     this.stmts.deleteTrigger.run(id);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Agent Reflections (v0.3 Wave 2)
+  // ---------------------------------------------------------------------------
+
+  insertReflection(record: {
+    id: string;
+    agent_uid: string;
+    pid: number;
+    goal: string;
+    summary: string;
+    quality_rating: number;
+    justification: string;
+    lessons_learned: string;
+    created_at: number;
+  }): void {
+    this.stmts.insertReflection.run(record);
+  }
+
+  getReflectionsByAgent(agent_uid: string): any[] {
+    return this.stmts.getReflectionsByAgent.all(agent_uid) as any[];
+  }
+
+  getReflectionsByPid(pid: number): any[] {
+    return this.stmts.getReflectionsByPid.all(pid) as any[];
+  }
+
+  getReflection(id: string): any | undefined {
+    return this.stmts.getReflection.get(id);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Agent Plans (v0.3 Wave 2)
+  // ---------------------------------------------------------------------------
+
+  insertPlan(record: {
+    id: string;
+    agent_uid: string;
+    pid: number;
+    goal: string;
+    plan_tree: string;
+    status: string;
+    created_at: number;
+    updated_at: number;
+  }): void {
+    this.stmts.insertPlan.run(record);
+  }
+
+  getPlan(id: string): any | undefined {
+    return this.stmts.getPlan.get(id);
+  }
+
+  getActivePlanByPid(pid: number): any | undefined {
+    return this.stmts.getActivePlanByPid.get(pid);
+  }
+
+  getPlansByAgent(agent_uid: string): any[] {
+    return this.stmts.getPlansByAgent.all(agent_uid) as any[];
+  }
+
+  updatePlan(id: string, plan_tree: string, status: string): void {
+    this.stmts.updatePlan.run({
+      id,
+      plan_tree,
+      status,
+      updated_at: Date.now(),
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Agent Feedback (v0.3 Wave 2)
+  // ---------------------------------------------------------------------------
+
+  insertFeedback(record: {
+    id: string;
+    pid: number;
+    step: number;
+    rating: number;
+    comment: string | null;
+    agent_uid: string;
+    created_at: number;
+  }): void {
+    this.stmts.insertFeedback.run(record);
+  }
+
+  getFeedbackByPid(pid: number): any[] {
+    return this.stmts.getFeedbackByPid.all(pid) as any[];
+  }
+
+  getFeedbackByAgent(agent_uid: string, limit: number = 50): any[] {
+    return this.stmts.getFeedbackByAgent.all(agent_uid, limit) as any[];
+  }
+
+  getFeedback(id: string): any | undefined {
+    return this.stmts.getFeedback.get(id);
   }
 
   /** Expose the underlying database for direct queries (used by MemoryManager for FTS5) */
