@@ -15,12 +15,16 @@ import { CodeEditorApp } from './components/apps/CodeEditorApp';
 import { VideoPlayerApp } from './components/apps/VideoPlayerApp';
 import { AgentDashboard } from './components/apps/AgentDashboard';
 import { AgentVM } from './components/apps/AgentVM';
+import { SheetsApp } from './components/apps/SheetsApp';
+import { CanvasApp } from './components/apps/CanvasApp';
+import { WriterApp } from './components/apps/WriterApp';
 import { DesktopWidgets } from './components/os/DesktopWidgets';
 import { ContextMenu } from './components/os/ContextMenu';
 import { LoginScreen } from './components/os/LoginScreen';
 import { UserMenu } from './components/os/UserMenu';
 import { ErrorBoundary } from './components/os/ErrorBoundary';
 import { ShortcutOverlay } from './components/os/ShortcutOverlay';
+import { WorkspaceSwitcher, WorkspaceOverview } from './components/os/WorkspaceSwitcher';
 import { Battery, Wifi, Search, Command, RefreshCw, FolderPlus, Monitor, Image as ImageIcon, Server } from 'lucide-react';
 import { NotificationBell, useNotifications } from './components/os/NotificationCenter';
 import { FileSystemItem, mockFileSystem } from './data/mockFileSystem';
@@ -37,9 +41,9 @@ const DOCK_APPS: AppID[] = [
   AppID.TERMINAL,
   AppID.CODE,
   AppID.NOTES,
-  AppID.PHOTOS,
-  AppID.CHAT,
-  AppID.CALCULATOR,
+  AppID.SHEETS,
+  AppID.CANVAS,
+  AppID.WRITER,
 ];
 
 const App: React.FC = () => {
@@ -55,6 +59,12 @@ const App: React.FC = () => {
   
   // Context Menu State
   const [contextMenu, setContextMenu] = useState<{ isOpen: boolean; x: number; y: number } | null>(null);
+
+  // Workspace State
+  const [currentWorkspace, setCurrentWorkspace] = useState(0);
+  const [totalWorkspaces] = useState(3);
+  const [showWorkspaceOverview, setShowWorkspaceOverview] = useState(false);
+  const [workspaceTransitionDir, setWorkspaceTransitionDir] = useState<'left' | 'right' | null>(null);
 
   // Auth state
   const [authUser, setAuthUser] = useState<UserInfo | null>(null);
@@ -389,6 +399,39 @@ const App: React.FC = () => {
       }, `Open ${DOCK_APPS[i] ? DOCK_APPS[i].charAt(0).toUpperCase() + DOCK_APPS[i].slice(1) : `dock app ${i + 1}`}`, 'global', 'Navigation');
     }
 
+    // -- Workspace shortcuts --
+    mgr.registerShortcut('global:ws-prev', 'Ctrl+ArrowLeft', () => {
+      switchWorkspace(currentWorkspace - 1, 'left');
+    }, 'Previous workspace', 'global', 'Workspaces');
+
+    mgr.registerShortcut('global:ws-next', 'Ctrl+ArrowRight', () => {
+      switchWorkspace(currentWorkspace + 1, 'right');
+    }, 'Next workspace', 'global', 'Workspaces');
+
+    mgr.registerShortcut('global:ws-overview', 'Ctrl+ArrowUp', () => {
+      setShowWorkspaceOverview(prev => !prev);
+    }, 'Workspace overview', 'global', 'Workspaces');
+
+    for (let i = 0; i < 9; i++) {
+      mgr.registerShortcut(`global:ws-jump-${i + 1}`, `Ctrl+${i + 1}`, () => {
+        if (i < totalWorkspaces) switchWorkspace(i);
+      }, `Switch to workspace ${i + 1}`, 'global', 'Workspaces');
+    }
+
+    mgr.registerShortcut('global:ws-move-left', 'Ctrl+Shift+ArrowLeft', () => {
+      if (activeWindowId && currentWorkspace > 0) {
+        moveWindowToWorkspace(activeWindowId, currentWorkspace - 1);
+        switchWorkspace(currentWorkspace - 1, 'left');
+      }
+    }, 'Move window to prev workspace', 'global', 'Workspaces');
+
+    mgr.registerShortcut('global:ws-move-right', 'Ctrl+Shift+ArrowRight', () => {
+      if (activeWindowId && currentWorkspace < totalWorkspaces - 1) {
+        moveWindowToWorkspace(activeWindowId, currentWorkspace + 1);
+        switchWorkspace(currentWorkspace + 1, 'right');
+      }
+    }, 'Move window to next workspace', 'global', 'Workspaces');
+
     // -- App-specific shortcuts --
 
     // Terminal
@@ -420,6 +463,9 @@ const App: React.FC = () => {
         'global:cycle-window',
         'global:open-terminal', 'global:open-settings',
         ...Array.from({ length: 9 }, (_, i) => `global:dock-${i + 1}`),
+        'global:ws-prev', 'global:ws-next', 'global:ws-overview',
+        ...Array.from({ length: 9 }, (_, i) => `global:ws-jump-${i + 1}`),
+        'global:ws-move-left', 'global:ws-move-right',
         'app:terminal:new-tab', 'app:terminal:clear',
         'app:code:save', 'app:code:quick-open', 'app:code:search-all',
         'app:browser:url-bar', 'app:browser:new-tab', 'app:browser:reload',
@@ -428,7 +474,7 @@ const App: React.FC = () => {
       ids.forEach((id) => mgr.unregisterShortcut(id));
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeWindowId, isSmartBarOpen, isShortcutOverlayOpen, contextMenu, cycleWindow]);
+  }, [activeWindowId, isSmartBarOpen, isShortcutOverlayOpen, contextMenu, cycleWindow, currentWorkspace, switchWorkspace, moveWindowToWorkspace, totalWorkspaces]);
 
   const openApp = (appId: AppID, initialData?: any) => {
     // If it's a VM window, we allow multiples, so we generate a unique ID based on agent ID
@@ -452,7 +498,8 @@ const App: React.FC = () => {
                 zIndex: windows.length + 1,
                 position: { x: 150, y: 100 },
                 size: { width: 1000, height: 700 },
-                initialData
+                initialData,
+                workspaceId: currentWorkspace,
             };
             setWindows(prev => [...prev, newWindow]);
             setActiveWindowId(winId);
@@ -465,6 +512,11 @@ const App: React.FC = () => {
     const existingWindow = windows.find(w => w.id === winId);
     
     if (existingWindow) {
+      // If window is on a different workspace, switch to it
+      const winWs = existingWindow.workspaceId ?? 0;
+      if (winWs !== currentWorkspace && !existingWindow.stickyWorkspace) {
+        switchWorkspace(winWs);
+      }
       if (existingWindow.isMinimized) {
         setWindows(prev => prev.map(w => w.id === winId ? { ...w, isMinimized: false, initialData } : w));
       } else {
@@ -485,7 +537,8 @@ const App: React.FC = () => {
         zIndex: windows.length + 1,
         position: { x: 100 + (windows.length * 30), y: 100 + (windows.length * 30) },
         size: isCalculator ? { width: 320, height: 480 } : { width: 900, height: 650 },
-        initialData
+        initialData,
+        workspaceId: currentWorkspace,
       };
       setWindows(prev => [...prev, newWindow]);
       setActiveWindowId(winId);
@@ -505,6 +558,9 @@ const App: React.FC = () => {
       case AppID.CODE: return 'Code - Untitled';
       case AppID.VIDEO: return 'Media Player';
       case AppID.AGENTS: return 'Agent Center';
+      case AppID.SHEETS: return 'Sheets';
+      case AppID.CANVAS: return 'Canvas';
+      case AppID.WRITER: return 'Writer';
       default: return 'App';
     }
   };
@@ -547,6 +603,59 @@ const App: React.FC = () => {
       return w;
     }));
   };
+
+  // ── Workspace Management ──────────────────────────────────────────────
+  const switchWorkspace = useCallback((targetIdx: number, direction?: 'left' | 'right') => {
+    if (targetIdx < 0 || targetIdx >= totalWorkspaces || targetIdx === currentWorkspace) return;
+    const dir = direction || (targetIdx > currentWorkspace ? 'right' : 'left');
+    setWorkspaceTransitionDir(dir);
+    setActiveWindowId(null);
+    setTimeout(() => {
+      setCurrentWorkspace(targetIdx);
+      setTimeout(() => setWorkspaceTransitionDir(null), 200);
+    }, 10);
+  }, [currentWorkspace, totalWorkspaces]);
+
+  const moveWindowToWorkspace = useCallback((windowId: string, targetWorkspace: number) => {
+    if (targetWorkspace < 0 || targetWorkspace >= totalWorkspaces) return;
+    setWindows(prev => prev.map(w =>
+      w.id === windowId ? { ...w, workspaceId: targetWorkspace, stickyWorkspace: false } : w
+    ));
+  }, [totalWorkspaces]);
+
+  // Compute visible windows for current workspace
+  const visibleWindows = useMemo(() => {
+    return windows.filter(w => {
+      if (w.stickyWorkspace) return true;
+      const wsId = w.workspaceId ?? 0;
+      return wsId === currentWorkspace;
+    });
+  }, [windows, currentWorkspace]);
+
+  // Window counts per workspace (for the switcher dots)
+  const workspaceWindowCounts = useMemo(() => {
+    const counts = Array(totalWorkspaces).fill(0);
+    windows.forEach(w => {
+      if (w.stickyWorkspace) {
+        // Count sticky windows in all workspaces
+        counts.forEach((_, i) => counts[i]++);
+      } else {
+        const wsId = w.workspaceId ?? 0;
+        if (wsId < totalWorkspaces) counts[wsId]++;
+      }
+    });
+    return counts;
+  }, [windows, totalWorkspaces]);
+
+  // Workspace windows data for overview
+  const workspaceWindowsData = useMemo(() => {
+    return Array.from({ length: totalWorkspaces }, (_, i) => ({
+      workspace: i,
+      windows: windows
+        .filter(w => w.stickyWorkspace || (w.workspaceId ?? 0) === i)
+        .map(w => ({ id: w.id, title: w.title, appId: w.appId, position: w.position, size: w.size })),
+    }));
+  }, [windows, totalWorkspaces]);
 
   // Agent Management - routes to kernel or mock depending on runtime mode
   const launchAgent = async (role: string, goal: string) => {
@@ -703,6 +812,9 @@ const App: React.FC = () => {
             onOpenVM={(agentId) => openApp(AppID.VM, { agentId })} 
             onStopAgent={stopAgent}
         />;
+      case AppID.SHEETS: return <SheetsApp />;
+      case AppID.CANVAS: return <CanvasApp />;
+      case AppID.WRITER: return <WriterApp />;
       case AppID.VM:
          const agent = agents.find(a => a.id === windowState.initialData?.agentId);
          if (!agent) return <div className="p-4 text-white">Agent not found or terminated.</div>;
@@ -832,6 +944,14 @@ const App: React.FC = () => {
           <span className="hidden sm:inline opacity-70 hover:opacity-100 cursor-pointer">Help</span>
         </div>
         <div className="flex items-center gap-4">
+           {/* Workspace Switcher */}
+           <WorkspaceSwitcher
+             currentWorkspace={currentWorkspace}
+             totalWorkspaces={totalWorkspaces}
+             windowCounts={workspaceWindowCounts}
+             onSwitch={(idx) => switchWorkspace(idx)}
+             onShowOverview={() => setShowWorkspaceOverview(true)}
+           />
            {/* Kernel Status Indicator */}
            <div className="flex items-center gap-1.5" title={kernel.connected ? `Kernel v${kernel.version} connected` : 'Kernel disconnected (mock mode)'}>
              <div className={`w-1.5 h-1.5 rounded-full ${kernel.connected ? 'bg-green-400' : 'bg-orange-400'}`} />
@@ -918,27 +1038,40 @@ const App: React.FC = () => {
           <DesktopWidgets />
         </ErrorBoundary>
 
-        {/* Windows */}
-        {windows.map(window => (
-          <Window
-            key={window.id}
-            windowState={window}
-            onClose={closeWindow}
-            onMinimize={minimizeWindow}
-            onMaximize={maximizeWindow}
-            onFocus={focusWindow}
-            onMove={moveWindow}
-            onResize={resizeWindow}
-          >
-            <ErrorBoundary fallbackTitle="Application Error">
-              {renderAppContent(window)}
-            </ErrorBoundary>
-          </Window>
-        ))}
+        {/* Windows — filtered by current workspace */}
+        <div
+          className="absolute inset-0 transition-transform duration-200 ease-out"
+          style={{
+            transform: workspaceTransitionDir === 'left'
+              ? 'translateX(40px)'
+              : workspaceTransitionDir === 'right'
+              ? 'translateX(-40px)'
+              : 'translateX(0)',
+            opacity: workspaceTransitionDir ? 0.7 : 1,
+            transition: 'transform 200ms ease-out, opacity 150ms ease-out',
+          }}
+        >
+          {visibleWindows.map(window => (
+            <Window
+              key={window.id}
+              windowState={window}
+              onClose={closeWindow}
+              onMinimize={minimizeWindow}
+              onMaximize={maximizeWindow}
+              onFocus={focusWindow}
+              onMove={moveWindow}
+              onResize={resizeWindow}
+            >
+              <ErrorBoundary fallbackTitle="Application Error">
+                {renderAppContent(window)}
+              </ErrorBoundary>
+            </Window>
+          ))}
+        </div>
 
         {/* Dock */}
         <ErrorBoundary fallbackTitle="Dock Error">
-          <Dock onAppClick={(id) => openApp(id)} openApps={windows.map(w => w.id)} />
+          <Dock onAppClick={(id) => openApp(id)} openApps={visibleWindows.map(w => w.id)} />
         </ErrorBoundary>
 
         {/* Smart Bar (Spotlight) */}
@@ -946,6 +1079,17 @@ const App: React.FC = () => {
 
         {/* Shortcut Overlay (Cmd+/) */}
         <ShortcutOverlay isOpen={isShortcutOverlayOpen} onClose={() => setIsShortcutOverlayOpen(false)} />
+
+        {/* Workspace Overview (Ctrl+Up) */}
+        {showWorkspaceOverview && (
+          <WorkspaceOverview
+            currentWorkspace={currentWorkspace}
+            totalWorkspaces={totalWorkspaces}
+            workspaceWindows={workspaceWindowsData}
+            onSwitch={(idx) => switchWorkspace(idx)}
+            onClose={() => setShowWorkspaceOverview(false)}
+          />
+        )}
 
         {/* Context Menu */}
         {contextMenu && (
