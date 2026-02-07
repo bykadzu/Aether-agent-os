@@ -52,7 +52,7 @@ What's missing is the polish, hardening, and "last mile" work that turns a worki
 - ESLint (flat config) + Prettier configured with TypeScript + React hooks rules
 - CI pipeline (`.github/workflows/ci.yml`) — lint + test on push/PR to main
 - Scripts added: `npm run lint`, `npm run lint:fix`, `npm run format`, `npm run typecheck`
-- Pre-commit hooks (husky + lint-staged) — remaining TODO
+- ~~Pre-commit hooks (husky + lint-staged)~~ **DONE** — husky 9 + lint-staged 16 configured
 
 ### 2.3 Logging & Debugging
 - Structured logging in the kernel (levels: debug, info, warn, error)
@@ -186,12 +186,12 @@ These are small improvements that would make an immediate difference:
 |-----------|--------|--------|
 | ~~Add `.env.example`~~ | ~~10 min~~ | ✅ Done |
 | ~~Add `npm run typecheck`~~ | ~~5 min~~ | ✅ Done |
-| Kernel boot banner with subsystem status | 30 min | Know instantly what's working |
+| ~~Kernel boot banner with subsystem status~~ | ~~30 min~~ | ✅ Done — prints 12 subsystems + port + FS root + cluster |
 | Screenshots in README | 30 min | Makes the project 10x more approachable |
-| Agent log export (download as JSON/text) | 1 hr | Let users save and share agent runs |
+| ~~Agent log export (download as JSON/text)~~ | ~~1 hr~~ | ✅ Done — JSON + text download from AgentVM |
 | Dark/light theme toggle | 1 hr | Already has dark theme, just add a switch |
 | ~~Keyboard shortcut overlay (Cmd+/)~~ | ~~30 min~~ | ✅ Done — `ShortcutOverlay.tsx` |
-| Loading skeleton for Mission Control | 30 min | Feels faster on initial load |
+| ~~Loading skeleton for Mission Control~~ | ~~30 min~~ | ✅ Done — animated pulse cards during initial load |
 
 ---
 
