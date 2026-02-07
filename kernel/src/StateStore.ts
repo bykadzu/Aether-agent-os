@@ -22,6 +22,11 @@ import {
   KernelMetricRecord,
   SnapshotInfo,
   UserInfo,
+  MemoryRecord,
+  MemoryLayer,
+  CronJob,
+  EventTrigger,
+  AgentConfig,
   STATE_DB_PATH,
 } from '@aether/shared';
 
@@ -67,6 +72,34 @@ export class StateStore {
     updateUserLogin: Database.Statement;
     deleteUser: Database.Statement;
     getProcessesByOwner: Database.Statement;
+    // Memory statements (v0.3)
+    insertMemory: Database.Statement;
+    getMemory: Database.Statement;
+    getMemoriesByAgent: Database.Statement;
+    getMemoriesByAgentLayer: Database.Statement;
+    updateMemoryAccess: Database.Statement;
+    deleteMemory: Database.Statement;
+    deleteMemoriesByAgent: Database.Statement;
+    getMemoryCount: Database.Statement;
+    getOldestMemories: Database.Statement;
+    insertMemoryFts: Database.Statement;
+    deleteMemoryFts: Database.Statement;
+    // Cron statements (v0.3)
+    insertCronJob: Database.Statement;
+    getCronJob: Database.Statement;
+    getAllCronJobs: Database.Statement;
+    getEnabledCronJobs: Database.Statement;
+    updateCronJobRun: Database.Statement;
+    updateCronJobEnabled: Database.Statement;
+    deleteCronJob: Database.Statement;
+    // Trigger statements (v0.3)
+    insertTrigger: Database.Statement;
+    getTrigger: Database.Statement;
+    getAllTriggers: Database.Statement;
+    getEnabledTriggersByEvent: Database.Statement;
+    updateTriggerFired: Database.Statement;
+    updateTriggerEnabled: Database.Statement;
+    deleteTrigger: Database.Statement;
   };
 
   private _persistenceDisabled = false;
@@ -88,9 +121,21 @@ export class StateStore {
       console.warn('[StateStore] Attempting to recreate database...');
       try {
         // Remove corrupt file and try again
-        try { fs.unlinkSync(resolvedPath); } catch { /* may not exist */ }
-        try { fs.unlinkSync(resolvedPath + '-wal'); } catch { /* ignore */ }
-        try { fs.unlinkSync(resolvedPath + '-shm'); } catch { /* ignore */ }
+        try {
+          fs.unlinkSync(resolvedPath);
+        } catch {
+          /* may not exist */
+        }
+        try {
+          fs.unlinkSync(resolvedPath + '-wal');
+        } catch {
+          /* ignore */
+        }
+        try {
+          fs.unlinkSync(resolvedPath + '-shm');
+        } catch {
+          /* ignore */
+        }
         this.db = new Database(resolvedPath);
         this.db.pragma('journal_mode = WAL');
         this.db.pragma('synchronous = NORMAL');
@@ -203,6 +248,68 @@ export class StateStore {
       );
 
       CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+
+      -- Memory tables (v0.3 Wave 1)
+      CREATE TABLE IF NOT EXISTS agent_memories (
+        id TEXT PRIMARY KEY,
+        agent_uid TEXT NOT NULL,
+        layer TEXT NOT NULL CHECK(layer IN ('episodic', 'semantic', 'procedural', 'social')),
+        content TEXT NOT NULL,
+        tags TEXT NOT NULL DEFAULT '[]',
+        importance REAL NOT NULL DEFAULT 0.5,
+        access_count INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        last_accessed INTEGER NOT NULL,
+        expires_at INTEGER,
+        source_pid INTEGER,
+        related_memories TEXT NOT NULL DEFAULT '[]'
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_memories_agent ON agent_memories(agent_uid);
+      CREATE INDEX IF NOT EXISTS idx_memories_agent_layer ON agent_memories(agent_uid, layer);
+      CREATE INDEX IF NOT EXISTS idx_memories_importance ON agent_memories(importance DESC);
+
+      -- FTS5 virtual table for full-text search on memory content
+      CREATE VIRTUAL TABLE IF NOT EXISTS agent_memories_fts USING fts5(
+        id UNINDEXED,
+        content,
+        tags
+      );
+
+      -- Cron jobs table (v0.3 Wave 1)
+      CREATE TABLE IF NOT EXISTS cron_jobs (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        cron_expression TEXT NOT NULL,
+        agent_config TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        owner_uid TEXT NOT NULL,
+        last_run INTEGER,
+        next_run INTEGER NOT NULL,
+        run_count INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_cron_enabled ON cron_jobs(enabled);
+      CREATE INDEX IF NOT EXISTS idx_cron_next_run ON cron_jobs(next_run);
+
+      -- Event triggers table (v0.3 Wave 1)
+      CREATE TABLE IF NOT EXISTS event_triggers (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        event_filter TEXT,
+        agent_config TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        owner_uid TEXT NOT NULL,
+        cooldown_ms INTEGER NOT NULL DEFAULT 60000,
+        last_fired INTEGER,
+        fire_count INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_triggers_event ON event_triggers(event_type);
+      CREATE INDEX IF NOT EXISTS idx_triggers_enabled ON event_triggers(enabled);
     `);
   }
 
@@ -348,6 +455,89 @@ export class StateStore {
                exit_code as exitCode, created_at as createdAt, exited_at as exitedAt
         FROM processes WHERE uid LIKE ? ORDER BY created_at DESC
       `),
+      // Memory statements (v0.3)
+      insertMemory: this.db.prepare(`
+        INSERT INTO agent_memories (id, agent_uid, layer, content, tags, importance, access_count, created_at, last_accessed, expires_at, source_pid, related_memories)
+        VALUES (@id, @agent_uid, @layer, @content, @tags, @importance, @access_count, @created_at, @last_accessed, @expires_at, @source_pid, @related_memories)
+      `),
+      getMemory: this.db.prepare(`
+        SELECT id, agent_uid, layer, content, tags, importance, access_count, created_at, last_accessed, expires_at, source_pid, related_memories
+        FROM agent_memories WHERE id = ?
+      `),
+      getMemoriesByAgent: this.db.prepare(`
+        SELECT id, agent_uid, layer, content, tags, importance, access_count, created_at, last_accessed, expires_at, source_pid, related_memories
+        FROM agent_memories WHERE agent_uid = ? ORDER BY importance DESC, last_accessed DESC
+      `),
+      getMemoriesByAgentLayer: this.db.prepare(`
+        SELECT id, agent_uid, layer, content, tags, importance, access_count, created_at, last_accessed, expires_at, source_pid, related_memories
+        FROM agent_memories WHERE agent_uid = ? AND layer = ? ORDER BY importance DESC, last_accessed DESC
+      `),
+      updateMemoryAccess: this.db.prepare(`
+        UPDATE agent_memories SET access_count = access_count + 1, last_accessed = ? WHERE id = ?
+      `),
+      deleteMemory: this.db.prepare(`DELETE FROM agent_memories WHERE id = ? AND agent_uid = ?`),
+      deleteMemoriesByAgent: this.db.prepare(`DELETE FROM agent_memories WHERE agent_uid = ?`),
+      getMemoryCount: this.db.prepare(`
+        SELECT COUNT(*) as count FROM agent_memories WHERE agent_uid = ? AND layer = ?
+      `),
+      getOldestMemories: this.db.prepare(`
+        SELECT id FROM agent_memories WHERE agent_uid = ? AND layer = ?
+        ORDER BY importance ASC, last_accessed ASC LIMIT ?
+      `),
+      insertMemoryFts: this.db.prepare(`
+        INSERT INTO agent_memories_fts (id, content, tags) VALUES (?, ?, ?)
+      `),
+      deleteMemoryFts: this.db.prepare(`
+        DELETE FROM agent_memories_fts WHERE id = ?
+      `),
+      // Cron statements (v0.3)
+      insertCronJob: this.db.prepare(`
+        INSERT INTO cron_jobs (id, name, cron_expression, agent_config, enabled, owner_uid, next_run, run_count, created_at)
+        VALUES (@id, @name, @cron_expression, @agent_config, @enabled, @owner_uid, @next_run, @run_count, @created_at)
+      `),
+      getCronJob: this.db.prepare(`
+        SELECT id, name, cron_expression, agent_config, enabled, owner_uid, last_run, next_run, run_count, created_at
+        FROM cron_jobs WHERE id = ?
+      `),
+      getAllCronJobs: this.db.prepare(`
+        SELECT id, name, cron_expression, agent_config, enabled, owner_uid, last_run, next_run, run_count, created_at
+        FROM cron_jobs ORDER BY created_at ASC
+      `),
+      getEnabledCronJobs: this.db.prepare(`
+        SELECT id, name, cron_expression, agent_config, enabled, owner_uid, last_run, next_run, run_count, created_at
+        FROM cron_jobs WHERE enabled = 1 AND next_run <= ? ORDER BY next_run ASC
+      `),
+      updateCronJobRun: this.db.prepare(`
+        UPDATE cron_jobs SET last_run = ?, next_run = ?, run_count = run_count + 1 WHERE id = ?
+      `),
+      updateCronJobEnabled: this.db.prepare(`
+        UPDATE cron_jobs SET enabled = ? WHERE id = ?
+      `),
+      deleteCronJob: this.db.prepare(`DELETE FROM cron_jobs WHERE id = ?`),
+      // Trigger statements (v0.3)
+      insertTrigger: this.db.prepare(`
+        INSERT INTO event_triggers (id, name, event_type, event_filter, agent_config, enabled, owner_uid, cooldown_ms, fire_count, created_at)
+        VALUES (@id, @name, @event_type, @event_filter, @agent_config, @enabled, @owner_uid, @cooldown_ms, @fire_count, @created_at)
+      `),
+      getTrigger: this.db.prepare(`
+        SELECT id, name, event_type, event_filter, agent_config, enabled, owner_uid, cooldown_ms, last_fired, fire_count, created_at
+        FROM event_triggers WHERE id = ?
+      `),
+      getAllTriggers: this.db.prepare(`
+        SELECT id, name, event_type, event_filter, agent_config, enabled, owner_uid, cooldown_ms, last_fired, fire_count, created_at
+        FROM event_triggers ORDER BY created_at ASC
+      `),
+      getEnabledTriggersByEvent: this.db.prepare(`
+        SELECT id, name, event_type, event_filter, agent_config, enabled, owner_uid, cooldown_ms, last_fired, fire_count, created_at
+        FROM event_triggers WHERE enabled = 1 AND event_type = ?
+      `),
+      updateTriggerFired: this.db.prepare(`
+        UPDATE event_triggers SET last_fired = ?, fire_count = fire_count + 1 WHERE id = ?
+      `),
+      updateTriggerEnabled: this.db.prepare(`
+        UPDATE event_triggers SET enabled = ? WHERE id = ?
+      `),
+      deleteTrigger: this.db.prepare(`DELETE FROM event_triggers WHERE id = ?`),
     };
   }
 
@@ -565,15 +755,48 @@ export class StateStore {
     this.stmts.insertSnapshot.run(record);
   }
 
-  getAllSnapshots(): Array<{ id: string; pid: PID; timestamp: number; description: string; filePath: string; tarballPath: string; processInfo: string; sizeBytes: number }> {
+  getAllSnapshots(): Array<{
+    id: string;
+    pid: PID;
+    timestamp: number;
+    description: string;
+    filePath: string;
+    tarballPath: string;
+    processInfo: string;
+    sizeBytes: number;
+  }> {
     return this.stmts.getAllSnapshots.all() as any[];
   }
 
-  getSnapshotsByPid(pid: PID): Array<{ id: string; pid: PID; timestamp: number; description: string; filePath: string; tarballPath: string; processInfo: string; sizeBytes: number }> {
+  getSnapshotsByPid(
+    pid: PID,
+  ): Array<{
+    id: string;
+    pid: PID;
+    timestamp: number;
+    description: string;
+    filePath: string;
+    tarballPath: string;
+    processInfo: string;
+    sizeBytes: number;
+  }> {
     return this.stmts.getSnapshotsByPid.all(pid) as any[];
   }
 
-  getSnapshotById(id: string): { id: string; pid: PID; timestamp: number; description: string; filePath: string; tarballPath: string; processInfo: string; sizeBytes: number } | undefined {
+  getSnapshotById(
+    id: string,
+  ):
+    | {
+        id: string;
+        pid: PID;
+        timestamp: number;
+        description: string;
+        filePath: string;
+        tarballPath: string;
+        processInfo: string;
+        sizeBytes: number;
+      }
+    | undefined {
     return this.stmts.getSnapshotById.get(id) as any;
   }
 
@@ -585,11 +808,18 @@ export class StateStore {
   // Shared Mounts
   // ---------------------------------------------------------------------------
 
-  recordSharedMount(record: { name: string; path: string; ownerPid: PID; createdAt: number }): void {
+  recordSharedMount(record: {
+    name: string;
+    path: string;
+    ownerPid: PID;
+    createdAt: number;
+  }): void {
     this.stmts.insertSharedMount.run(record);
   }
 
-  getSharedMount(name: string): { name: string; path: string; ownerPid: PID; createdAt: number } | undefined {
+  getSharedMount(
+    name: string,
+  ): { name: string; path: string; ownerPid: PID; createdAt: number } | undefined {
     return this.stmts.getSharedMount.get(name) as any;
   }
 
@@ -617,19 +847,57 @@ export class StateStore {
   // Users
   // ---------------------------------------------------------------------------
 
-  createUser(record: { id: string; username: string; displayName: string; passwordHash: string; role: string; createdAt: number }): void {
+  createUser(record: {
+    id: string;
+    username: string;
+    displayName: string;
+    passwordHash: string;
+    role: string;
+    createdAt: number;
+  }): void {
     this.stmts.insertUser.run(record);
   }
 
-  getUserById(id: string): { id: string; username: string; displayName: string; passwordHash: string; role: string; createdAt: number; lastLogin?: number } | undefined {
+  getUserById(
+    id: string,
+  ):
+    | {
+        id: string;
+        username: string;
+        displayName: string;
+        passwordHash: string;
+        role: string;
+        createdAt: number;
+        lastLogin?: number;
+      }
+    | undefined {
     return this.stmts.getUserById.get(id) as any;
   }
 
-  getUserByUsername(username: string): { id: string; username: string; displayName: string; passwordHash: string; role: string; createdAt: number; lastLogin?: number } | undefined {
+  getUserByUsername(
+    username: string,
+  ):
+    | {
+        id: string;
+        username: string;
+        displayName: string;
+        passwordHash: string;
+        role: string;
+        createdAt: number;
+        lastLogin?: number;
+      }
+    | undefined {
     return this.stmts.getUserByUsername.get(username) as any;
   }
 
-  getAllUsers(): Array<{ id: string; username: string; displayName: string; role: string; createdAt: number; lastLogin?: number }> {
+  getAllUsers(): Array<{
+    id: string;
+    username: string;
+    displayName: string;
+    role: string;
+    createdAt: number;
+    lastLogin?: number;
+  }> {
     return this.stmts.getAllUsers.all() as any[];
   }
 
@@ -658,6 +926,186 @@ export class StateStore {
 
   updateUserPasswordHash(id: string, passwordHash: string): void {
     this.db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(passwordHash, id);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Agent Memories (v0.3)
+  // ---------------------------------------------------------------------------
+
+  insertMemory(record: {
+    id: string;
+    agent_uid: string;
+    layer: string;
+    content: string;
+    tags: string;
+    importance: number;
+    access_count: number;
+    created_at: number;
+    last_accessed: number;
+    expires_at: number | null;
+    source_pid: number | null;
+    related_memories: string;
+  }): void {
+    this.stmts.insertMemory.run(record);
+    this.stmts.insertMemoryFts.run(record.id, record.content, record.tags);
+  }
+
+  getMemory(id: string): any | undefined {
+    return this.stmts.getMemory.get(id);
+  }
+
+  getMemoriesByAgent(agent_uid: string): any[] {
+    return this.stmts.getMemoriesByAgent.all(agent_uid) as any[];
+  }
+
+  getMemoriesByAgentLayer(agent_uid: string, layer: string): any[] {
+    return this.stmts.getMemoriesByAgentLayer.all(agent_uid, layer) as any[];
+  }
+
+  updateMemoryAccess(id: string): void {
+    this.stmts.updateMemoryAccess.run(Date.now(), id);
+  }
+
+  deleteMemory(id: string, agent_uid: string): boolean {
+    const result = this.stmts.deleteMemory.run(id, agent_uid);
+    if (result.changes > 0) {
+      this.stmts.deleteMemoryFts.run(id);
+      return true;
+    }
+    return false;
+  }
+
+  deleteMemoriesByAgent(agent_uid: string): void {
+    // Delete FTS entries first
+    const memories = this.getMemoriesByAgent(agent_uid);
+    for (const m of memories) {
+      this.stmts.deleteMemoryFts.run(m.id);
+    }
+    this.stmts.deleteMemoriesByAgent.run(agent_uid);
+  }
+
+  getMemoryCount(agent_uid: string, layer: string): number {
+    const row = this.stmts.getMemoryCount.get(agent_uid, layer) as { count: number };
+    return row.count;
+  }
+
+  getOldestMemories(agent_uid: string, layer: string, limit: number): Array<{ id: string }> {
+    return this.stmts.getOldestMemories.all(agent_uid, layer, limit) as any[];
+  }
+
+  searchMemories(agent_uid: string, query: string, limit: number = 20): any[] {
+    // Convert natural language query to FTS5 OR-joined terms
+    // FTS5 treats space-separated words as implicit AND; we use OR for broader recall
+    const terms = query
+      .replace(/[^\w\s]/g, '') // strip special chars
+      .split(/\s+/)
+      .filter((t) => t.length > 1)
+      .map((t) => `"${t}"`)
+      .join(' OR ');
+    if (!terms) return [];
+
+    // Use FTS5 search joined with main table for agent filtering
+    const stmt = this.db.prepare(`
+      SELECT m.id, m.agent_uid, m.layer, m.content, m.tags, m.importance, m.access_count,
+             m.created_at, m.last_accessed, m.expires_at, m.source_pid, m.related_memories,
+             rank
+      FROM agent_memories_fts fts
+      JOIN agent_memories m ON fts.id = m.id
+      WHERE agent_memories_fts MATCH ? AND m.agent_uid = ?
+      ORDER BY rank
+      LIMIT ?
+    `);
+    return stmt.all(terms, agent_uid, limit) as any[];
+  }
+
+  // ---------------------------------------------------------------------------
+  // Cron Jobs (v0.3)
+  // ---------------------------------------------------------------------------
+
+  insertCronJob(record: {
+    id: string;
+    name: string;
+    cron_expression: string;
+    agent_config: string;
+    enabled: number;
+    owner_uid: string;
+    next_run: number;
+    run_count: number;
+    created_at: number;
+  }): void {
+    this.stmts.insertCronJob.run(record);
+  }
+
+  getCronJob(id: string): any | undefined {
+    return this.stmts.getCronJob.get(id);
+  }
+
+  getAllCronJobs(): any[] {
+    return this.stmts.getAllCronJobs.all() as any[];
+  }
+
+  getEnabledCronJobsDue(now: number): any[] {
+    return this.stmts.getEnabledCronJobs.all(now) as any[];
+  }
+
+  updateCronJobRun(id: string, lastRun: number, nextRun: number): void {
+    this.stmts.updateCronJobRun.run(lastRun, nextRun, id);
+  }
+
+  setCronJobEnabled(id: string, enabled: boolean): void {
+    this.stmts.updateCronJobEnabled.run(enabled ? 1 : 0, id);
+  }
+
+  deleteCronJob(id: string): void {
+    this.stmts.deleteCronJob.run(id);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Event Triggers (v0.3)
+  // ---------------------------------------------------------------------------
+
+  insertTrigger(record: {
+    id: string;
+    name: string;
+    event_type: string;
+    event_filter: string | null;
+    agent_config: string;
+    enabled: number;
+    owner_uid: string;
+    cooldown_ms: number;
+    fire_count: number;
+    created_at: number;
+  }): void {
+    this.stmts.insertTrigger.run(record);
+  }
+
+  getTrigger(id: string): any | undefined {
+    return this.stmts.getTrigger.get(id);
+  }
+
+  getAllTriggers(): any[] {
+    return this.stmts.getAllTriggers.all() as any[];
+  }
+
+  getEnabledTriggersByEvent(event_type: string): any[] {
+    return this.stmts.getEnabledTriggersByEvent.all(event_type) as any[];
+  }
+
+  updateTriggerFired(id: string, now: number): void {
+    this.stmts.updateTriggerFired.run(now, id);
+  }
+
+  setTriggerEnabled(id: string, enabled: boolean): void {
+    this.stmts.updateTriggerEnabled.run(enabled ? 1 : 0, id);
+  }
+
+  deleteTrigger(id: string): void {
+    this.stmts.deleteTrigger.run(id);
+  }
+
+  /** Expose the underlying database for direct queries (used by MemoryManager for FTS5) */
+  getDatabase(): Database.Database {
+    return this.db;
   }
 
   // ---------------------------------------------------------------------------

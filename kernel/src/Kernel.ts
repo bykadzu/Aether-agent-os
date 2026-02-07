@@ -28,6 +28,8 @@ import { BrowserManager } from './BrowserManager.js';
 import { PluginManager } from './PluginManager.js';
 import { SnapshotManager } from './SnapshotManager.js';
 import { StateStore } from './StateStore.js';
+import { MemoryManager } from './MemoryManager.js';
+import { CronManager } from './CronManager.js';
 import { AuthManager } from './AuthManager.js';
 import { ClusterManager } from './ClusterManager.js';
 import {
@@ -51,6 +53,8 @@ export class Kernel {
   readonly plugins: PluginManager;
   readonly snapshots: SnapshotManager;
   readonly state: StateStore;
+  readonly memory: MemoryManager;
+  readonly cron: CronManager;
   readonly auth: AuthManager;
   readonly cluster: ClusterManager;
 
@@ -67,6 +71,8 @@ export class Kernel {
     this.pty = new PTYManager(this.bus);
     this.plugins = new PluginManager(this.bus, options.fsRoot);
     this.state = new StateStore(this.bus, options.dbPath);
+    this.memory = new MemoryManager(this.bus, this.state);
+    this.cron = new CronManager(this.bus, this.state);
     this.snapshots = new SnapshotManager(this.bus, this.processes, this.state, options.fsRoot);
     this.auth = new AuthManager(this.bus, this.state);
     this.cluster = new ClusterManager(this.bus);
@@ -111,6 +117,25 @@ export class Kernel {
     console.log('[Kernel] Snapshot manager initialized');
 
     console.log('[Kernel] State store initialized (SQLite)');
+
+    // Initialize memory manager (uses StateStore tables)
+    console.log('[Kernel] Memory manager initialized');
+
+    // Initialize cron manager
+    this.cron.start(async (config) => {
+      const proc = this.processes.spawn(config, 0);
+      if (proc) {
+        await this.fs.createHome(proc.info.uid);
+        this.pty.open(proc.info.pid, {
+          cwd: this.fs.getRealRoot() + proc.info.cwd,
+          env: proc.info.env,
+        });
+        this.processes.setState(proc.info.pid, 'running', 'booting');
+        return proc.info.pid;
+      }
+      return null;
+    });
+    console.log('[Kernel] Cron manager initialized');
 
     // Initialize auth
     await this.auth.init();
@@ -896,6 +921,140 @@ export class Kernel {
           break;
         }
 
+        // ----- Memory Commands (v0.3) -----
+        case 'memory.store': {
+          const memory = this.memory.store(cmd.memory);
+          events.push({ type: 'response.ok', id: cmd.id, data: memory });
+          break;
+        }
+
+        case 'memory.recall': {
+          const memories = this.memory.recall(cmd.query);
+          events.push({ type: 'response.ok', id: cmd.id, data: memories });
+          break;
+        }
+
+        case 'memory.forget': {
+          const deleted = this.memory.forget(cmd.memoryId, cmd.agent_uid);
+          if (deleted) {
+            events.push({ type: 'response.ok', id: cmd.id });
+          } else {
+            events.push({ type: 'response.error', id: cmd.id, error: 'Memory not found' });
+          }
+          break;
+        }
+
+        case 'memory.share': {
+          const shared = this.memory.share(cmd.memoryId, cmd.from_uid, cmd.to_uid);
+          if (shared) {
+            events.push({ type: 'response.ok', id: cmd.id, data: shared });
+          } else {
+            events.push({
+              type: 'response.error',
+              id: cmd.id,
+              error: 'Memory not found or not owned by source agent',
+            });
+          }
+          break;
+        }
+
+        case 'memory.list': {
+          const result = cmd.layer
+            ? this.memory.recall({ agent_uid: cmd.agent_uid, layer: cmd.layer, limit: 100 })
+            : this.memory.recall({ agent_uid: cmd.agent_uid, limit: 100 });
+          events.push({ type: 'response.ok', id: cmd.id, data: result });
+          break;
+        }
+
+        case 'memory.consolidate': {
+          const removed = this.memory.consolidate(cmd.agent_uid);
+          events.push({ type: 'response.ok', id: cmd.id, data: { removed } });
+          break;
+        }
+
+        // ----- Cron & Trigger Commands (v0.3) -----
+        case 'cron.create': {
+          try {
+            const job = this.cron.createJob(
+              cmd.name,
+              cmd.cron_expression,
+              cmd.agent_config,
+              cmd.owner_uid,
+            );
+            events.push({ type: 'response.ok', id: cmd.id, data: job });
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        case 'cron.delete': {
+          const deleted = this.cron.deleteJob(cmd.jobId);
+          if (deleted) {
+            events.push({ type: 'response.ok', id: cmd.id });
+          } else {
+            events.push({ type: 'response.error', id: cmd.id, error: 'Cron job not found' });
+          }
+          break;
+        }
+
+        case 'cron.enable': {
+          const enabled = this.cron.enableJob(cmd.jobId);
+          events.push(
+            enabled
+              ? { type: 'response.ok', id: cmd.id }
+              : { type: 'response.error', id: cmd.id, error: 'Cron job not found' },
+          );
+          break;
+        }
+
+        case 'cron.disable': {
+          const disabled = this.cron.disableJob(cmd.jobId);
+          events.push(
+            disabled
+              ? { type: 'response.ok', id: cmd.id }
+              : { type: 'response.error', id: cmd.id, error: 'Cron job not found' },
+          );
+          break;
+        }
+
+        case 'cron.list': {
+          const jobs = this.cron.listJobs();
+          events.push({ type: 'response.ok', id: cmd.id, data: jobs });
+          events.push({ type: 'cron.list', jobs } as any);
+          break;
+        }
+
+        case 'trigger.create': {
+          const trigger = this.cron.createTrigger(
+            cmd.name,
+            cmd.event_type,
+            cmd.agent_config,
+            cmd.owner_uid,
+            cmd.cooldown_ms,
+            cmd.event_filter,
+          );
+          events.push({ type: 'response.ok', id: cmd.id, data: trigger });
+          break;
+        }
+
+        case 'trigger.delete': {
+          const deleted = this.cron.deleteTrigger(cmd.triggerId);
+          if (deleted) {
+            events.push({ type: 'response.ok', id: cmd.id });
+          } else {
+            events.push({ type: 'response.error', id: cmd.id, error: 'Trigger not found' });
+          }
+          break;
+        }
+
+        case 'trigger.list': {
+          const triggers = this.cron.listTriggers();
+          events.push({ type: 'response.ok', id: cmd.id, data: triggers });
+          events.push({ type: 'trigger.list', triggers } as any);
+          break;
+        }
+
         // ----- System Commands -----
         case 'kernel.status': {
           events.push({
@@ -949,38 +1108,40 @@ export class Kernel {
    * Print a boot banner summarizing subsystem status.
    */
   private printBootBanner(): void {
-    const G = '\x1b[32m';   // green
-    const Y = '\x1b[33m';   // yellow
-    const C = '\x1b[36m';   // cyan
-    const B = '\x1b[1m';    // bold
-    const D = '\x1b[2m';    // dim
-    const R = '\x1b[0m';    // reset
+    const G = '\x1b[32m'; // green
+    const Y = '\x1b[33m'; // yellow
+    const C = '\x1b[36m'; // cyan
+    const B = '\x1b[1m'; // bold
+    const D = '\x1b[2m'; // dim
+    const R = '\x1b[0m'; // reset
 
-    const ok   = `${G}\u2713${R}`;
+    const ok = `${G}\u2713${R}`;
     const warn = `${Y}\u25CB${R}`;
 
-    const dockerUp     = this.containers.isDockerAvailable();
+    const dockerUp = this.containers.isDockerAvailable();
     const playwrightUp = this.browser.isAvailable();
-    const gpuUp        = this.containers.isGPUAvailable();
-    const gpuCount     = this.containers.getGPUs().length;
+    const gpuUp = this.containers.isGPUAvailable();
+    const gpuCount = this.containers.getGPUs().length;
 
     // Subsystem pairs: [name, isFullyAvailable]
     const left: [string, boolean][] = [
-      ['EventBus',         true],
-      ['ProcessManager',   true],
-      ['VirtualFS',        true],
-      ['PTYManager',       true],
+      ['EventBus', true],
+      ['ProcessManager', true],
+      ['VirtualFS', true],
+      ['PTYManager', true],
       ['ContainerManager', dockerUp],
-      ['BrowserManager',   playwrightUp],
+      ['BrowserManager', playwrightUp],
     ];
 
     const right: [string, boolean][] = [
-      ['StateStore',       true],
-      ['PluginManager',    true],
-      ['SnapshotManager',  true],
-      ['AuthManager',      true],
-      ['VNCManager',       true],
-      ['ClusterManager',   true],
+      ['StateStore', true],
+      ['MemoryManager', true],
+      ['CronManager', true],
+      ['PluginManager', true],
+      ['SnapshotManager', true],
+      ['AuthManager', true],
+      ['VNCManager', true],
+      ['ClusterManager', true],
     ];
 
     const port = process.env.AETHER_PORT || String(DEFAULT_PORT);
@@ -989,22 +1150,31 @@ export class Kernel {
     const total = left.length + right.length;
 
     console.log('');
-    console.log(`  ${B}\u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510${R}`);
-    console.log(`  ${B}\u2502${R}        ${C}${B}Aether Kernel${R}  v${this.version}          ${B}\u2502${R}`);
-    console.log(`  ${B}\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518${R}`);
+    console.log(
+      `  ${B}\u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510${R}`,
+    );
+    console.log(
+      `  ${B}\u2502${R}        ${C}${B}Aether Kernel${R}  v${this.version}          ${B}\u2502${R}`,
+    );
+    console.log(
+      `  ${B}\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518${R}`,
+    );
     console.log('');
 
-    for (let i = 0; i < left.length; i++) {
-      const [lName, lOk] = left[i];
-      const [rName, rOk] = right[i];
-      const lMark = lOk ? ok : warn;
-      const rMark = rOk ? ok : warn;
-      console.log(`    ${lMark} ${lName.padEnd(20)}${rMark} ${rName}`);
+    const maxRows = Math.max(left.length, right.length);
+    for (let i = 0; i < maxRows; i++) {
+      const lPart = left[i];
+      const rPart = right[i];
+      const lStr = lPart ? `${lPart[1] ? ok : warn} ${lPart[0].padEnd(20)}` : ''.padEnd(22);
+      const rStr = rPart ? `${rPart[1] ? ok : warn} ${rPart[0]}` : '';
+      console.log(`    ${lStr}${rStr}`);
     }
 
     console.log('');
     const gpuStr = gpuUp ? `  ${D}GPU:${R} ${gpuCount}` : '';
-    console.log(`    ${D}Port:${R} ${port}  ${D}FS root:${R} ${fsRoot}  ${D}Cluster:${R} ${role}${gpuStr}`);
+    console.log(
+      `    ${D}Port:${R} ${port}  ${D}FS root:${R} ${fsRoot}  ${D}Cluster:${R} ${role}${gpuStr}`,
+    );
     console.log('');
     console.log(`  ${G}Kernel ready${R} ${D}\u2014${R} ${total} subsystems online`);
     console.log('');
@@ -1033,6 +1203,7 @@ export class Kernel {
       /* ignore metric errors during shutdown */
     }
 
+    this.cron.stop();
     await this.cluster.shutdown();
     await this.browser.shutdown();
     await this.vnc.shutdown();
