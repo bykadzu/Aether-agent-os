@@ -39,6 +39,7 @@ import {
   AETHER_VERSION,
   DEFAULT_PORT,
   ProcessInfo,
+  AgentProfile,
 } from '@aether/shared';
 
 export class Kernel {
@@ -1052,6 +1053,63 @@ export class Kernel {
           const triggers = this.cron.listTriggers();
           events.push({ type: 'response.ok', id: cmd.id, data: triggers });
           events.push({ type: 'trigger.list', triggers } as any);
+          break;
+        }
+
+        // ----- Agent Profile Commands (v0.3 Wave 4) -----
+        case 'profile.get': {
+          const profile = this.memory.getProfile(cmd.agent_uid);
+          events.push({
+            type: 'response.ok',
+            id: cmd.id,
+            data: profile,
+          });
+          events.push({
+            type: 'profile.data',
+            agent_uid: cmd.agent_uid,
+            profile,
+          } as KernelEvent);
+          break;
+        }
+
+        case 'profile.list': {
+          const rawProfiles = this.state.getAllProfiles();
+          const profiles: AgentProfile[] = rawProfiles.map((row: any) => ({
+            ...row,
+            expertise: JSON.parse(row.expertise || '[]'),
+            personality_traits: JSON.parse(row.personality_traits || '[]'),
+          }));
+          events.push({
+            type: 'response.ok',
+            id: cmd.id,
+            data: profiles,
+          });
+          events.push({
+            type: 'profile.list',
+            profiles,
+          } as KernelEvent);
+          break;
+        }
+
+        case 'profile.update': {
+          const existing = this.memory.getProfile(cmd.agent_uid);
+          const merged = { ...existing, ...cmd.updates, updated_at: Date.now() };
+          this.state.upsertProfile({
+            ...merged,
+            expertise: JSON.stringify(merged.expertise),
+            personality_traits: JSON.stringify(merged.personality_traits),
+          });
+          const updated = this.memory.getProfile(cmd.agent_uid);
+          events.push({
+            type: 'response.ok',
+            id: cmd.id,
+            data: updated,
+          });
+          events.push({
+            type: 'profile.updated',
+            agent_uid: cmd.agent_uid,
+            profile: updated,
+          } as KernelEvent);
           break;
         }
 

@@ -372,6 +372,26 @@ export interface FeedbackRecord {
 }
 
 // ---------------------------------------------------------------------------
+// Agent Profile Types (v0.3 Wave 4)
+// ---------------------------------------------------------------------------
+
+export interface AgentProfile {
+  agent_uid: string; // Primary key
+  display_name: string; // Human-readable name
+  total_tasks: number; // Total tasks attempted
+  successful_tasks: number; // Tasks completed successfully
+  failed_tasks: number; // Tasks that failed
+  success_rate: number; // 0.0 - 1.0
+  expertise: string[]; // Auto-detected areas of expertise (from tags/goals)
+  personality_traits: string[]; // Inferred from behavior patterns
+  avg_quality_rating: number; // Average reflection quality score (1-5)
+  total_steps: number; // Total steps taken across all tasks
+  first_seen: number; // Unix timestamp ms
+  last_active: number; // Unix timestamp ms
+  updated_at: number; // Unix timestamp ms
+}
+
+// ---------------------------------------------------------------------------
 // Snapshot Types
 // ---------------------------------------------------------------------------
 
@@ -645,6 +665,11 @@ export type KernelCommand =
   | { type: 'feedback.get'; id: string; pid: number }
   | { type: 'feedback.query'; id: string; agent_uid: string; limit?: number }
 
+  // Agent Profile (v0.3 Wave 4)
+  | { type: 'profile.get'; id: string; agent_uid: string }
+  | { type: 'profile.list'; id: string }
+  | { type: 'profile.update'; id: string; agent_uid: string; updates: Partial<AgentProfile> }
+
   // LLM Providers
   | { type: 'llm.list'; id: string }
 
@@ -774,6 +799,14 @@ export type KernelEvent =
 
   // Feedback events (v0.3 Wave 2)
   | { type: 'feedback.submitted'; feedback: FeedbackRecord }
+
+  // Profile events (v0.3 Wave 4)
+  | { type: 'profile.data'; agent_uid: string; profile: AgentProfile }
+  | { type: 'profile.list'; profiles: AgentProfile[] }
+  | { type: 'profile.updated'; agent_uid: string; profile: AgentProfile }
+
+  // Collaboration events (v0.3 Wave 4)
+  | { type: 'collaboration.message'; protocol: string; fromPid: PID; toPid: PID }
 
   // LLM events
   | { type: 'llm.list'; providers: LLMProviderInfo[] }

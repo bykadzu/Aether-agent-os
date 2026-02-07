@@ -19,7 +19,13 @@
 import * as crypto from 'node:crypto';
 import { EventBus } from './EventBus.js';
 import { StateStore } from './StateStore.js';
-import type { MemoryRecord, MemoryLayer, MemoryQuery, MemoryStoreRequest } from '@aether/shared';
+import type {
+  MemoryRecord,
+  MemoryLayer,
+  MemoryQuery,
+  MemoryStoreRequest,
+  AgentProfile,
+} from '@aether/shared';
 
 /** Maximum memories per agent per layer (configurable) */
 const DEFAULT_MAX_PER_LAYER = 1000;
@@ -331,6 +337,101 @@ export class MemoryManager {
       procedural: this.state.getMemoryCount(agent_uid, 'procedural'),
       social: this.state.getMemoryCount(agent_uid, 'social'),
     };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Agent Profiles (v0.3 Wave 4)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Get or create an agent profile.
+   */
+  getProfile(agent_uid: string): AgentProfile {
+    const existing = this.state.getProfile(agent_uid);
+    if (existing) {
+      return {
+        ...existing,
+        expertise: JSON.parse(existing.expertise || '[]'),
+        personality_traits: JSON.parse(existing.personality_traits || '[]'),
+      };
+    }
+    // Create default profile
+    const now = Date.now();
+    const profile: AgentProfile = {
+      agent_uid,
+      display_name: agent_uid,
+      total_tasks: 0,
+      successful_tasks: 0,
+      failed_tasks: 0,
+      success_rate: 0,
+      expertise: [],
+      personality_traits: [],
+      avg_quality_rating: 0,
+      total_steps: 0,
+      first_seen: now,
+      last_active: now,
+      updated_at: now,
+    };
+    this.state.upsertProfile({
+      ...profile,
+      expertise: '[]',
+      personality_traits: '[]',
+    });
+    return profile;
+  }
+
+  /**
+   * Update an agent's profile after task completion.
+   * Called by the reflection system with task outcome data.
+   */
+  updateProfileAfterTask(
+    agent_uid: string,
+    outcome: {
+      success: boolean;
+      steps: number;
+      quality_rating?: number;
+      goal?: string;
+      tags?: string[];
+    },
+  ): AgentProfile {
+    const profile = this.getProfile(agent_uid);
+    const now = Date.now();
+
+    profile.total_tasks += 1;
+    if (outcome.success) profile.successful_tasks += 1;
+    else profile.failed_tasks += 1;
+    profile.success_rate =
+      profile.total_tasks > 0 ? profile.successful_tasks / profile.total_tasks : 0;
+    profile.total_steps += outcome.steps;
+    profile.last_active = now;
+    profile.updated_at = now;
+
+    // Update avg quality rating
+    if (outcome.quality_rating) {
+      const totalRated = profile.total_tasks - 1; // previous tasks
+      profile.avg_quality_rating =
+        totalRated > 0
+          ? (profile.avg_quality_rating * totalRated + outcome.quality_rating) / profile.total_tasks
+          : outcome.quality_rating;
+    }
+
+    // Update expertise from tags
+    if (outcome.tags && outcome.tags.length > 0) {
+      const existing = new Set(profile.expertise);
+      for (const tag of outcome.tags) {
+        existing.add(tag);
+      }
+      profile.expertise = [...existing].slice(0, 20); // cap at 20
+    }
+
+    this.state.upsertProfile({
+      ...profile,
+      expertise: JSON.stringify(profile.expertise),
+      personality_traits: JSON.stringify(profile.personality_traits),
+    });
+
+    this.bus.emit('profile.updated', { agent_uid, profile });
+    return profile;
   }
 
   // ---------------------------------------------------------------------------

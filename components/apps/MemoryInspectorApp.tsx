@@ -15,6 +15,10 @@ import {
   Hash,
   Link2,
   AlertTriangle,
+  Target,
+  TrendingUp,
+  Star,
+  Zap,
 } from 'lucide-react';
 import { getKernelClient } from '../../services/kernelClient';
 
@@ -37,6 +41,22 @@ interface MemoryRecord {
   expires_at?: number;
   source_pid?: number;
   related_memories?: string[];
+}
+
+interface AgentProfile {
+  agent_uid: string;
+  display_name: string;
+  total_tasks: number;
+  successful_tasks: number;
+  failed_tasks: number;
+  success_rate: number;
+  expertise: string[];
+  personality_traits: string[];
+  avg_quality_rating: number;
+  total_steps: number;
+  first_seen: number;
+  last_active: number;
+  updated_at: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -288,6 +308,54 @@ const MOCK_MEMORIES: MemoryRecord[] = [
     related_memories: ['mem-004'],
   },
 ];
+
+const MOCK_PROFILES: Record<string, AgentProfile> = {
+  'agent-alpha-01': {
+    agent_uid: 'agent-alpha-01',
+    display_name: 'Agent Alpha',
+    total_tasks: 47,
+    successful_tasks: 42,
+    failed_tasks: 5,
+    success_rate: 0.894,
+    expertise: ['database', 'migration', 'deployment', 'production', 'tls', 'api-gateway'],
+    personality_traits: ['thorough', 'methodical'],
+    avg_quality_rating: 4.2,
+    total_steps: 312,
+    first_seen: Date.now() - 86400000 * 30,
+    last_active: Date.now() - 300000,
+    updated_at: Date.now() - 300000,
+  },
+  'agent-beta-02': {
+    agent_uid: 'agent-beta-02',
+    display_name: 'Agent Beta',
+    total_tasks: 31,
+    successful_tasks: 28,
+    failed_tasks: 3,
+    success_rate: 0.903,
+    expertise: ['typescript', 'websocket', 'authentication', 'bugfix'],
+    personality_traits: ['focused', 'detail-oriented'],
+    avg_quality_rating: 3.9,
+    total_steps: 198,
+    first_seen: Date.now() - 86400000 * 20,
+    last_active: Date.now() - 5400000,
+    updated_at: Date.now() - 5400000,
+  },
+  'agent-gamma-03': {
+    agent_uid: 'agent-gamma-03',
+    display_name: 'Agent Gamma',
+    total_tasks: 22,
+    successful_tasks: 20,
+    failed_tasks: 2,
+    success_rate: 0.909,
+    expertise: ['analysis', 'machine-learning', 'data-engineering', 'etl', 'sales'],
+    personality_traits: ['analytical', 'precise'],
+    avg_quality_rating: 4.5,
+    total_steps: 156,
+    first_seen: Date.now() - 86400000 * 15,
+    last_active: Date.now() - 600000,
+    updated_at: Date.now() - 600000,
+  },
+};
 
 // ---------------------------------------------------------------------------
 // Sub-Components
@@ -571,6 +639,88 @@ const MemoryDetail: React.FC<{
   );
 };
 
+/** Agent profile summary card (shown in sidebar when agent is selected) */
+const ProfileCard: React.FC<{ profile: AgentProfile }> = ({ profile }) => {
+  const successPercent = Math.round(profile.success_rate * 100);
+  const ratingColor =
+    profile.avg_quality_rating >= 4
+      ? 'text-green-400'
+      : profile.avg_quality_rating >= 3
+        ? 'text-amber-400'
+        : 'text-red-400';
+
+  return (
+    <div className="mx-2 mb-2 p-2.5 rounded-lg bg-white/[0.03] border border-white/5 space-y-2.5 animate-fade-in">
+      <div className="flex items-center gap-1.5 mb-1">
+        <Target size={10} className="text-indigo-400" />
+        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+          Profile
+        </span>
+      </div>
+
+      {/* Stats grid */}
+      <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+        <div className="flex items-center gap-1.5">
+          <TrendingUp size={9} className="text-gray-500 shrink-0" />
+          <span className="text-[10px] text-gray-500">Tasks</span>
+          <span className="text-[10px] font-mono text-white ml-auto">{profile.total_tasks}</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <Zap size={9} className="text-gray-500 shrink-0" />
+          <span className="text-[10px] text-gray-500">Success</span>
+          <span className="text-[10px] font-mono text-white ml-auto">{successPercent}%</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <Star size={9} className="text-gray-500 shrink-0" />
+          <span className="text-[10px] text-gray-500">Quality</span>
+          <span className={`text-[10px] font-mono ml-auto ${ratingColor}`}>
+            {profile.avg_quality_rating.toFixed(1)}/5
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <Hash size={9} className="text-gray-500 shrink-0" />
+          <span className="text-[10px] text-gray-500">Steps</span>
+          <span className="text-[10px] font-mono text-white ml-auto">{profile.total_steps}</span>
+        </div>
+      </div>
+
+      {/* Success rate bar */}
+      <div>
+        <div className="h-1 bg-white/5 rounded-full overflow-hidden">
+          <div
+            className="h-full rounded-full bg-indigo-500 transition-all duration-500"
+            style={{ width: `${successPercent}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Expertise tags */}
+      {profile.expertise.length > 0 && (
+        <div>
+          <span className="text-[9px] text-gray-600 uppercase tracking-wider font-bold block mb-1">
+            Expertise
+          </span>
+          <div className="flex flex-wrap gap-1">
+            {profile.expertise.slice(0, 6).map((tag) => (
+              <span
+                key={tag}
+                className="px-1.5 py-0.5 text-[8px] font-medium rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20"
+              >
+                {tag}
+              </span>
+            ))}
+            {profile.expertise.length > 6 && (
+              <span className="text-[8px] text-gray-600 self-center">
+                +{profile.expertise.length - 6}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ---------------------------------------------------------------------------
 // Main Component
 // ---------------------------------------------------------------------------
@@ -581,6 +731,7 @@ export const MemoryInspectorApp: React.FC = () => {
   const [memories, setMemories] = useState<MemoryRecord[]>([]);
   const [agents, setAgents] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+  const [agentProfiles, setAgentProfiles] = useState<Record<string, AgentProfile>>({});
 
   // UI state
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
@@ -617,6 +768,7 @@ export const MemoryInspectorApp: React.FC = () => {
   const loadMockData = useCallback(() => {
     setMemories(MOCK_MEMORIES);
     setAgents(MOCK_AGENTS);
+    setAgentProfiles(MOCK_PROFILES);
     if (!selectedAgent) {
       setSelectedAgent(MOCK_AGENTS[0]);
     }
@@ -952,6 +1104,11 @@ export const MemoryInspectorApp: React.FC = () => {
             </div>
           )}
         </div>
+
+        {/* Agent profile card (v0.3 Wave 4) */}
+        {selectedAgent && agentProfiles[selectedAgent] && (
+          <ProfileCard profile={agentProfiles[selectedAgent]} />
+        )}
 
         {/* Connection status */}
         <div className="p-3 border-t border-white/5 flex items-center gap-2">

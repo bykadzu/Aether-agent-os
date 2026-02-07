@@ -6,7 +6,13 @@
  * fallback for models that don't support tools natively.
  */
 
-import type { LLMProvider, ChatMessage, LLMResponse, ToolDefinition, ToolCall } from './LLMProvider.js';
+import type {
+  LLMProvider,
+  ChatMessage,
+  LLMResponse,
+  ToolDefinition,
+  ToolCall,
+} from './LLMProvider.js';
 
 export class OllamaProvider implements LLMProvider {
   name = 'ollama';
@@ -38,6 +44,32 @@ export class OllamaProvider implements LLMProvider {
     }
   }
 
+  supportsVision(): boolean {
+    // Ollama supports vision for models like llava, but not all models
+    const visionModels = ['llava', 'bakllava', 'llava-llama3'];
+    return visionModels.some((m) => this.model.includes(m));
+  }
+
+  async analyzeImage(imageBase64: string, prompt: string): Promise<LLMResponse> {
+    const response = await fetch(`${this.host}/api/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: this.model,
+        prompt: prompt || 'Describe what you see in this image in detail.',
+        images: [imageBase64],
+        stream: false,
+      }),
+    });
+
+    const data = await response.json();
+    if (data.error) throw new Error(data.error);
+
+    return {
+      content: data.response || 'No description generated.',
+    };
+  }
+
   async chat(messages: ChatMessage[], tools: ToolDefinition[]): Promise<LLMResponse> {
     // First try native tool calling
     const supportsTools = await this.checkToolSupport();
@@ -50,9 +82,12 @@ export class OllamaProvider implements LLMProvider {
     return this.chatWithPromptTools(messages, tools);
   }
 
-  private async chatWithTools(messages: ChatMessage[], tools: ToolDefinition[]): Promise<LLMResponse> {
-    const ollamaMessages = messages.map(msg => this.toOllamaMessage(msg));
-    const ollamaTools = tools.map(tool => ({
+  private async chatWithTools(
+    messages: ChatMessage[],
+    tools: ToolDefinition[],
+  ): Promise<LLMResponse> {
+    const ollamaMessages = messages.map((msg) => this.toOllamaMessage(msg));
+    const ollamaTools = tools.map((tool) => ({
       type: 'function',
       function: {
         name: tool.name,
@@ -92,18 +127,21 @@ export class OllamaProvider implements LLMProvider {
     return {
       content: data.message?.content || undefined,
       toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-      usage: data.eval_count ? {
-        inputTokens: data.prompt_eval_count || 0,
-        outputTokens: data.eval_count || 0,
-      } : undefined,
+      usage: data.eval_count
+        ? {
+            inputTokens: data.prompt_eval_count || 0,
+            outputTokens: data.eval_count || 0,
+          }
+        : undefined,
     };
   }
 
-  private async chatWithPromptTools(messages: ChatMessage[], tools: ToolDefinition[]): Promise<LLMResponse> {
+  private async chatWithPromptTools(
+    messages: ChatMessage[],
+    tools: ToolDefinition[],
+  ): Promise<LLMResponse> {
     // Inject tool descriptions into the system prompt
-    const toolDesc = tools.map(t =>
-      `- ${t.name}: ${t.description}`
-    ).join('\n');
+    const toolDesc = tools.map((t) => `- ${t.name}: ${t.description}`).join('\n');
 
     const augmentedMessages = [...messages];
 
@@ -124,7 +162,7 @@ export class OllamaProvider implements LLMProvider {
       augmentedMessages.unshift(toolSystemMsg);
     }
 
-    const ollamaMessages = augmentedMessages.map(msg => this.toOllamaMessage(msg));
+    const ollamaMessages = augmentedMessages.map((msg) => this.toOllamaMessage(msg));
 
     const res = await fetch(`${this.host}/api/chat`, {
       method: 'POST',
@@ -150,15 +188,19 @@ export class OllamaProvider implements LLMProvider {
       if (parsed.tool) {
         return {
           content: parsed.reasoning || content,
-          toolCalls: [{
-            id: `ollama_${Date.now()}`,
-            name: parsed.tool,
-            arguments: parsed.args || {},
-          }],
-          usage: data.eval_count ? {
-            inputTokens: data.prompt_eval_count || 0,
-            outputTokens: data.eval_count || 0,
-          } : undefined,
+          toolCalls: [
+            {
+              id: `ollama_${Date.now()}`,
+              name: parsed.tool,
+              arguments: parsed.args || {},
+            },
+          ],
+          usage: data.eval_count
+            ? {
+                inputTokens: data.prompt_eval_count || 0,
+                outputTokens: data.eval_count || 0,
+              }
+            : undefined,
         };
       }
     } catch {
@@ -167,22 +209,28 @@ export class OllamaProvider implements LLMProvider {
 
     return {
       content,
-      usage: data.eval_count ? {
-        inputTokens: data.prompt_eval_count || 0,
-        outputTokens: data.eval_count || 0,
-      } : undefined,
+      usage: data.eval_count
+        ? {
+            inputTokens: data.prompt_eval_count || 0,
+            outputTokens: data.eval_count || 0,
+          }
+        : undefined,
     };
   }
 
   private async checkToolSupport(): Promise<boolean> {
     // Models known to support native tool calling in Ollama
     const toolCapableModels = [
-      'llama3.1', 'llama3.2', 'llama3.3',
-      'mistral', 'mixtral',
-      'qwen2', 'qwen2.5',
+      'llama3.1',
+      'llama3.2',
+      'llama3.3',
+      'mistral',
+      'mixtral',
+      'qwen2',
+      'qwen2.5',
       'command-r',
     ];
-    return toolCapableModels.some(m => this.model.startsWith(m));
+    return toolCapableModels.some((m) => this.model.startsWith(m));
   }
 
   private toOllamaMessage(msg: ChatMessage): any {
