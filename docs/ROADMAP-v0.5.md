@@ -4,7 +4,7 @@
 
 **Status:** Planning
 
-**Depends on:** v0.4 (Ecosystem must exist before it can be hardened for production)
+**Depends on:** v0.4 (Ecosystem must exist before it can be hardened for production — v0.3 is complete, v0.4 is next)
 
 ---
 

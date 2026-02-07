@@ -2,7 +2,7 @@
 
 **Theme:** Agents that learn, remember, plan, reflect, and get better over time. Move from "LLM with tools" to "genuine autonomous agents."
 
-**Status:** Planning
+**Status:** ✅ Complete (merged to main via PRs #31 and #32)
 
 **Depends on:** v0.2 (Real Apps — agents need real tools to be genuinely intelligent)
 
@@ -270,13 +270,13 @@ Agents that don't just wait for instructions — they notice things and act.
 
 ## Success Criteria for v0.3
 
-- [ ] Agents remember context across sessions (deploy agent, kill it, re-deploy — it remembers)
-- [ ] Agents create and follow multi-step plans visible in the UI
-- [ ] Agents reflect on their work and store lessons learned
-- [ ] At least one multi-modal capability works (vision or audio)
-- [ ] Agent collaboration follows structured protocols (not just raw string messages)
-- [ ] Agents can be triggered by events (file change, schedule, other agent completion)
-- [ ] User feedback (thumbs up/down) is collected and influences agent behavior
-- [ ] Agent profiles are visible and editable in the UI
-- [ ] Memory inspector shows searchable agent memories
-- [ ] Workflow builder exists for multi-agent orchestration
+- [x] Agents remember context across sessions (deploy agent, kill it, re-deploy — it remembers) ✅ MemoryManager with FTS5 + memory-aware agent loop
+- [x] Agents create and follow multi-step plans visible in the UI ✅ Planner + Plan Viewer tab in AgentVM
+- [x] Agents reflect on their work and store lessons learned ✅ Reflection system stores procedural memories
+- [x] At least one multi-modal capability works (vision or audio) ✅ Vision via all 4 LLM providers
+- [x] Agent collaboration follows structured protocols (not just raw string messages) ✅ Collaboration protocols with 8 message types
+- [x] Agents can be triggered by events (file change, schedule, other agent completion) ✅ CronManager + event triggers
+- [x] User feedback (thumbs up/down) is collected and influences agent behavior ✅ Feedback system + UI + agent tool
+- [x] Agent profiles are visible and editable in the UI ✅ ProfileCard in Memory Inspector
+- [x] Memory inspector shows searchable agent memories ✅ MemoryInspectorApp with search, filters, agent list
+- [ ] Workflow builder exists for multi-agent orchestration — Deferred to v0.4

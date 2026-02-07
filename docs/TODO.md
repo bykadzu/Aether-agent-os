@@ -2,7 +2,7 @@
 
 Consolidated checklist of all outstanding work, derived from NEXT_STEPS.md, FEATURES.md, all roadmaps, and the research documents. Organized by urgency and version target.
 
-**Last updated:** 2026-02-07
+**Last updated:** 2026-02-07 (post-v0.3 completion)
 
 ---
 
@@ -92,23 +92,39 @@ Full details in [ROADMAP-v0.2.md](./ROADMAP-v0.2.md) and [SESSION-PROMPTS-v0.2.m
 
 ---
 
-## v0.3 — Agent Intelligence & Autonomy
+## v0.3 — Agent Intelligence & Autonomy ✅ COMPLETE
 
-Full details in [ROADMAP-v0.3.md](./ROADMAP-v0.3.md).
+Full details in [ROADMAP-v0.3.md](./ROADMAP-v0.3.md) and [ROADMAP-v0.3-execution.md](./ROADMAP-v0.3-execution.md).
 
-- [ ] **Long-term memory** — 5-layer architecture (working, episodic, semantic, procedural, social) with vector store
-- [ ] **Goal decomposition & planning** — Hierarchical task networks, plan execution engine
-- [ ] **Self-reflection & metacognition** — Post-task evaluation, strategy journal, confidence calibration
-- [ ] **Multi-modal perception** — Screenshot analysis, vision, audio, speech-to-text/TTS
-- [ ] **Personality & specialization** — Working styles, risk tolerance, preference learning
-- [ ] **Agent collaboration protocols** — Pair programming, code review, standup, handoff patterns
-- [ ] **Proactive behavior** — File watchers, cron-style scheduling, event-driven spawning
-- [ ] **Learning & adaptation** — User feedback loops, outcome tracking, strategy evolution
+Implemented in 4 waves across PRs #31 and #32, merged to main.
 
-### Identified Gaps (from research docs)
-- [ ] **Cron/scheduling** — Underspecified in v0.3 roadmap despite being a top user-requested feature (see RESEARCH-openclaw-ideas.md)
-- [ ] **Context compaction** — Not explicitly planned; important for long-running agents to avoid context window overflow
-- [ ] **Bidirectional messaging integration** — v0.4 only plans push notifications; real messaging channels (Slack, Discord, Telegram) should be bidirectional
+### Wave 1: Foundation — Memory & Scheduling
+- [x] **MemoryManager subsystem** — 4-layer memory (episodic, semantic, procedural, social), SQLite FTS5 search, importance decay, consolidation, sharing between agents
+- [x] **CronManager subsystem** — 5-field cron parser, event triggers with cooldown, cron jobs stored in SQLite, auto-spawns agents on schedule
+- [x] **Memory-aware agent loop** — Loads relevant memories on startup, injects into system prompt, auto-journals on completion
+- [x] **Memory agent tools** — `remember`, `recall`, `forget` tools for agents
+
+### Wave 2: Intelligence Layer
+- [x] **Self-reflection system** — Post-task reflection via LLM, quality ratings (1-5), lessons/strategies/improvements parsed and stored as procedural memory
+- [x] **Goal decomposition & planning** — `create_plan` / `update_plan` / `get_plan` tools, hierarchical task trees stored in SQLite, plan state injected into system prompt
+- [x] **Feedback system** — POST /api/feedback endpoint, thumbs up/down per action, `get_feedback` agent tool, stored in SQLite
+
+### Wave 3: UI Components
+- [x] **Memory Inspector App** — New app with agent list sidebar, 4-layer filter tabs, search, memory cards with importance bars/tags, stats header, mock data fallback
+- [x] **Plan Viewer** — New "Plan" tab in AgentVM with collapsible tree view, status icons, progress bar
+- [x] **Feedback UI** — Thumbs up/down buttons on AgentVM action entries, optional comment on negative feedback
+- [x] **Automation Manager** — New "Automation" tab in SettingsApp for cron jobs and event triggers with create/delete/toggle
+
+### Wave 4: Advanced Features
+- [x] **Agent Profiles** — Auto-tracked stats per agent (tasks, success rate, expertise, quality), SQLite persistence, injected into system prompts, ProfileCard in Memory Inspector
+- [x] **Collaboration Protocols** — Structured agent-to-agent coordination (review requests, task delegation, status broadcasts, knowledge sharing), 10 exported functions
+- [x] **Vision Capability** — `analyze_image` tool, vision support in all 4 LLM providers (Gemini, OpenAI, Anthropic, Ollama), browser screenshot capture
+
+### Remaining Gaps (deferred)
+- [ ] **Vector embeddings** — FTS5 text search is implemented; true vector similarity search deferred to v0.3.1
+- [ ] **Context compaction** — Not yet implemented; important for long-running agents
+- [ ] **Bidirectional messaging integration** — Deferred to v0.4 (Slack, Discord, Telegram channels)
+- [ ] **Visual workflow builder** — Orchestration UI deferred to v0.4
 
 ---
 
@@ -153,8 +169,8 @@ These items appear across multiple docs or were identified as gaps:
 |------|--------|-------|
 | ~~Pre-commit hooks (husky)~~ | NEXT_STEPS.md | ✅ Done — husky + lint-staged configured |
 | Screenshots in README | NEXT_STEPS.md | High impact, low effort |
-| File-based memory MVP | RESEARCH-openclaw-ideas.md | Quick win before full v0.3 memory system |
-| Cron/scheduling detail | RESEARCH-openclaw-ideas.md, RESEARCH-future-plans-summary.md | v0.3 mentions it but underspecifies |
+| ~~File-based memory MVP~~ | RESEARCH-openclaw-ideas.md | ✅ Done — full MemoryManager with FTS5 in v0.3 |
+| ~~Cron/scheduling detail~~ | RESEARCH-openclaw-ideas.md | ✅ Done — CronManager with cron parser + event triggers in v0.3 |
 | Remote access | RESEARCH-future-plans-summary.md | Tailscale/SSH not planned in any roadmap |
 | Context compaction | RESEARCH-future-plans-summary.md | Important for long-running agents |
 | Lightweight skills | RESEARCH-openclaw-ideas.md | Simpler than full React apps for v0.4 |

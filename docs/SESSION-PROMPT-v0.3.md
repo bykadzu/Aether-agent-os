@@ -534,11 +534,11 @@ Agent 3 depends on Agents 1 and 2. Agent 4 depends on all previous.
 
 ## Success Criteria (from ROADMAP-v0.3.md)
 
-- [ ] Agents remember context across sessions (spawn → kill → re-spawn → it remembers)
-- [ ] Agents create and follow multi-step plans visible in the UI
-- [ ] Agents reflect on their work and store lessons learned
-- [ ] Agent collaboration uses structured protocols
-- [ ] Agents can be triggered by events (file change, schedule, other agent completion)
-- [ ] User feedback (thumbs up/down) is collected and influences agent behavior
-- [ ] Agent profiles are visible and editable in the UI
-- [ ] Memory inspector shows searchable agent memories
+- [x] Agents remember context across sessions (spawn → kill → re-spawn → it remembers) ✅
+- [x] Agents create and follow multi-step plans visible in the UI ✅
+- [x] Agents reflect on their work and store lessons learned ✅
+- [x] Agent collaboration uses structured protocols ✅
+- [x] Agents can be triggered by events (file change, schedule, other agent completion) ✅
+- [x] User feedback (thumbs up/down) is collected and influences agent behavior ✅
+- [x] Agent profiles are visible and editable in the UI ✅
+- [x] Memory inspector shows searchable agent memories ✅
