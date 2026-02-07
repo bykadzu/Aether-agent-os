@@ -5,6 +5,7 @@ export { VirtualFS } from './VirtualFS.js';
 export { PTYManager } from './PTYManager.js';
 export { ContainerManager } from './ContainerManager.js';
 export { VNCManager } from './VNCManager.js';
+export { BrowserManager } from './BrowserManager.js';
 export { PluginManager } from './PluginManager.js';
 export { SnapshotManager } from './SnapshotManager.js';
 export { StateStore } from './StateStore.js';
