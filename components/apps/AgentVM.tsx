@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Terminal, AlertTriangle, Check, StopCircle, Github, ChevronRight, Layout, Cpu, HardDrive, Activity, Clock } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Terminal, AlertTriangle, Check, StopCircle, Github, ChevronRight, Layout, Cpu, HardDrive, Activity, Clock, Download } from 'lucide-react';
 import { Agent } from '../../types';
 import { VirtualDesktop } from '../os/VirtualDesktop';
 import { getKernelClient } from '../../services/kernelClient';
 import { XTerminal } from '../os/XTerminal';
 import { AgentTimeline } from './AgentTimeline';
+import { exportLogsAsJson, exportLogsAsText } from '../../services/agentLogExport';
 
 interface AgentVMProps {
   agent: Agent;
@@ -17,12 +18,36 @@ interface AgentVMProps {
 export const AgentVM: React.FC<AgentVMProps> = ({ agent, onApprove, onReject, onStop, onSyncGithub }) => {
   const [isSidebarOpen, setSidebarOpen] = useState(true);
   const [activeTab, setActiveTab] = useState<'logs' | 'terminal' | 'timeline'>('logs');
+  const [showExportMenu, setShowExportMenu] = useState(false);
   const logEndRef = useRef<HTMLDivElement>(null);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll logs
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [agent.logs.length]);
+
+  // Close export menu on outside click
+  useEffect(() => {
+    if (!showExportMenu) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) {
+        setShowExportMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showExportMenu]);
+
+  const handleExportJson = useCallback(() => {
+    exportLogsAsJson(agent);
+    setShowExportMenu(false);
+  }, [agent]);
+
+  const handleExportText = useCallback(() => {
+    exportLogsAsText(agent);
+    setShowExportMenu(false);
+  }, [agent]);
 
   const statusColor = agent.status === 'working' ? 'bg-green-500' :
     agent.status === 'thinking' ? 'bg-blue-500' :
@@ -61,6 +86,37 @@ export const AgentVM: React.FC<AgentVMProps> = ({ agent, onApprove, onReject, on
              >
                  <Github size={14} />
              </button>
+
+             {/* Export Logs Button */}
+             <div className="relative" ref={exportMenuRef}>
+               <button
+                  onClick={() => setShowExportMenu(!showExportMenu)}
+                  className="p-1.5 rounded-full text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+                  title="Export Logs"
+               >
+                   <Download size={14} />
+               </button>
+               {showExportMenu && (
+                 <div className="absolute top-full mt-2 right-0 bg-[#1a1d26]/95 backdrop-blur-xl border border-white/10 rounded-lg shadow-2xl overflow-hidden z-[200] min-w-[160px]">
+                   <button
+                     onClick={handleExportJson}
+                     className="w-full px-3 py-2 text-left text-[11px] text-gray-300 hover:bg-white/10 hover:text-white transition-colors flex items-center gap-2"
+                   >
+                     <span className="text-indigo-400 font-mono text-[9px] bg-indigo-500/10 px-1.5 py-0.5 rounded">JSON</span>
+                     <span>Export as JSON</span>
+                   </button>
+                   <div className="h-[1px] bg-white/5" />
+                   <button
+                     onClick={handleExportText}
+                     className="w-full px-3 py-2 text-left text-[11px] text-gray-300 hover:bg-white/10 hover:text-white transition-colors flex items-center gap-2"
+                   >
+                     <span className="text-emerald-400 font-mono text-[9px] bg-emerald-500/10 px-1.5 py-0.5 rounded">TXT</span>
+                     <span>Export as Text</span>
+                   </button>
+                 </div>
+               )}
+             </div>
+
              <button
                 onClick={() => onStop(agent.id)}
                 className="p-1.5 rounded-full text-red-400 hover:bg-red-500/20 hover:text-red-300 transition-colors"

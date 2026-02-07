@@ -35,6 +35,7 @@ import {
   KernelEvent,
   UserInfo,
   AETHER_VERSION,
+  DEFAULT_PORT,
   ProcessInfo,
 } from '@aether/shared';
 
@@ -86,15 +87,21 @@ export class Kernel {
 
     // Initialize container manager (detects Docker + GPU availability)
     await this.containers.init();
-    console.log(`[Kernel] Container manager initialized (Docker: ${this.containers.isDockerAvailable() ? 'available' : 'unavailable, using process fallback'})`);
-    console.log(`[Kernel] GPU: ${this.containers.isGPUAvailable() ? `${this.containers.getGPUs().length} GPU(s) detected` : 'not available'}`);
+    console.log(
+      `[Kernel] Container manager initialized (Docker: ${this.containers.isDockerAvailable() ? 'available' : 'unavailable, using process fallback'})`,
+    );
+    console.log(
+      `[Kernel] GPU: ${this.containers.isGPUAvailable() ? `${this.containers.getGPUs().length} GPU(s) detected` : 'not available'}`,
+    );
 
     // VNC manager is initialized (starts proxies on demand)
     console.log('[Kernel] VNC manager initialized');
 
     // Initialize browser manager (detects Playwright availability)
     await this.browser.init();
-    console.log(`[Kernel] Browser manager initialized (Playwright: ${this.browser.isAvailable() ? 'available' : 'unavailable'})`);
+    console.log(
+      `[Kernel] Browser manager initialized (Playwright: ${this.browser.isAvailable() ? 'available' : 'unavailable'})`,
+    );
 
     // Wire container manager into PTY manager
     this.pty.setContainerManager(this.containers);
@@ -122,7 +129,7 @@ export class Kernel {
       uptime: 0,
     });
 
-    console.log('[Kernel] Boot complete');
+    this.printBootBanner();
   }
 
   /**
@@ -199,7 +206,11 @@ export class Kernel {
           // Verify ownership
           const isAdmin = !user || user.role === 'admin';
           if (!this.processes.isOwner(cmd.pid, user?.id, isAdmin)) {
-            events.push({ type: 'response.error', id: cmd.id, error: 'Permission denied: you do not own this process' });
+            events.push({
+              type: 'response.error',
+              id: cmd.id,
+              error: 'Permission denied: you do not own this process',
+            });
             break;
           }
           const success = this.processes.signal(cmd.pid, cmd.signal);
@@ -220,7 +231,9 @@ export class Kernel {
 
         case 'process.list': {
           const isAdmin = !user || user.role === 'admin';
-          const processes = this.processes.getActiveByOwner(user?.id, isAdmin).map(p => ({ ...p.info }));
+          const processes = this.processes
+            .getActiveByOwner(user?.id, isAdmin)
+            .map((p) => ({ ...p.info }));
           events.push({
             type: 'response.ok',
             id: cmd.id,
@@ -411,7 +424,12 @@ export class Kernel {
 
         // ----- IPC Commands -----
         case 'ipc.send': {
-          const message = this.processes.sendMessage(cmd.fromPid, cmd.toPid, cmd.channel, cmd.payload);
+          const message = this.processes.sendMessage(
+            cmd.fromPid,
+            cmd.toPid,
+            cmd.channel,
+            cmd.payload,
+          );
           if (message) {
             events.push({
               type: 'response.ok',
@@ -755,7 +773,9 @@ export class Kernel {
           const clusterInfo = this.cluster.getClusterInfo();
           // Update local load
           const activeCounts = this.processes.getCounts();
-          this.cluster.updateLocalLoad(activeCounts.running + activeCounts.sleeping + activeCounts.created);
+          this.cluster.updateLocalLoad(
+            activeCounts.running + activeCounts.sleeping + activeCounts.created,
+          );
           events.push({
             type: 'response.ok',
             id: cmd.id,
@@ -801,7 +821,12 @@ export class Kernel {
         case 'browser:navigate': {
           const pageInfo = await this.browser.navigateTo(cmd.sessionId, cmd.url);
           events.push({ type: 'response.ok', id: cmd.id, data: pageInfo });
-          events.push({ type: 'browser:navigated', sessionId: cmd.sessionId, url: pageInfo.url, title: pageInfo.title } as KernelEvent);
+          events.push({
+            type: 'browser:navigated',
+            sessionId: cmd.sessionId,
+            url: pageInfo.url,
+            title: pageInfo.title,
+          } as KernelEvent);
           break;
         }
 
@@ -921,6 +946,71 @@ export class Kernel {
   }
 
   /**
+   * Print a boot banner summarizing subsystem status.
+   */
+  private printBootBanner(): void {
+    const G = '\x1b[32m';   // green
+    const Y = '\x1b[33m';   // yellow
+    const C = '\x1b[36m';   // cyan
+    const B = '\x1b[1m';    // bold
+    const D = '\x1b[2m';    // dim
+    const R = '\x1b[0m';    // reset
+
+    const ok   = `${G}\u2713${R}`;
+    const warn = `${Y}\u25CB${R}`;
+
+    const dockerUp     = this.containers.isDockerAvailable();
+    const playwrightUp = this.browser.isAvailable();
+    const gpuUp        = this.containers.isGPUAvailable();
+    const gpuCount     = this.containers.getGPUs().length;
+
+    // Subsystem pairs: [name, isFullyAvailable]
+    const left: [string, boolean][] = [
+      ['EventBus',         true],
+      ['ProcessManager',   true],
+      ['VirtualFS',        true],
+      ['PTYManager',       true],
+      ['ContainerManager', dockerUp],
+      ['BrowserManager',   playwrightUp],
+    ];
+
+    const right: [string, boolean][] = [
+      ['StateStore',       true],
+      ['PluginManager',    true],
+      ['SnapshotManager',  true],
+      ['AuthManager',      true],
+      ['VNCManager',       true],
+      ['ClusterManager',   true],
+    ];
+
+    const port = process.env.AETHER_PORT || String(DEFAULT_PORT);
+    const fsRoot = this.fs.getRealRoot();
+    const role = this.cluster.getRole();
+    const total = left.length + right.length;
+
+    console.log('');
+    console.log(`  ${B}\u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510${R}`);
+    console.log(`  ${B}\u2502${R}        ${C}${B}Aether Kernel${R}  v${this.version}          ${B}\u2502${R}`);
+    console.log(`  ${B}\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518${R}`);
+    console.log('');
+
+    for (let i = 0; i < left.length; i++) {
+      const [lName, lOk] = left[i];
+      const [rName, rOk] = right[i];
+      const lMark = lOk ? ok : warn;
+      const rMark = rOk ? ok : warn;
+      console.log(`    ${lMark} ${lName.padEnd(20)}${rMark} ${rName}`);
+    }
+
+    console.log('');
+    const gpuStr = gpuUp ? `  ${D}GPU:${R} ${gpuCount}` : '';
+    console.log(`    ${D}Port:${R} ${port}  ${D}FS root:${R} ${fsRoot}  ${D}Cluster:${R} ${role}${gpuStr}`);
+    console.log('');
+    console.log(`  ${G}Kernel ready${R} ${D}\u2014${R} ${total} subsystems online`);
+    console.log('');
+  }
+
+  /**
    * Shutdown the kernel. Clean up all resources.
    */
   async shutdown(): Promise<void> {
@@ -939,7 +1029,9 @@ export class Kernel {
         memoryMB: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
         containerCount: this.containers.getAll().length,
       });
-    } catch { /* ignore metric errors during shutdown */ }
+    } catch {
+      /* ignore metric errors during shutdown */
+    }
 
     await this.cluster.shutdown();
     await this.browser.shutdown();

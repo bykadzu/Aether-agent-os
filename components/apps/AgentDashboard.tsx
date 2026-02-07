@@ -52,6 +52,42 @@ interface AgentDashboardProps {
   onStopAgent: (agentId: string) => void;
 }
 
+/** Placeholder card shown while the initial agent list is loading. */
+const SkeletonCard: React.FC = () => (
+  <div className="flex flex-col gap-3 animate-pulse">
+    {/* Desktop preview placeholder */}
+    <div className="aspect-video w-full rounded-2xl bg-gray-800/50 border-[6px] border-gray-700/30 shadow-2xl">
+      {/* Simulated terminal lines inside the preview area */}
+      <div className="flex flex-col gap-2 p-4 pt-6">
+        <div className="h-2 w-3/4 bg-gray-700/40 rounded" />
+        <div className="h-2 w-1/2 bg-gray-700/30 rounded" />
+        <div className="h-2 w-5/6 bg-gray-700/20 rounded" />
+        <div className="h-2 w-2/3 bg-gray-700/30 rounded" />
+      </div>
+    </div>
+    {/* Agent meta info placeholder */}
+    <div className="flex items-center justify-between px-2">
+      <div className="flex items-center gap-3">
+        <div className="w-8 h-8 rounded-full bg-gray-700/50" />
+        <div className="flex flex-col gap-1.5">
+          <div className="h-3 w-24 bg-gray-700/50 rounded" />
+          <div className="h-2.5 w-36 bg-gray-800/50 rounded" />
+        </div>
+      </div>
+      <div className="h-5 w-16 bg-gray-700/40 rounded-md" />
+    </div>
+  </div>
+);
+
+/** Grid of skeleton cards displayed during the initial loading phase. */
+const SkeletonGrid: React.FC = () => (
+  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-8">
+    {Array.from({ length: 4 }).map((_, i) => (
+      <SkeletonCard key={i} />
+    ))}
+  </div>
+);
+
 export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunchAgent, onOpenVM, onStopAgent }) => {
   const [showNewAgentModal, setShowNewAgentModal] = useState(false);
   const [newGoal, setNewGoal] = useState('');
@@ -83,6 +119,40 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
   const [selectedHistoryPid, setSelectedHistoryPid] = useState<number | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [clusterInfo, setClusterInfo] = useState<ClusterInfo | null>(null);
+  const [initialLoading, setInitialLoading] = useState(true);
+
+  // Resolve initial loading state once agents arrive or kernel confirms connection
+  useEffect(() => {
+    if (agents.length > 0) {
+      setInitialLoading(false);
+      return;
+    }
+
+    const client = getKernelClient();
+
+    // If already connected, wait a short grace period for the process list to
+    // arrive, then assume the list is genuinely empty.
+    if (client.connected) {
+      const timer = setTimeout(() => setInitialLoading(false), 1200);
+      return () => clearTimeout(timer);
+    }
+
+    // Otherwise, wait for the connection event.
+    const unsub = client.on('connection', (data: any) => {
+      if (data.connected) {
+        // Give the kernel a moment to push the initial process list
+        setTimeout(() => setInitialLoading(false), 1200);
+      }
+    });
+
+    // Safety: don't show the skeleton forever if kernel never connects
+    const fallback = setTimeout(() => setInitialLoading(false), 6000);
+
+    return () => {
+      unsub();
+      clearTimeout(fallback);
+    };
+  }, [agents.length]);
 
   // Subscribe to kernel metrics
   useEffect(() => {
@@ -394,7 +464,10 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
 
       {/* Mission Control Content */}
       <div className="flex-1 p-8 overflow-y-auto">
-        {filteredAgents.length === 0 ? (
+        {initialLoading && agents.length === 0 ? (
+          /* Loading skeleton — shown only during the initial kernel handshake */
+          <SkeletonGrid />
+        ) : filteredAgents.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-gray-500 gap-6 opacity-60">
              <div className="w-32 h-32 rounded-3xl bg-white/5 border border-white/10 flex items-center justify-center">
                 <Bot size={48} />
