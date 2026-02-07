@@ -32,6 +32,8 @@ import {
 } from './tools.js';
 import { getProviderFromModelString, getProvider } from './llm/index.js';
 import type { LLMProvider, ChatMessage, ToolDefinition as LLMToolDef } from './llm/index.js';
+import { runReflection } from './reflection.js';
+import { getActivePlan, renderPlanAsMarkdown } from './planner.js';
 
 interface AgentState {
   step: number;
@@ -107,10 +109,21 @@ export async function runAgentLoop(
     }
   }
 
+  // Load active plan context (if any from a previous session)
+  let planMarkdown: string | undefined;
+  try {
+    const activePlan = getActivePlan(kernel, pid);
+    if (activePlan) {
+      planMarkdown = renderPlanAsMarkdown(activePlan);
+    }
+  } catch {
+    // Non-critical
+  }
+
   // System prompt
   state.history.push({
     role: 'system',
-    content: buildSystemPrompt(config, tools, contextMemories),
+    content: buildSystemPrompt(config, tools, contextMemories, planMarkdown),
     timestamp: Date.now(),
   });
 
@@ -249,6 +262,23 @@ export async function runAgentLoop(
           maxSteps: state.maxSteps,
           summary: 'Task completed successfully.',
         });
+
+        // Run post-task reflection (fire-and-forget, don't block exit)
+        runReflection(
+          kernel,
+          provider,
+          {
+            pid,
+            agentUid: proc.info.uid,
+            config,
+            steps: state.step + 1,
+            lastObservation: state.lastObservation,
+          },
+          config,
+        ).catch((err) => {
+          console.warn(`[AgentLoop] Reflection failed for PID ${pid}:`, err);
+        });
+
         return;
       }
 
@@ -442,6 +472,7 @@ function buildSystemPrompt(
   config: AgentConfig,
   tools: ToolDefinition[],
   memories: MemoryRecord[] = [],
+  planMarkdown?: string,
 ): string {
   const toolList = tools.map((t) => `- ${t.name}: ${t.description}`).join('\n');
 
@@ -481,6 +512,12 @@ function buildSystemPrompt(
       const tagsStr = m.tags.length > 0 ? ` (${m.tags.join(', ')})` : '';
       sections.push(`- ${layerTag} ${m.content.substring(0, 200)}${tagsStr}`);
     }
+  }
+
+  // Inject active plan if one exists
+  if (planMarkdown) {
+    sections.push(``);
+    sections.push(planMarkdown);
   }
 
   return sections.join('\n');

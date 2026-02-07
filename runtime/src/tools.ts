@@ -12,7 +12,15 @@
  */
 
 import { Kernel, PluginManager } from '@aether/kernel';
-import { PID } from '@aether/shared';
+import { PID, PlanNode } from '@aether/shared';
+import {
+  createPlan,
+  getActivePlan,
+  updatePlan,
+  updateNodeStatus,
+  renderPlanAsMarkdown,
+  getPlanProgress,
+} from './planner.js';
 
 export interface ToolResult {
   success: boolean;
@@ -613,6 +621,137 @@ export function createToolSet(): ToolDefinition[] {
           return deleted
             ? { success: true, output: `Memory ${args.memoryId} has been forgotten.` }
             : { success: false, output: `Memory ${args.memoryId} not found or not owned by you.` };
+        } catch (err: any) {
+          return { success: false, output: `Error: ${err.message}` };
+        }
+      },
+    },
+
+    // ----- Goal Decomposition & Planning (v0.3 Wave 2) -----
+    {
+      name: 'create_plan',
+      description:
+        'Create a hierarchical plan to decompose a complex goal. Args: goal (string), nodes (array of {title, description?, estimated_steps, children?}). Re-calling replaces the current plan.',
+      execute: async (args, ctx) => {
+        try {
+          if (!args.goal) {
+            return { success: false, output: 'goal is required' };
+          }
+          if (!args.nodes || !Array.isArray(args.nodes) || args.nodes.length === 0) {
+            return { success: false, output: 'nodes array is required (at least one root node)' };
+          }
+
+          const rootNodes: PlanNode[] = args.nodes.map((n: any) => ({
+            id: '',
+            title: n.title || 'Untitled',
+            description: n.description,
+            status: 'pending' as const,
+            estimated_steps: n.estimated_steps || 1,
+            actual_steps: 0,
+            children: (n.children || []).map((c: any) => ({
+              id: '',
+              title: c.title || 'Untitled',
+              description: c.description,
+              status: 'pending' as const,
+              estimated_steps: c.estimated_steps || 1,
+              actual_steps: 0,
+              children: [],
+            })),
+          }));
+
+          const plan = createPlan(ctx.kernel, ctx.pid, ctx.uid, args.goal, rootNodes);
+          const progress = getPlanProgress(plan);
+          return {
+            success: true,
+            output: `Plan created (id: ${plan.id}) with ${progress.total} nodes:\n${renderPlanAsMarkdown(plan)}`,
+          };
+        } catch (err: any) {
+          return { success: false, output: `Error: ${err.message}` };
+        }
+      },
+    },
+
+    {
+      name: 'update_plan',
+      description:
+        'Update a plan node status. Args: node_id (string), status (pending|active|completed|failed|skipped), actual_steps (number, optional)',
+      execute: async (args, ctx) => {
+        try {
+          if (!args.node_id) {
+            return { success: false, output: 'node_id is required' };
+          }
+          if (
+            !args.status ||
+            !['pending', 'active', 'completed', 'failed', 'skipped'].includes(args.status)
+          ) {
+            return {
+              success: false,
+              output: 'status must be one of: pending, active, completed, failed, skipped',
+            };
+          }
+
+          const plan = getActivePlan(ctx.kernel, ctx.pid);
+          if (!plan) {
+            return {
+              success: false,
+              output: 'No active plan found for this process. Create one first with create_plan.',
+            };
+          }
+
+          const updated = updateNodeStatus(
+            ctx.kernel,
+            plan.id,
+            args.node_id,
+            args.status,
+            args.actual_steps,
+          );
+
+          if (!updated) {
+            return {
+              success: false,
+              output: `Node ${args.node_id} not found in the current plan.`,
+            };
+          }
+
+          const progress = getPlanProgress(updated);
+          return {
+            success: true,
+            output: `Plan updated. Progress: ${progress.completed}/${progress.total} nodes completed.\n${renderPlanAsMarkdown(updated)}`,
+          };
+        } catch (err: any) {
+          return { success: false, output: `Error: ${err.message}` };
+        }
+      },
+    },
+
+    // ----- Feedback Query (v0.3 Wave 2) -----
+    {
+      name: 'get_feedback',
+      description:
+        'Query historical user feedback for your actions. Args: limit (number, optional, default 20)',
+      execute: async (args, ctx) => {
+        try {
+          const limit = args.limit || 20;
+          const feedback = ctx.kernel.state.getFeedbackByAgent(ctx.uid, limit);
+
+          if (feedback.length === 0) {
+            return { success: true, output: 'No feedback received yet.' };
+          }
+
+          const formatted = feedback
+            .map(
+              (f: any) =>
+                `PID ${f.pid} Step ${f.step}: ${f.rating === 1 ? '👍' : '👎'}${f.comment ? ` — "${f.comment}"` : ''} (${new Date(f.created_at).toISOString()})`,
+            )
+            .join('\n');
+
+          const positive = feedback.filter((f: any) => f.rating === 1).length;
+          const negative = feedback.filter((f: any) => f.rating === -1).length;
+
+          return {
+            success: true,
+            output: `Feedback summary: ${positive} positive, ${negative} negative (${feedback.length} total):\n${formatted}`,
+          };
         } catch (err: any) {
           return { success: false, output: `Error: ${err.message}` };
         }

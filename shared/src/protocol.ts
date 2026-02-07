@@ -315,6 +315,63 @@ export interface EventTrigger {
 }
 
 // ---------------------------------------------------------------------------
+// Reflection Types (v0.3 Wave 2)
+// ---------------------------------------------------------------------------
+
+export interface ReflectionRecord {
+  id: string; // UUID
+  agent_uid: string;
+  pid: number; // Process that triggered reflection
+  goal: string; // The original goal
+  summary: string; // What the agent did
+  quality_rating: number; // 1-5 scale
+  justification: string; // Why the agent gave this rating
+  lessons_learned: string; // What to do differently
+  created_at: number; // Unix timestamp ms
+}
+
+// ---------------------------------------------------------------------------
+// Plan Types (v0.3 Wave 2)
+// ---------------------------------------------------------------------------
+
+export type PlanNodeStatus = 'pending' | 'active' | 'completed' | 'failed' | 'skipped';
+
+export interface PlanNode {
+  id: string; // UUID
+  title: string;
+  description?: string;
+  status: PlanNodeStatus;
+  estimated_steps: number; // Agent's guess
+  actual_steps: number; // Tracked during execution
+  children: PlanNode[];
+}
+
+export interface PlanRecord {
+  id: string; // UUID
+  agent_uid: string;
+  pid: number;
+  goal: string;
+  root_nodes: PlanNode[];
+  status: 'active' | 'completed' | 'abandoned';
+  created_at: number;
+  updated_at: number;
+}
+
+// ---------------------------------------------------------------------------
+// Feedback Types (v0.3 Wave 2)
+// ---------------------------------------------------------------------------
+
+export interface FeedbackRecord {
+  id: string; // UUID
+  pid: number; // Process ID
+  step: number; // Step number within the process
+  rating: 1 | -1; // Thumbs up (+1) or down (-1)
+  comment?: string; // Optional text (typically for negative feedback)
+  agent_uid: string;
+  created_at: number;
+}
+
+// ---------------------------------------------------------------------------
 // Snapshot Types
 // ---------------------------------------------------------------------------
 
@@ -558,6 +615,36 @@ export type KernelCommand =
   | { type: 'trigger.delete'; id: string; triggerId: string }
   | { type: 'trigger.list'; id: string }
 
+  // Plan (v0.3 Wave 2)
+  | {
+      type: 'plan.create';
+      id: string;
+      pid: number;
+      agent_uid: string;
+      goal: string;
+      root_nodes: PlanNode[];
+    }
+  | {
+      type: 'plan.update';
+      id: string;
+      plan_id: string;
+      updates: Partial<Pick<PlanRecord, 'status' | 'root_nodes'>>;
+    }
+  | { type: 'plan.get'; id: string; pid: number }
+
+  // Feedback (v0.3 Wave 2)
+  | {
+      type: 'feedback.submit';
+      id: string;
+      pid: number;
+      step: number;
+      rating: 1 | -1;
+      comment?: string;
+      agent_uid: string;
+    }
+  | { type: 'feedback.get'; id: string; pid: number }
+  | { type: 'feedback.query'; id: string; agent_uid: string; limit?: number }
+
   // LLM Providers
   | { type: 'llm.list'; id: string }
 
@@ -677,6 +764,16 @@ export type KernelEvent =
   | { type: 'trigger.deleted'; triggerId: string }
   | { type: 'trigger.fired'; triggerId: string; pid: PID; event_type: string }
   | { type: 'trigger.list'; triggers: EventTrigger[] }
+
+  // Reflection events (v0.3 Wave 2)
+  | { type: 'reflection.stored'; reflection: ReflectionRecord }
+
+  // Plan events (v0.3 Wave 2)
+  | { type: 'plan.created'; plan: PlanRecord }
+  | { type: 'plan.updated'; plan: PlanRecord }
+
+  // Feedback events (v0.3 Wave 2)
+  | { type: 'feedback.submitted'; feedback: FeedbackRecord }
 
   // LLM events
   | { type: 'llm.list'; providers: LLMProviderInfo[] }
