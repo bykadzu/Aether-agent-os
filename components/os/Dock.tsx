@@ -15,6 +15,7 @@ import {
   Music,
   FileText,
   Brain,
+  Store,
 } from 'lucide-react';
 
 interface DockProps {
@@ -46,6 +47,12 @@ export const Dock: React.FC<DockProps> = ({ onAppClick, openApps }) => {
       icon: Brain,
       label: 'Memory Inspector',
       color: 'bg-violet-100 text-violet-600',
+    },
+    {
+      id: AppID.APP_STORE,
+      icon: Store,
+      label: 'App Store',
+      color: 'bg-cyan-100 text-cyan-600',
     },
   ];
 
