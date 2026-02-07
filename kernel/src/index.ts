@@ -13,3 +13,5 @@ export { MemoryManager } from './MemoryManager.js';
 export { CronManager } from './CronManager.js';
 export { AuthManager } from './AuthManager.js';
 export { ClusterManager } from './ClusterManager.js';
+export { AppManager } from './AppManager.js';
+export { WebhookManager } from './WebhookManager.js';

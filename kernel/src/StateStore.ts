@@ -124,6 +124,31 @@ export class StateStore {
     upsertProfile: Database.Statement;
     getProfile: Database.Statement;
     getAllProfiles: Database.Statement;
+    // App Framework statements (v0.4)
+    insertApp: Database.Statement;
+    getApp: Database.Statement;
+    getAllApps: Database.Statement;
+    deleteApp: Database.Statement;
+    updateAppEnabled: Database.Statement;
+    // Webhook statements (v0.4)
+    insertWebhook: Database.Statement;
+    getWebhook: Database.Statement;
+    getAllWebhooks: Database.Statement;
+    getWebhooksByOwner: Database.Statement;
+    getEnabledWebhooks: Database.Statement;
+    updateWebhookEnabled: Database.Statement;
+    updateWebhookTriggered: Database.Statement;
+    updateWebhookFailure: Database.Statement;
+    deleteWebhook: Database.Statement;
+    insertWebhookLog: Database.Statement;
+    getWebhookLogs: Database.Statement;
+    insertInboundWebhook: Database.Statement;
+    getInboundWebhook: Database.Statement;
+    getInboundWebhookByToken: Database.Statement;
+    getAllInboundWebhooks: Database.Statement;
+    getInboundWebhooksByOwner: Database.Statement;
+    updateInboundWebhookTriggered: Database.Statement;
+    deleteInboundWebhook: Database.Statement;
   };
 
   private _persistenceDisabled = false;
@@ -380,6 +405,65 @@ export class StateStore {
 
       CREATE INDEX IF NOT EXISTS idx_feedback_pid ON agent_feedback(pid);
       CREATE INDEX IF NOT EXISTS idx_feedback_agent ON agent_feedback(agent_uid);
+
+      -- Installed apps table (v0.4 Wave 1)
+      CREATE TABLE IF NOT EXISTS installed_apps (
+        id TEXT PRIMARY KEY,
+        manifest TEXT NOT NULL,
+        installed_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        enabled INTEGER DEFAULT 1,
+        install_source TEXT,
+        owner_uid TEXT
+      );
+
+      -- Webhooks tables (v0.4 Wave 1)
+      CREATE TABLE IF NOT EXISTS webhooks (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        url TEXT NOT NULL,
+        secret TEXT,
+        events TEXT NOT NULL,
+        filters TEXT,
+        headers TEXT,
+        enabled INTEGER DEFAULT 1,
+        owner_uid TEXT,
+        retry_count INTEGER DEFAULT 3,
+        timeout_ms INTEGER DEFAULT 5000,
+        created_at INTEGER NOT NULL,
+        last_triggered INTEGER,
+        failure_count INTEGER DEFAULT 0
+      );
+
+      CREATE TABLE IF NOT EXISTS webhook_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        webhook_id TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        status_code INTEGER,
+        response_body TEXT,
+        duration_ms INTEGER,
+        success INTEGER NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_webhook_logs_webhook ON webhook_logs(webhook_id);
+      CREATE INDEX IF NOT EXISTS idx_webhook_logs_created ON webhook_logs(created_at);
+
+      CREATE TABLE IF NOT EXISTS inbound_webhooks (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        token TEXT NOT NULL UNIQUE,
+        agent_config TEXT NOT NULL,
+        transform TEXT,
+        enabled INTEGER DEFAULT 1,
+        owner_uid TEXT,
+        last_triggered INTEGER,
+        trigger_count INTEGER DEFAULT 0,
+        created_at INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_inbound_webhooks_token ON inbound_webhooks(token);
 
       -- Agent profiles table (v0.3 Wave 4)
       CREATE TABLE IF NOT EXISTS agent_profiles (
@@ -692,6 +776,86 @@ export class StateStore {
         SELECT agent_uid, display_name, total_tasks, successful_tasks, failed_tasks, success_rate, expertise, personality_traits, avg_quality_rating, total_steps, first_seen, last_active, updated_at
         FROM agent_profiles ORDER BY last_active DESC
       `),
+      // App Framework statements (v0.4)
+      insertApp: this.db.prepare(`
+        INSERT OR REPLACE INTO installed_apps (id, manifest, installed_at, updated_at, enabled, install_source, owner_uid)
+        VALUES (@id, @manifest, @installed_at, @updated_at, @enabled, @install_source, @owner_uid)
+      `),
+      getApp: this.db.prepare(`
+        SELECT id, manifest, installed_at, updated_at, enabled, install_source, owner_uid
+        FROM installed_apps WHERE id = ?
+      `),
+      getAllApps: this.db.prepare(`
+        SELECT id, manifest, installed_at, updated_at, enabled, install_source, owner_uid
+        FROM installed_apps ORDER BY installed_at ASC
+      `),
+      deleteApp: this.db.prepare(`DELETE FROM installed_apps WHERE id = ?`),
+      updateAppEnabled: this.db.prepare(`
+        UPDATE installed_apps SET enabled = ? WHERE id = ?
+      `),
+      // Webhook statements (v0.4)
+      insertWebhook: this.db.prepare(`
+        INSERT INTO webhooks (id, name, url, secret, events, filters, headers, enabled, owner_uid, retry_count, timeout_ms, created_at, last_triggered, failure_count)
+        VALUES (@id, @name, @url, @secret, @events, @filters, @headers, @enabled, @owner_uid, @retry_count, @timeout_ms, @created_at, @last_triggered, @failure_count)
+      `),
+      getWebhook: this.db.prepare(`
+        SELECT id, name, url, secret, events, filters, headers, enabled, owner_uid, retry_count, timeout_ms, created_at, last_triggered, failure_count
+        FROM webhooks WHERE id = ?
+      `),
+      getAllWebhooks: this.db.prepare(`
+        SELECT id, name, url, secret, events, filters, headers, enabled, owner_uid, retry_count, timeout_ms, created_at, last_triggered, failure_count
+        FROM webhooks ORDER BY created_at ASC
+      `),
+      getWebhooksByOwner: this.db.prepare(`
+        SELECT id, name, url, secret, events, filters, headers, enabled, owner_uid, retry_count, timeout_ms, created_at, last_triggered, failure_count
+        FROM webhooks WHERE owner_uid = ? ORDER BY created_at ASC
+      `),
+      getEnabledWebhooks: this.db.prepare(`
+        SELECT id, name, url, secret, events, filters, headers, enabled, owner_uid, retry_count, timeout_ms, created_at, last_triggered, failure_count
+        FROM webhooks WHERE enabled = 1
+      `),
+      updateWebhookEnabled: this.db.prepare(`
+        UPDATE webhooks SET enabled = ? WHERE id = ?
+      `),
+      updateWebhookTriggered: this.db.prepare(`
+        UPDATE webhooks SET last_triggered = ? WHERE id = ?
+      `),
+      updateWebhookFailure: this.db.prepare(`
+        UPDATE webhooks SET failure_count = failure_count + 1 WHERE id = ?
+      `),
+      deleteWebhook: this.db.prepare(`DELETE FROM webhooks WHERE id = ?`),
+      insertWebhookLog: this.db.prepare(`
+        INSERT INTO webhook_logs (webhook_id, event_type, payload, status_code, response_body, duration_ms, success, created_at)
+        VALUES (@webhook_id, @event_type, @payload, @status_code, @response_body, @duration_ms, @success, @created_at)
+      `),
+      getWebhookLogs: this.db.prepare(`
+        SELECT id, webhook_id, event_type, payload, status_code, response_body, duration_ms, success, created_at
+        FROM webhook_logs WHERE webhook_id = ? ORDER BY created_at DESC LIMIT ?
+      `),
+      insertInboundWebhook: this.db.prepare(`
+        INSERT INTO inbound_webhooks (id, name, token, agent_config, transform, enabled, owner_uid, last_triggered, trigger_count, created_at)
+        VALUES (@id, @name, @token, @agent_config, @transform, @enabled, @owner_uid, @last_triggered, @trigger_count, @created_at)
+      `),
+      getInboundWebhook: this.db.prepare(`
+        SELECT id, name, token, agent_config, transform, enabled, owner_uid, last_triggered, trigger_count, created_at
+        FROM inbound_webhooks WHERE id = ?
+      `),
+      getInboundWebhookByToken: this.db.prepare(`
+        SELECT id, name, token, agent_config, transform, enabled, owner_uid, last_triggered, trigger_count, created_at
+        FROM inbound_webhooks WHERE token = ?
+      `),
+      getAllInboundWebhooks: this.db.prepare(`
+        SELECT id, name, token, agent_config, transform, enabled, owner_uid, last_triggered, trigger_count, created_at
+        FROM inbound_webhooks ORDER BY created_at ASC
+      `),
+      getInboundWebhooksByOwner: this.db.prepare(`
+        SELECT id, name, token, agent_config, transform, enabled, owner_uid, last_triggered, trigger_count, created_at
+        FROM inbound_webhooks WHERE owner_uid = ? ORDER BY created_at ASC
+      `),
+      updateInboundWebhookTriggered: this.db.prepare(`
+        UPDATE inbound_webhooks SET last_triggered = ?, trigger_count = trigger_count + 1 WHERE id = ?
+      `),
+      deleteInboundWebhook: this.db.prepare(`DELETE FROM inbound_webhooks WHERE id = ?`),
     };
   }
 
@@ -1373,6 +1537,149 @@ export class StateStore {
 
   getAllProfiles(): any[] {
     return this.stmts.getAllProfiles.all() as any[];
+  }
+
+  // ---------------------------------------------------------------------------
+  // Installed Apps (v0.4)
+  // ---------------------------------------------------------------------------
+
+  insertApp(record: {
+    id: string;
+    manifest: string;
+    installed_at: number;
+    updated_at: number;
+    enabled: number;
+    install_source: string | undefined;
+    owner_uid: string | null;
+  }): void {
+    this.stmts.insertApp.run(record);
+  }
+
+  getApp(id: string): any | undefined {
+    return this.stmts.getApp.get(id);
+  }
+
+  getAllApps(): any[] {
+    return this.stmts.getAllApps.all() as any[];
+  }
+
+  deleteApp(id: string): void {
+    this.stmts.deleteApp.run(id);
+  }
+
+  setAppEnabled(id: string, enabled: boolean): void {
+    this.stmts.updateAppEnabled.run(enabled ? 1 : 0, id);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Webhooks (v0.4)
+  // ---------------------------------------------------------------------------
+
+  insertWebhook(record: {
+    id: string;
+    name: string;
+    url: string;
+    secret: string | null;
+    events: string;
+    filters: string | null;
+    headers: string | null;
+    enabled: number;
+    owner_uid: string | null;
+    retry_count: number;
+    timeout_ms: number;
+    created_at: number;
+    last_triggered: number | null;
+    failure_count: number;
+  }): void {
+    this.stmts.insertWebhook.run(record);
+  }
+
+  getWebhook(id: string): any | undefined {
+    return this.stmts.getWebhook.get(id);
+  }
+
+  getAllWebhooks(): any[] {
+    return this.stmts.getAllWebhooks.all() as any[];
+  }
+
+  getWebhooksByOwner(owner_uid: string): any[] {
+    return this.stmts.getWebhooksByOwner.all(owner_uid) as any[];
+  }
+
+  getEnabledWebhooks(): any[] {
+    return this.stmts.getEnabledWebhooks.all() as any[];
+  }
+
+  setWebhookEnabled(id: string, enabled: boolean): void {
+    this.stmts.updateWebhookEnabled.run(enabled ? 1 : 0, id);
+  }
+
+  updateWebhookTriggered(id: string, now: number): void {
+    this.stmts.updateWebhookTriggered.run(now, id);
+  }
+
+  incrementWebhookFailure(id: string): void {
+    this.stmts.updateWebhookFailure.run(id);
+  }
+
+  deleteWebhook(id: string): void {
+    this.stmts.deleteWebhook.run(id);
+  }
+
+  insertWebhookLog(record: {
+    webhook_id: string;
+    event_type: string;
+    payload: string;
+    status_code: number | null;
+    response_body: string | null;
+    duration_ms: number | null;
+    success: number;
+    created_at: number;
+  }): void {
+    this.stmts.insertWebhookLog.run(record);
+  }
+
+  getWebhookLogs(webhookId: string, limit: number = 50): any[] {
+    return this.stmts.getWebhookLogs.all(webhookId, limit) as any[];
+  }
+
+  insertInboundWebhook(record: {
+    id: string;
+    name: string;
+    token: string;
+    agent_config: string;
+    transform: string | null;
+    enabled: number;
+    owner_uid: string | null;
+    last_triggered: number | null;
+    trigger_count: number;
+    created_at: number;
+  }): void {
+    this.stmts.insertInboundWebhook.run(record);
+  }
+
+  getInboundWebhook(id: string): any | undefined {
+    return this.stmts.getInboundWebhook.get(id);
+  }
+
+  getInboundWebhookByToken(token: string): any | undefined {
+    return this.stmts.getInboundWebhookByToken.get(token);
+  }
+
+  getAllInboundWebhooks(): any[] {
+    return this.stmts.getAllInboundWebhooks.all() as any[];
+  }
+
+  getInboundWebhooksByOwner(owner_uid: string): any[] {
+    return this.stmts.getInboundWebhooksByOwner.all(owner_uid) as any[];
+  }
+
+  updateInboundWebhookTriggered(id: string, now: number): void {
+    this.stmts.updateInboundWebhookTriggered.run(now, id);
+  }
+
+  deleteInboundWebhook(id: string): void {
+    this.stmts.deleteInboundWebhook.run(id);
   }
 
   /** Expose the underlying database for direct queries (used by MemoryManager for FTS5) */

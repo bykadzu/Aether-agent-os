@@ -392,6 +392,56 @@ export interface AgentProfile {
 }
 
 // ---------------------------------------------------------------------------
+// App Framework Types (v0.4)
+// ---------------------------------------------------------------------------
+
+export type AppPermission =
+  | 'filesystem'
+  | 'filesystem:read'
+  | 'network'
+  | 'agents'
+  | 'agents:read'
+  | 'notifications'
+  | 'system'
+  | 'ipc'
+  | 'memory'
+  | 'cron';
+
+export interface AetherAppManifest {
+  id: string; // reverse-domain: "com.example.myapp"
+  name: string;
+  version: string;
+  author: string;
+  description: string;
+  icon: string; // lucide-react icon name
+  permissions: AppPermission[];
+  entry: string;
+  min_aether_version?: string;
+  category?:
+    | 'productivity'
+    | 'development'
+    | 'communication'
+    | 'utilities'
+    | 'monitoring'
+    | 'entertainment'
+    | 'ai'
+    | 'other';
+  keywords?: string[];
+  screenshots?: string[];
+  repository?: string;
+}
+
+export interface InstalledApp {
+  id: string;
+  manifest: AetherAppManifest;
+  installed_at: number;
+  updated_at: number;
+  enabled: boolean;
+  install_source: 'local' | 'registry' | 'url';
+  owner_uid?: string;
+}
+
+// ---------------------------------------------------------------------------
 // Snapshot Types
 // ---------------------------------------------------------------------------
 
@@ -670,6 +720,50 @@ export type KernelCommand =
   | { type: 'profile.list'; id: string }
   | { type: 'profile.update'; id: string; agent_uid: string; updates: Partial<AgentProfile> }
 
+  // Webhook commands (v0.4)
+  | {
+      type: 'webhook.register';
+      id: string;
+      name: string;
+      url: string;
+      events: string[];
+      secret?: string;
+      filters?: Record<string, any>;
+      headers?: Record<string, string>;
+      owner_uid?: string;
+      retry_count?: number;
+      timeout_ms?: number;
+    }
+  | { type: 'webhook.unregister'; id: string; webhookId: string }
+  | { type: 'webhook.list'; id: string; owner_uid?: string }
+  | { type: 'webhook.enable'; id: string; webhookId: string }
+  | { type: 'webhook.disable'; id: string; webhookId: string }
+  | { type: 'webhook.logs'; id: string; webhookId: string; limit?: number }
+  | {
+      type: 'webhook.inbound.create';
+      id: string;
+      name: string;
+      agent_config: AgentConfig;
+      transform?: string;
+      owner_uid?: string;
+    }
+  | { type: 'webhook.inbound.delete'; id: string; inboundId: string }
+  | { type: 'webhook.inbound.list'; id: string; owner_uid?: string }
+
+  // App commands (v0.4)
+  | {
+      type: 'app.install';
+      id: string;
+      manifest: AetherAppManifest;
+      source?: 'local' | 'registry' | 'url';
+      owner_uid?: string;
+    }
+  | { type: 'app.uninstall'; id: string; appId: string }
+  | { type: 'app.enable'; id: string; appId: string }
+  | { type: 'app.disable'; id: string; appId: string }
+  | { type: 'app.list'; id: string }
+  | { type: 'app.get'; id: string; appId: string }
+
   // LLM Providers
   | { type: 'llm.list'; id: string }
 
@@ -804,6 +898,22 @@ export type KernelEvent =
   | { type: 'profile.data'; agent_uid: string; profile: AgentProfile }
   | { type: 'profile.list'; profiles: AgentProfile[] }
   | { type: 'profile.updated'; agent_uid: string; profile: AgentProfile }
+
+  // Webhook events (v0.4)
+  | { type: 'webhook.registered'; webhookId: string; name: string }
+  | { type: 'webhook.unregistered'; webhookId: string }
+  | { type: 'webhook.fired'; webhookId: string; eventType: string; success: boolean }
+  | { type: 'webhook.failed'; webhookId: string; eventType: string; error: string }
+  | { type: 'webhook.inbound.triggered'; inboundId: string; pid: number }
+  | { type: 'webhook.inbound.created'; inboundId: string; name: string; token: string }
+  | { type: 'webhook.inbound.deleted'; inboundId: string }
+
+  // App events (v0.4)
+  | { type: 'app.installed'; app: InstalledApp }
+  | { type: 'app.uninstalled'; appId: string }
+  | { type: 'app.enabled'; appId: string }
+  | { type: 'app.disabled'; appId: string }
+  | { type: 'app.list'; apps: InstalledApp[] }
 
   // Collaboration events (v0.3 Wave 4)
   | { type: 'collaboration.message'; protocol: string; fromPid: PID; toPid: PID }
