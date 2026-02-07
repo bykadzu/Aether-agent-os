@@ -23,26 +23,43 @@ Unlike approaches that drop an AI into an existing Linux VM, Aether OS is built 
 
 - **Spawns AI agents as real OS processes** with PIDs, signals, and lifecycle management
 - **Gives each agent a sandboxed environment** with its own home directory, shell, and filesystem
-- **Runs agents through a think-act-observe loop** powered by Gemini (or heuristic fallback)
+- **Runs agents through a think-act-observe loop** powered by multiple LLM providers (Gemini, OpenAI, Anthropic, Ollama) with automatic fallback
+- **Deploys from pre-built agent templates** (Researcher, Coder, Reviewer, Analyst, SysAdmin, Writer, Tester) with curated tool sets and goals
 - **Displays each agent's virtual desktop** in a Mission Control grid, like monitoring multiple workstations
+- **Streams graphical desktops via VNC/noVNC** for agents running browsers, IDEs, or other GUI apps inside containers
 - **Provides real terminal sessions** with xterm.js rendering ANSI output from actual shell processes
 - **Persists state to SQLite** so kernel state, agent logs, and file metadata survive restarts
 - **Supports Docker container sandboxing** for real process isolation (falls back to child_process)
+- **Passes through NVIDIA GPUs** to containerized agents running ML workloads via `nvidia-container-toolkit`
+- **Authenticates users** with JWT-based login, registration, and per-user agent isolation
+- **Scales across hosts** with hub-and-spoke clustering for distributed kernel execution
+- **Snapshots and restores agents** like VM checkpoints — capturing process state, filesystem, and logs
+- **Extends agents with plugins** discovered automatically from each agent's home directory
 - **Enables agent-to-agent communication** through a kernel-managed IPC message queue
 
 ## Getting Started
 
 **Prerequisites:** Node.js 22+, npm
 
+### Quick setup
+
 ```bash
-# Clone and install
 git clone https://github.com/bykadzu/Aether-agent-os.git
 cd Aether-agent-os
-npm install
-cd server && npm install && cd ..
-cd kernel && npm install && cd ..
-cd runtime && npm install && cd ..
+./scripts/setup.sh
 ```
+
+The setup script verifies prerequisites (Node.js, npm, Docker, NVIDIA GPU), installs all workspace dependencies, and creates a `.env` from `.env.example` if one doesn't exist. Edit `.env` to add your LLM API keys:
+
+```bash
+# .env — at least one provider is needed for real LLM reasoning
+GEMINI_API_KEY=           # Google Gemini (default provider)
+OPENAI_API_KEY=           # OpenAI (gpt-4o, gpt-4o-mini, gpt-3.5-turbo)
+ANTHROPIC_API_KEY=        # Anthropic (claude-sonnet-4-5, claude-haiku-4-5)
+OLLAMA_HOST=http://localhost:11434   # Local Ollama (no key required)
+```
+
+See `.env.example` for the full list of configuration options (auth, clustering, filesystem root, etc.).
 
 ### Run in UI-only mode (mock agents, no backend needed)
 
@@ -50,7 +67,7 @@ cd runtime && npm install && cd ..
 npm run dev
 ```
 
-Opens on `http://localhost:3000`. Agents run client-side with Gemini API calls. Set `GEMINI_API_KEY` in `.env.local` for real LLM reasoning, or leave it blank for heuristic demo mode.
+Opens on `http://localhost:3000`. Agents run client-side with LLM API calls. Leave all API keys blank for heuristic demo mode.
 
 ### Run with the full kernel (real processes, real filesystem)
 
@@ -70,6 +87,8 @@ npm run dev:full
 
 The kernel server runs on port 3001. The UI auto-detects it via WebSocket and switches from mock mode to kernel mode. You'll see a green "Kernel" indicator in the menu bar when connected.
 
+Default admin credentials: `admin` / `aether` (change after first login).
+
 ### Optional: Docker sandboxing
 
 If Docker is available on the host, agent processes will automatically run inside containers with mounted volumes and resource limits. If Docker isn't available, the kernel falls back to `child_process` with no configuration needed.
@@ -77,43 +96,50 @@ If Docker is available on the host, agent processes will automatically run insid
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│                    React UI (Vite)                        │
-│                                                          │
-│  ┌─────────────┐  ┌──────────┐  ┌────────────────────┐  │
-│  │   Mission    │  │  Agent   │  │  Virtual Desktop   │  │
-│  │   Control    │  │   VM     │  │  (per agent)       │  │
-│  │   (grid)     │  │  (full)  │  │                    │  │
-│  └─────────────┘  └──────────┘  └────────────────────┘  │
-│                                                          │
-│  ┌──────────────────────┐  ┌──────────────────────────┐  │
-│  │  KernelClient (WS)   │  │  useKernel() React hook  │  │
-│  └──────────────────────┘  └──────────────────────────┘  │
-├──────────────────────────────────────────────────────────┤
-│                WebSocket + HTTP (port 3001)               │
-├──────────────────────────────────────────────────────────┤
-│                     Aether Kernel                        │
-│                                                          │
-│  ┌──────────────┐ ┌──────────┐ ┌──────────────────────┐ │
-│  │ Process      │ │ Virtual  │ │ PTY Manager          │ │
-│  │ Manager      │ │ FS       │ │ (real terminals)     │ │
-│  │ (PIDs,       │ │ (/tmp/   │ │                      │ │
-│  │  signals)    │ │  aether) │ │                      │ │
-│  ├──────────────┤ ├──────────┤ ├──────────────────────┤ │
-│  │ Container    │ │ State    │ │ Event Bus            │ │
-│  │ Manager      │ │ Store    │ │ (typed pub/sub)      │ │
-│  │ (Docker)     │ │ (SQLite) │ │                      │ │
-│  └──────────────┘ └──────────┘ └──────────────────────┘ │
-├──────────────────────────────────────────────────────────┤
-│                    Agent Runtime                         │
-│                                                          │
-│  ┌───────────────────┐  ┌────────────────────────────┐  │
-│  │  Agent Loop        │  │  Tools                     │  │
-│  │  (think-act-       │  │  read/write files, shell,  │  │
-│  │   observe)         │  │  browse web, IPC, think,   │  │
-│  │                    │  │  complete                   │  │
-│  └───────────────────┘  └────────────────────────────┘  │
-└──────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────┐
+│                       React UI (Vite)                          │
+│                                                                │
+│  ┌─────────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────┐  │
+│  │  Mission     │ │  Agent   │ │  Agent   │ │  Virtual     │  │
+│  │  Control     │ │   VM     │ │ Timeline │ │  Desktop     │  │
+│  │  (grid)      │ │  (full)  │ │          │ │  + VNCViewer │  │
+│  └─────────────┘ └──────────┘ └──────────┘ └──────────────┘  │
+│                                                                │
+│  ┌──────────────┐ ┌──────────────┐ ┌───────────────────────┐  │
+│  │ KernelClient │ │ useKernel()  │ │ ErrorBoundary         │  │
+│  │ (WebSocket)  │ │ React hook   │ │ LoginScreen           │  │
+│  └──────────────┘ └──────────────┘ └───────────────────────┘  │
+├────────────────────────────────────────────────────────────────┤
+│                  WebSocket + HTTP (port 3001)                  │
+├────────────────────────────────────────────────────────────────┤
+│                        Aether Kernel                           │
+│                                                                │
+│  ┌──────────────┐ ┌──────────┐ ┌──────────┐ ┌─────────────┐  │
+│  │ Process      │ │ Virtual  │ │ PTY      │ │ Container   │  │
+│  │ Manager      │ │ FS       │ │ Manager  │ │ Manager     │  │
+│  │ (PIDs,       │ │ (/tmp/   │ │ (real    │ │ (Docker +   │  │
+│  │  signals)    │ │  aether) │ │  terms)  │ │  GPU)       │  │
+│  ├──────────────┤ ├──────────┤ ├──────────┤ ├─────────────┤  │
+│  │ VNC Manager  │ │ Snapshot │ │ Auth     │ │ Cluster     │  │
+│  │ (noVNC       │ │ Manager  │ │ Manager  │ │ Manager     │  │
+│  │  proxy)      │ │ (ckpts)  │ │ (JWT)    │ │ (hub/spoke) │  │
+│  ├──────────────┤ ├──────────┤ ├──────────┤ ├─────────────┤  │
+│  │ Plugin       │ │ State    │ │ Event    │ │             │  │
+│  │ Manager      │ │ Store    │ │ Bus      │ │             │  │
+│  │              │ │ (SQLite) │ │ (pub/sub)│ │             │  │
+│  └──────────────┘ └──────────┘ └──────────┘ └─────────────┘  │
+├────────────────────────────────────────────────────────────────┤
+│                       Agent Runtime                            │
+│                                                                │
+│  ┌───────────────┐ ┌──────────────┐ ┌──────────────────────┐  │
+│  │ Agent Loop    │ │  Tools       │ │  LLM Providers       │  │
+│  │ (think-act-   │ │  fs, shell,  │ │  Gemini · OpenAI     │  │
+│  │  observe)     │ │  web, IPC    │ │  Anthropic · Ollama  │  │
+│  ├───────────────┤ └──────────────┘ └──────────────────────┘  │
+│  │ Templates     │                                            │
+│  │ (7 presets)   │                                            │
+│  └───────────────┘                                            │
+└────────────────────────────────────────────────────────────────┘
 ```
 
 ### Layer Breakdown
@@ -159,6 +185,8 @@ booting → thinking → executing → observing → thinking → ... → comple
 
 ### Agent Tools
 
+Tools are invoked by whichever LLM provider is active (Gemini, OpenAI, Anthropic, or Ollama). The provider translates each tool into its native function-calling format automatically.
+
 | Tool | Description |
 |------|-------------|
 | `read_file` | Read file contents from the agent's filesystem |
@@ -175,6 +203,8 @@ booting → thinking → executing → observing → thinking → ... → comple
 | `mount_workspace` | Mount an existing shared directory |
 | `list_workspaces` | List available shared workspaces |
 | `complete` | Mark the task as done |
+
+Agent templates further curate which tools each role has access to (e.g., a Reviewer only gets `read_file`, `list_files`, and `think`).
 
 ### Agent Plugin System
 
@@ -226,7 +256,7 @@ A sample plugin is included at `kernel/src/plugins/sample-weather/` as a templat
 The UI works in two modes with zero configuration:
 
 - **Kernel mode**: When the kernel server is running on port 3001, the UI connects via WebSocket. Agents are real processes with real terminals and filesystems. A green "Kernel" indicator shows in the menu bar.
-- **Mock mode**: When no kernel server is detected, the UI falls back to client-side agent simulation using the Gemini API directly. An orange "Mock" indicator shows in the menu bar.
+- **Mock mode**: When no kernel server is detected, the UI falls back to client-side agent simulation using LLM API calls directly. An orange "Mock" indicator shows in the menu bar.
 
 ## UI Features
 
@@ -265,7 +295,7 @@ The host OS itself is a full desktop environment:
 
 - **Window manager**: Draggable, resizable windows with macOS-style traffic lights
 - **Dock**: App launcher with hover animations and open-app indicators
-- **Smart Bar** (Cmd+K): Spotlight-style search powered by Gemini
+- **Smart Bar** (Cmd+K): Spotlight-style search powered by LLM
 - **Desktop widgets**: Weather, calendar, music player
 - **Context menu**: Right-click for quick actions
 - **Built-in apps**: File Explorer, Terminal, Code Editor, Notes, Photos, Chat, Calculator, Browser, Settings
@@ -274,15 +304,25 @@ The host OS itself is a full desktop environment:
 
 ```
 .
-├── App.tsx                      # Main app - dual-mode runtime, window management
+├── App.tsx                      # Main app — dual-mode runtime, window management
 ├── types.ts                     # Frontend types (Agent, WindowState, RuntimeMode)
 ├── index.html                   # HTML shell with Tailwind CDN config
+├── vite.config.ts               # Vite build configuration
+├── vitest.config.ts             # Test runner configuration (Vitest + v8 coverage)
+├── .env.example                 # Environment variable template (LLM keys, auth, cluster)
+├── scripts/
+│   └── setup.sh                 # Automated install & prereq checker
+├── .github/
+│   └── workflows/
+│       └── ci.yml               # GitHub Actions — lint + test on push/PR
 ├── components/
 │   ├── os/
 │   │   ├── Window.tsx           # Draggable/resizable window container
 │   │   ├── Dock.tsx             # Application launcher dock
 │   │   ├── VirtualDesktop.tsx   # Agent desktop compositor
 │   │   ├── XTerminal.tsx        # xterm.js React wrapper (Tokyo Night theme)
+│   │   ├── VNCViewer.tsx        # noVNC RFB client for graphical agent desktops
+│   │   ├── ErrorBoundary.tsx    # React error boundary with recovery UI
 │   │   ├── DesktopWidgets.tsx   # Weather, calendar, music widgets
 │   │   ├── ContextMenu.tsx      # Right-click menu
 │   │   ├── LoginScreen.tsx      # Full-screen authentication UI
@@ -290,40 +330,55 @@ The host OS itself is a full desktop environment:
 │   └── apps/
 │       ├── AgentDashboard.tsx   # Mission Control with metrics and filtering
 │       ├── AgentVM.tsx          # Full agent view with terminal + logs tabs
+│       ├── AgentTimeline.tsx    # Vertical timeline of agent think/act/observe steps
 │       ├── TerminalApp.tsx      # System terminal (real or mock)
-│       ├── ChatApp.tsx          # Gemini chat interface
+│       ├── ChatApp.tsx          # LLM chat interface
 │       ├── FileExplorer.tsx     # File browser
 │       ├── CodeEditorApp.tsx    # Code editor
-│       └── ...                  # Notes, Photos, Calculator, Browser, etc.
+│       └── ...                  # Notes, Photos, Calculator, Browser, Settings, etc.
 ├── services/
 │   ├── kernelClient.ts          # WebSocket client with reconnection logic
 │   ├── useKernel.ts             # React hook bridging kernel state to components
-│   └── geminiService.ts         # Gemini API integration
+│   └── geminiService.ts         # Gemini API integration (UI-side mock mode)
 ├── kernel/
 │   └── src/
 │       ├── Kernel.ts            # Core kernel orchestrator
 │       ├── ProcessManager.ts    # PID allocation, signals, lifecycle
 │       ├── VirtualFS.ts         # Real filesystem at /tmp/aether
 │       ├── PTYManager.ts        # Terminal sessions (node-pty or docker exec)
-│       ├── ContainerManager.ts  # Docker container sandboxing
-│       ├── PluginManager.ts     # Agent plugin loading and management
+│       ├── ContainerManager.ts  # Docker container sandboxing + GPU passthrough
+│       ├── VNCManager.ts        # WebSocket-to-TCP proxy for noVNC streams
+│       ├── SnapshotManager.ts   # VM-checkpoint-style agent snapshots
 │       ├── AuthManager.ts       # User auth, JWT tokens, password hashing
 │       ├── ClusterManager.ts    # Hub-and-spoke distributed kernel
+│       ├── PluginManager.ts     # Agent plugin loading and management
 │       ├── plugins/             # Sample plugins
 │       │   └── sample-weather/  # Template plugin with weather tool
 │       ├── StateStore.ts        # SQLite persistence (processes, users, metrics)
-│       └── EventBus.ts          # Typed pub/sub IPC
+│       ├── EventBus.ts          # Typed pub/sub IPC
+│       └── __tests__/           # Kernel unit tests (Vitest)
 ├── runtime/
 │   └── src/
 │       ├── AgentLoop.ts         # Think-act-observe execution cycle
-│       └── tools.ts             # Agent tool definitions (fs, shell, web, ipc)
+│       ├── tools.ts             # Agent tool definitions (fs, shell, web, ipc)
+│       ├── templates.ts         # Pre-built agent templates (7 presets)
+│       ├── llm/                 # Multi-LLM provider abstraction
+│       │   ├── LLMProvider.ts   # Base provider interface
+│       │   ├── GeminiProvider.ts
+│       │   ├── OpenAIProvider.ts
+│       │   ├── AnthropicProvider.ts
+│       │   ├── OllamaProvider.ts
+│       │   └── index.ts         # Provider registry + fallback chain
+│       └── __tests__/           # Runtime unit tests
 ├── server/
 │   └── src/
-│       └── index.ts             # HTTP + WebSocket server
+│       ├── index.ts             # HTTP + WebSocket server
+│       └── __tests__/           # Integration tests
 └── shared/
     └── src/
         ├── protocol.ts          # Typed kernel protocol (commands + events)
-        └── constants.ts         # System configuration
+        ├── constants.ts         # System configuration
+        └── __tests__/           # Protocol tests
 ```
 
 ## Tech Stack
@@ -334,14 +389,20 @@ The host OS itself is a full desktop environment:
 | Styling | Tailwind CSS (CDN), glassmorphism design system |
 | Icons | Lucide React |
 | Terminal | xterm.js with FitAddon, Tokyo Night theme |
+| VNC | noVNC (`@novnc/novnc`) RFB client |
 | Backend | Node.js 22, tsx |
 | WebSocket | ws library |
-| AI | Google Gemini API (@google/genai) |
+| AI | Multi-provider — Google Gemini (`@google/genai`), OpenAI (`openai`), Anthropic (`@anthropic-ai/sdk`), Ollama (local HTTP) |
 | Database | better-sqlite3 |
 | Containers | Docker (optional, auto-detected) |
+| GPU | NVIDIA via `nvidia-container-toolkit` (optional) |
+| Testing | Vitest, v8 coverage |
+| CI | GitHub Actions (lint + test on push/PR) |
 | Font | Inter (Google Fonts) |
 
 ## Roadmap
+
+### Shipped
 
 - [x] Full node-pty integration for proper SIGWINCH and terminal resizing
 - [x] VNC/noVNC for rendering real graphical applications inside agent desktops
@@ -352,6 +413,20 @@ The host OS itself is a full desktop environment:
 - [x] Snapshot/restore for agent process state (like VM checkpoints)
 - [x] Shared filesystem mounts between cooperating agents
 - [x] Agent history timeline in Mission Control
+- [x] Multi-LLM provider abstraction (Gemini, OpenAI, Anthropic, Ollama)
+- [x] Pre-built agent templates with curated tool sets
+- [x] CI pipeline (GitHub Actions — lint + Vitest)
+- [x] Automated setup script (`scripts/setup.sh`)
+
+### Up Next
+
+- [ ] Live agent-to-agent video/audio streaming
+- [ ] Web-based plugin marketplace and one-click installs
+- [ ] Persistent agent memory across sessions (vector store)
+- [ ] Multi-node GPU scheduling and load balancing
+- [ ] Role-based access control (RBAC) beyond admin/user
+- [ ] Agent workflow orchestration (DAG-based multi-agent pipelines)
+- [ ] Audit logging and compliance export
 
 ## Snapshots (Agent Checkpoints)
 
