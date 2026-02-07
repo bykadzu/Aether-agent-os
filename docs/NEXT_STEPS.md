@@ -62,7 +62,7 @@ What's missing is the polish, hardening, and "last mile" work that turns a worki
 
 ---
 
-## Phase 3: Core Feature Completion
+## Phase 3: Core Feature Completion — PARTIALLY COMPLETE
 
 **Goal:** Finish the features that are partially built.
 
@@ -190,7 +190,7 @@ These are small improvements that would make an immediate difference:
 | Screenshots in README | 30 min | Makes the project 10x more approachable |
 | Agent log export (download as JSON/text) | 1 hr | Let users save and share agent runs |
 | Dark/light theme toggle | 1 hr | Already has dark theme, just add a switch |
-| Keyboard shortcut overlay (Cmd+/) | 30 min | Discoverability |
+| ~~Keyboard shortcut overlay (Cmd+/)~~ | ~~30 min~~ | ✅ Done — `ShortcutOverlay.tsx` |
 | Loading skeleton for Mission Control | 30 min | Feels faster on initial load |
 
 ---
@@ -202,5 +202,5 @@ If I had to pick the top 5 things to do next:
 1. ~~**Test suite**~~ ✅ Done — 149 tests, 10 suites
 2. ~~**`.env.example` + setup script + README update**~~ ✅ Done
 3. ~~**Error handling audit**~~ ✅ Done — all crash paths addressed
-4. **Agent templates** — Lower the barrier from "configure an agent" to "click a button."
-5. **Multi-LLM support** — Not everyone has a Gemini key. OpenAI and local model support widens the audience massively.
+4. ~~**Agent templates**~~ ✅ Done — 8 pre-built templates with curated tool sets
+5. ~~**Multi-LLM support**~~ ✅ Done — Gemini, OpenAI, Anthropic, Ollama with auto-fallback

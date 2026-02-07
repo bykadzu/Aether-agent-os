@@ -137,7 +137,7 @@ If Docker is available on the host, agent processes will automatically run insid
 │  │  observe)     │ │  web, IPC    │ │  Anthropic · Ollama  │  │
 │  ├───────────────┤ └──────────────┘ └──────────────────────┘  │
 │  │ Templates     │                                            │
-│  │ (7 presets)   │                                            │
+│  │ (8 presets)   │                                            │
 │  └───────────────┘                                            │
 └────────────────────────────────────────────────────────────────┘
 ```
@@ -361,7 +361,7 @@ The host OS itself is a full desktop environment:
 │   └── src/
 │       ├── AgentLoop.ts         # Think-act-observe execution cycle
 │       ├── tools.ts             # Agent tool definitions (fs, shell, web, ipc)
-│       ├── templates.ts         # Pre-built agent templates (7 presets)
+│       ├── templates.ts         # Pre-built agent templates (8 presets)
 │       ├── llm/                 # Multi-LLM provider abstraction
 │       │   ├── LLMProvider.ts   # Base provider interface
 │       │   ├── GeminiProvider.ts
