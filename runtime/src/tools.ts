@@ -35,6 +35,23 @@ export interface ToolContext {
 }
 
 /**
+ * Ensure a browser session exists for the given agent, creating one if needed.
+ * Returns the session ID. Throws if BrowserManager is not available.
+ */
+async function ensureBrowserSession(ctx: ToolContext): Promise<string> {
+  const sessionId = `browser_${ctx.pid}`;
+  if (!ctx.kernel.browser.isAvailable()) {
+    throw new Error('Browser not available. Playwright is not installed.');
+  }
+  try {
+    await ctx.kernel.browser.createSession(sessionId, { width: 1280, height: 720 });
+  } catch {
+    // Session already exists
+  }
+  return sessionId;
+}
+
+/**
  * Create the standard tool set available to agents.
  */
 export function createToolSet(): ToolDefinition[] {
@@ -84,9 +101,12 @@ export function createToolSet(): ToolDefinition[] {
         try {
           const dirPath = resolveCwd(ctx.cwd, args.path || '.');
           const entries = await ctx.kernel.fs.ls(dirPath);
-          const listing = entries.map(e =>
-            `${e.type === 'directory' ? 'd' : '-'} ${e.name}${e.type === 'directory' ? '/' : ''} (${formatSize(e.size)})`
-          ).join('\n');
+          const listing = entries
+            .map(
+              (e) =>
+                `${e.type === 'directory' ? 'd' : '-'} ${e.name}${e.type === 'directory' ? '/' : ''} (${formatSize(e.size)})`,
+            )
+            .join('\n');
           return { success: true, output: listing || '(empty directory)' };
         } catch (err: any) {
           return { success: false, output: `Error: ${err.message}` };
@@ -108,10 +128,77 @@ export function createToolSet(): ToolDefinition[] {
       },
     },
 
+    {
+      name: 'rm',
+      description: 'Remove a file or directory',
+      execute: async (args, ctx) => {
+        try {
+          const targetPath = resolveCwd(ctx.cwd, args.path);
+          await ctx.kernel.fs.rm(targetPath);
+          return { success: true, output: `Removed: ${targetPath}` };
+        } catch (err: any) {
+          return { success: false, output: `Error: ${err.message}` };
+        }
+      },
+    },
+
+    {
+      name: 'stat',
+      description: 'Get file or directory metadata (size, type, timestamps)',
+      execute: async (args, ctx) => {
+        try {
+          const targetPath = resolveCwd(ctx.cwd, args.path);
+          const info = await ctx.kernel.fs.stat(targetPath);
+          const lines = [
+            `Path: ${info.path}`,
+            `Name: ${info.name}`,
+            `Type: ${info.type}`,
+            `Size: ${formatSize(info.size)}`,
+            `Created: ${new Date(info.createdAt).toISOString()}`,
+            `Modified: ${new Date(info.modifiedAt).toISOString()}`,
+          ];
+          return { success: true, output: lines.join('\n') };
+        } catch (err: any) {
+          return { success: false, output: `Error: ${err.message}` };
+        }
+      },
+    },
+
+    {
+      name: 'mv',
+      description: 'Move or rename a file or directory',
+      execute: async (args, ctx) => {
+        try {
+          const srcPath = resolveCwd(ctx.cwd, args.source);
+          const destPath = resolveCwd(ctx.cwd, args.destination);
+          await ctx.kernel.fs.mv(srcPath, destPath);
+          return { success: true, output: `Moved ${srcPath} -> ${destPath}` };
+        } catch (err: any) {
+          return { success: false, output: `Error: ${err.message}` };
+        }
+      },
+    },
+
+    {
+      name: 'cp',
+      description: 'Copy a file or directory',
+      execute: async (args, ctx) => {
+        try {
+          const srcPath = resolveCwd(ctx.cwd, args.source);
+          const destPath = resolveCwd(ctx.cwd, args.destination);
+          await ctx.kernel.fs.cp(srcPath, destPath);
+          return { success: true, output: `Copied ${srcPath} -> ${destPath}` };
+        } catch (err: any) {
+          return { success: false, output: `Error: ${err.message}` };
+        }
+      },
+    },
+
     // ----- Shell Execution -----
     {
       name: 'run_command',
-      description: 'Execute a shell command in the agent terminal (runs inside container if sandboxed)',
+      description:
+        'Execute a shell command in the agent terminal (runs inside container if sandboxed)',
       requiresApproval: false,
       execute: async (args, ctx) => {
         try {
@@ -141,14 +228,46 @@ export function createToolSet(): ToolDefinition[] {
     // ----- Web Browsing -----
     {
       name: 'browse_web',
-      description: 'Fetch and summarize a web page (text content only)',
+      description: 'Browse a web page using a real browser (Playwright) or HTTP fetch fallback',
       execute: async (args, ctx) => {
         try {
           ctx.kernel.bus.emit('agent.browsing', {
             pid: ctx.pid,
             url: args.url,
           });
-          // Real fetch (text only for now)
+
+          // Try real browser first
+          if (ctx.kernel.browser?.isAvailable()) {
+            const sessionId = `browser_${ctx.pid}`;
+            try {
+              await ctx.kernel.browser.createSession(sessionId, { width: 1280, height: 720 });
+            } catch {
+              // Session might already exist, that's ok
+            }
+
+            const pageInfo = await ctx.kernel.browser.navigateTo(sessionId, args.url);
+            const snapshot = await ctx.kernel.browser.getDOMSnapshot(sessionId);
+
+            // Extract text from DOM elements
+            const textContent = snapshot.elements
+              .map((el: any) => el.text)
+              .filter(Boolean)
+              .join('\n')
+              .substring(0, 4000);
+
+            ctx.kernel.bus.emit('agent.browsing', {
+              pid: ctx.pid,
+              url: pageInfo.url,
+              summary: textContent.substring(0, 200),
+            });
+
+            return {
+              success: true,
+              output: `Page: ${pageInfo.title}\nURL: ${pageInfo.url}\n\n${textContent}`,
+            };
+          }
+
+          // Fallback to HTTP fetch
           const controller = new AbortController();
           const timeout = setTimeout(() => controller.abort(), 15_000);
           const response = await fetch(args.url, {
@@ -183,7 +302,68 @@ export function createToolSet(): ToolDefinition[] {
 
           return { success: true, output: plainText };
         } catch (err: any) {
-          return { success: false, output: `Failed to fetch ${args.url}: ${err.message}` };
+          return { success: false, output: `Failed to browse ${args.url}: ${err.message}` };
+        }
+      },
+    },
+
+    {
+      name: 'screenshot_page',
+      description: 'Take a screenshot of the current browser page (returns base64 PNG image)',
+      execute: async (args, ctx) => {
+        try {
+          const sessionId = await ensureBrowserSession(ctx);
+
+          if (args.url) {
+            await ctx.kernel.browser.navigateTo(sessionId, args.url);
+          }
+
+          const base64 = await ctx.kernel.browser.getScreenshot(sessionId);
+          return {
+            success: true,
+            output: base64,
+            artifacts: [{ type: 'image/png', content: base64 }],
+          };
+        } catch (err: any) {
+          return { success: false, output: `Screenshot failed: ${err.message}` };
+        }
+      },
+    },
+
+    {
+      name: 'click_element',
+      description: 'Click at coordinates on the current browser page',
+      execute: async (args, ctx) => {
+        try {
+          const sessionId = await ensureBrowserSession(ctx);
+          await ctx.kernel.browser.click(sessionId, args.x, args.y, args.button || 'left');
+          const pageInfo = await ctx.kernel.browser.navigateTo(sessionId, '');
+          return {
+            success: true,
+            output: `Clicked at (${args.x}, ${args.y}) with ${args.button || 'left'} button. Page: ${pageInfo.title} (${pageInfo.url})`,
+          };
+        } catch (err: any) {
+          return { success: false, output: `Click failed: ${err.message}` };
+        }
+      },
+    },
+
+    {
+      name: 'type_text',
+      description: 'Type text into the focused element on the current browser page',
+      execute: async (args, ctx) => {
+        try {
+          const sessionId = await ensureBrowserSession(ctx);
+
+          if (args.key) {
+            await ctx.kernel.browser.keyPress(sessionId, args.key);
+            return { success: true, output: `Pressed key: ${args.key}` };
+          }
+
+          await ctx.kernel.browser.type(sessionId, args.text);
+          return { success: true, output: `Typed: ${args.text}` };
+        } catch (err: any) {
+          return { success: false, output: `Type failed: ${err.message}` };
         }
       },
     },
@@ -199,8 +379,11 @@ export function createToolSet(): ToolDefinition[] {
             return { success: true, output: 'No other agents are currently running.' };
           }
           const listing = agents
-            .filter(a => a.pid !== ctx.pid) // Exclude self
-            .map(a => `PID ${a.pid}: ${a.name} (${a.role}) - ${a.state}/${a.agentPhase || 'unknown'}`)
+            .filter((a) => a.pid !== ctx.pid) // Exclude self
+            .map(
+              (a) =>
+                `PID ${a.pid}: ${a.name} (${a.role}) - ${a.state}/${a.agentPhase || 'unknown'}`,
+            )
             .join('\n');
           return {
             success: true,
@@ -214,7 +397,8 @@ export function createToolSet(): ToolDefinition[] {
 
     {
       name: 'send_message',
-      description: 'Send a message to another running agent by PID. The message will be delivered to the target agent as an observation.',
+      description:
+        'Send a message to another running agent by PID. The message will be delivered to the target agent as an observation.',
       execute: async (args, ctx) => {
         try {
           const toPid = Number(args.pid);
@@ -228,12 +412,18 @@ export function createToolSet(): ToolDefinition[] {
           const channel = args.channel || 'default';
           const payload = args.message || args.payload;
           if (!payload) {
-            return { success: false, output: 'Message content is required (use "message" or "payload" arg)' };
+            return {
+              success: false,
+              output: 'Message content is required (use "message" or "payload" arg)',
+            };
           }
 
           const message = ctx.kernel.processes.sendMessage(ctx.pid, toPid, channel, payload);
           if (!message) {
-            return { success: false, output: `Failed to send message: target PID ${toPid} not found or not alive` };
+            return {
+              success: false,
+              output: `Failed to send message: target PID ${toPid} not found or not alive`,
+            };
           }
 
           return {
@@ -256,9 +446,12 @@ export function createToolSet(): ToolDefinition[] {
             return { success: true, output: 'No new messages.' };
           }
 
-          const formatted = messages.map(m =>
-            `[${new Date(m.timestamp).toISOString()}] From PID ${m.fromPid} (${m.fromUid}) on "${m.channel}":\n${typeof m.payload === 'string' ? m.payload : JSON.stringify(m.payload)}`
-          ).join('\n---\n');
+          const formatted = messages
+            .map(
+              (m) =>
+                `[${new Date(m.timestamp).toISOString()}] From PID ${m.fromPid} (${m.fromUid}) on "${m.channel}":\n${typeof m.payload === 'string' ? m.payload : JSON.stringify(m.payload)}`,
+            )
+            .join('\n---\n');
 
           return {
             success: true,
@@ -273,7 +466,8 @@ export function createToolSet(): ToolDefinition[] {
     // ----- Shared Workspaces -----
     {
       name: 'create_shared_workspace',
-      description: 'Create a shared workspace directory that other agents can mount to collaborate on files',
+      description:
+        'Create a shared workspace directory that other agents can mount to collaborate on files',
       execute: async (args, ctx) => {
         try {
           const name = args.name;
@@ -321,9 +515,12 @@ export function createToolSet(): ToolDefinition[] {
           if (mounts.length === 0) {
             return { success: true, output: 'No shared workspaces exist yet.' };
           }
-          const listing = mounts.map(m =>
-            `${m.name} (${m.path}) - owner: PID ${m.ownerPid}, mounted by: ${m.mountedBy.length > 0 ? m.mountedBy.map(p => `PID ${p}`).join(', ') : 'none'}`
-          ).join('\n');
+          const listing = mounts
+            .map(
+              (m) =>
+                `${m.name} (${m.path}) - owner: PID ${m.ownerPid}, mounted by: ${m.mountedBy.length > 0 ? m.mountedBy.map((p) => `PID ${p}`).join(', ') : 'none'}`,
+            )
+            .join('\n');
           return { success: true, output: `Shared workspaces:\n${listing}` };
         } catch (err: any) {
           return { success: false, output: `Error: ${err.message}` };
