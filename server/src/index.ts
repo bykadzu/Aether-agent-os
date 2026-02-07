@@ -27,6 +27,7 @@ import {
   DEFAULT_WS_PATH,
   AETHER_VERSION,
 } from '@aether/shared';
+import { createV1Router } from './routes/v1.js';
 
 const PORT = parseInt(process.env.AETHER_PORT || String(DEFAULT_PORT), 10);
 
@@ -113,6 +114,15 @@ async function readBody(req: IncomingMessage): Promise<string> {
   return body;
 }
 
+// Initialize v1 router now that helpers are available
+const v1Handler = createV1Router(
+  kernel,
+  authenticateRequest,
+  readBody,
+  runAgentLoop,
+  AGENT_TEMPLATES,
+);
+
 // ---------------------------------------------------------------------------
 // HTTP Server
 // ---------------------------------------------------------------------------
@@ -120,7 +130,7 @@ async function readBody(req: IncomingMessage): Promise<string> {
 const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
   // CORS headers for Vite dev server
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
   if (req.method === 'OPTIONS') {
@@ -212,6 +222,12 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
       }),
     );
     return;
+  }
+
+  // ----- V1 API Routes -----
+  if (url.pathname.startsWith('/api/v1/')) {
+    const handled = await v1Handler(req, res, url, user);
+    if (handled) return;
   }
 
   // ----- Protected Endpoints -----

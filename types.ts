@@ -18,6 +18,7 @@ export enum AppID {
   MUSIC = 'music',
   DOCUMENTS = 'documents',
   MEMORY_INSPECTOR = 'memory_inspector',
+  APP_STORE = 'app_store',
 }
 
 export interface WindowState {

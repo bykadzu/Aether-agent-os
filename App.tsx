@@ -22,6 +22,7 @@ import { SystemMonitorApp } from './components/apps/SystemMonitorApp';
 import { MusicApp } from './components/apps/MusicApp';
 import { DocumentsApp } from './components/apps/DocumentsApp';
 import { MemoryInspectorApp } from './components/apps/MemoryInspectorApp';
+import { AppStoreApp } from './components/apps/AppStoreApp';
 import { DesktopWidgets } from './components/os/DesktopWidgets';
 import { ContextMenu } from './components/os/ContextMenu';
 import { LoginScreen } from './components/os/LoginScreen';
@@ -63,6 +64,7 @@ const DOCK_APPS: AppID[] = [
   AppID.DOCUMENTS,
   AppID.SYSTEM_MONITOR,
   AppID.MEMORY_INSPECTOR,
+  AppID.APP_STORE,
 ];
 
 const App: React.FC = () => {
@@ -843,6 +845,8 @@ const App: React.FC = () => {
         return 'Documents';
       case AppID.MEMORY_INSPECTOR:
         return 'Memory Inspector';
+      case AppID.APP_STORE:
+        return 'App Store';
       default:
         return 'App';
     }
@@ -1257,6 +1261,8 @@ const App: React.FC = () => {
         return <DocumentsApp initialFile={windowState.initialData?.filePath} />;
       case AppID.MEMORY_INSPECTOR:
         return <MemoryInspectorApp />;
+      case AppID.APP_STORE:
+        return <AppStoreApp />;
       case AppID.VM:
         const agent = agents.find((a) => a.id === windowState.initialData?.agentId);
         if (!agent) return <div className="p-4 text-white">Agent not found or terminated.</div>;

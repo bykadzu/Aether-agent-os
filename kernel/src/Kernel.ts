@@ -32,6 +32,8 @@ import { MemoryManager } from './MemoryManager.js';
 import { CronManager } from './CronManager.js';
 import { AuthManager } from './AuthManager.js';
 import { ClusterManager } from './ClusterManager.js';
+import { WebhookManager } from './WebhookManager.js';
+import { AppManager } from './AppManager.js';
 import {
   KernelCommand,
   KernelEvent,
@@ -58,6 +60,8 @@ export class Kernel {
   readonly cron: CronManager;
   readonly auth: AuthManager;
   readonly cluster: ClusterManager;
+  readonly webhooks: WebhookManager;
+  readonly apps: AppManager;
 
   private startTime: number;
   private running = false;
@@ -77,6 +81,8 @@ export class Kernel {
     this.snapshots = new SnapshotManager(this.bus, this.processes, this.state, options.fsRoot);
     this.auth = new AuthManager(this.bus, this.state);
     this.cluster = new ClusterManager(this.bus);
+    this.webhooks = new WebhookManager(this.bus, this.state);
+    this.apps = new AppManager(this.bus, this.state);
     this.startTime = Date.now();
   }
 
@@ -146,6 +152,27 @@ export class Kernel {
     await this.cluster.init();
     this.cluster.setLocalCapabilities(this.containers.isDockerAvailable(), false);
     console.log(`[Kernel] Cluster manager initialized (role: ${this.cluster.getRole()})`);
+
+    // Initialize app manager
+    await this.apps.init();
+    console.log('[Kernel] App manager initialized');
+
+    // Initialize webhook manager
+    await this.webhooks.init();
+    this.webhooks.setSpawnCallback(async (config) => {
+      const proc = this.processes.spawn(config, 0);
+      if (proc) {
+        await this.fs.createHome(proc.info.uid);
+        this.pty.open(proc.info.pid, {
+          cwd: this.fs.getRealRoot() + proc.info.cwd,
+          env: proc.info.env,
+        });
+        this.processes.setState(proc.info.pid, 'running', 'booting');
+        return proc.info.pid;
+      }
+      return null;
+    });
+    console.log('[Kernel] Webhook manager initialized');
 
     this.running = true;
     this.startTime = Date.now();
@@ -1113,6 +1140,137 @@ export class Kernel {
           break;
         }
 
+        // ----- App Commands (v0.4) -----
+        case 'app.install': {
+          try {
+            const app = this.apps.install(cmd.manifest, cmd.source, cmd.owner_uid);
+            events.push({ type: 'response.ok', id: cmd.id, data: app });
+            events.push({ type: 'app.installed', app } as KernelEvent);
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        case 'app.uninstall': {
+          try {
+            this.apps.uninstall(cmd.appId);
+            events.push({ type: 'response.ok', id: cmd.id });
+            events.push({ type: 'app.uninstalled', appId: cmd.appId } as KernelEvent);
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        case 'app.enable': {
+          try {
+            this.apps.enable(cmd.appId);
+            events.push({ type: 'response.ok', id: cmd.id });
+            events.push({ type: 'app.enabled', appId: cmd.appId } as KernelEvent);
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        case 'app.disable': {
+          try {
+            this.apps.disable(cmd.appId);
+            events.push({ type: 'response.ok', id: cmd.id });
+            events.push({ type: 'app.disabled', appId: cmd.appId } as KernelEvent);
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        case 'app.list': {
+          const appsList = this.apps.list();
+          events.push({ type: 'response.ok', id: cmd.id, data: appsList });
+          events.push({ type: 'app.list', apps: appsList } as KernelEvent);
+          break;
+        }
+
+        case 'app.get': {
+          const app = this.apps.get(cmd.appId);
+          if (app) {
+            events.push({ type: 'response.ok', id: cmd.id, data: app });
+          } else {
+            events.push({
+              type: 'response.error',
+              id: cmd.id,
+              error: `App ${cmd.appId} not found`,
+            });
+          }
+          break;
+        }
+
+        // ----- Webhook Commands (v0.4) -----
+        case 'webhook.register': {
+          const webhookId = this.webhooks.register(cmd.name, cmd.url, cmd.events, {
+            secret: cmd.secret,
+            filters: cmd.filters,
+            headers: cmd.headers,
+            owner_uid: cmd.owner_uid,
+            retry_count: cmd.retry_count,
+            timeout_ms: cmd.timeout_ms,
+          });
+          events.push({ type: 'response.ok', id: cmd.id, data: { webhookId } });
+          break;
+        }
+
+        case 'webhook.unregister': {
+          this.webhooks.unregister(cmd.webhookId);
+          events.push({ type: 'response.ok', id: cmd.id });
+          break;
+        }
+
+        case 'webhook.list': {
+          const webhookList = this.webhooks.list(cmd.owner_uid);
+          events.push({ type: 'response.ok', id: cmd.id, data: webhookList });
+          break;
+        }
+
+        case 'webhook.enable': {
+          this.webhooks.enable(cmd.webhookId);
+          events.push({ type: 'response.ok', id: cmd.id });
+          break;
+        }
+
+        case 'webhook.disable': {
+          this.webhooks.disable(cmd.webhookId);
+          events.push({ type: 'response.ok', id: cmd.id });
+          break;
+        }
+
+        case 'webhook.logs': {
+          const logs = this.webhooks.getLogs(cmd.webhookId, cmd.limit);
+          events.push({ type: 'response.ok', id: cmd.id, data: logs });
+          break;
+        }
+
+        case 'webhook.inbound.create': {
+          const inbound = this.webhooks.createInbound(cmd.name, cmd.agent_config, {
+            transform: cmd.transform,
+            owner_uid: cmd.owner_uid,
+          });
+          events.push({ type: 'response.ok', id: cmd.id, data: inbound });
+          break;
+        }
+
+        case 'webhook.inbound.delete': {
+          this.webhooks.deleteInbound(cmd.inboundId);
+          events.push({ type: 'response.ok', id: cmd.id });
+          break;
+        }
+
+        case 'webhook.inbound.list': {
+          const inboundList = this.webhooks.listInbound(cmd.owner_uid);
+          events.push({ type: 'response.ok', id: cmd.id, data: inboundList });
+          break;
+        }
+
         // ----- System Commands -----
         case 'kernel.status': {
           events.push({
@@ -1200,6 +1358,8 @@ export class Kernel {
       ['AuthManager', true],
       ['VNCManager', true],
       ['ClusterManager', true],
+      ['AppManager', true],
+      ['WebhookManager', true],
     ];
 
     const port = process.env.AETHER_PORT || String(DEFAULT_PORT);
@@ -1261,6 +1421,8 @@ export class Kernel {
       /* ignore metric errors during shutdown */
     }
 
+    this.webhooks.shutdown();
+    this.apps.shutdown();
     this.cron.stop();
     await this.cluster.shutdown();
     await this.browser.shutdown();

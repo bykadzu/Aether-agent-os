@@ -1,4 +1,7 @@
 import { defineConfig } from 'vitest/config';
+import path from 'node:path';
+
+const root = path.resolve(__dirname);
 
 export default defineConfig({
   test: {
@@ -22,9 +25,9 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@aether/shared': '/home/user/Aether-agent-os/shared/src/index.ts',
-      '@aether/kernel': '/home/user/Aether-agent-os/kernel/src/index.ts',
-      '@aether/runtime': '/home/user/Aether-agent-os/runtime/src/index.ts',
+      '@aether/shared': path.join(root, 'shared/src/index.ts'),
+      '@aether/kernel': path.join(root, 'kernel/src/index.ts'),
+      '@aether/runtime': path.join(root, 'runtime/src/index.ts'),
     },
   },
 });
