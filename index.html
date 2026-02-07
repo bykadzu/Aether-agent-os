@@ -8,6 +8,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script>
       tailwind.config = {
+        darkMode: 'class',
         theme: {
           extend: {
             fontFamily: {
@@ -55,6 +56,35 @@
       }
     </script>
     <style>
+      /* ── Theme custom properties ───────────────────────────────────────── */
+      html[data-theme="dark"], html.dark {
+        --bg-primary: #1a1b26;
+        --bg-secondary: #24283b;
+        --bg-tertiary: #2f334d;
+        --text-primary: #c0caf5;
+        --text-secondary: #a9b1d6;
+        --text-muted: #565f89;
+        --border-color: rgba(255, 255, 255, 0.1);
+        --glass-bg: rgba(255, 255, 255, 0.1);
+        --glass-border: rgba(255, 255, 255, 0.2);
+        --accent: #7aa2f7;
+        --accent-hover: #89b4fa;
+      }
+
+      html[data-theme="light"] {
+        --bg-primary: #f8f9fc;
+        --bg-secondary: #ffffff;
+        --bg-tertiary: #eef1f6;
+        --text-primary: #1a1b26;
+        --text-secondary: #4c4f69;
+        --text-muted: #9399b2;
+        --border-color: rgba(0, 0, 0, 0.1);
+        --glass-bg: rgba(255, 255, 255, 0.7);
+        --glass-border: rgba(0, 0, 0, 0.1);
+        --accent: #2563eb;
+        --accent-hover: #3b82f6;
+      }
+
       body {
         margin: 0;
         overflow: hidden;

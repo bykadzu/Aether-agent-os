@@ -10,7 +10,10 @@ export enum AppID {
   CODE = 'code',
   VIDEO = 'video',
   AGENTS = 'agents', // The Dashboard
-  VM = 'vm' // The Individual Agent View
+  VM = 'vm', // The Individual Agent View
+  MONITOR = 'monitor', // System Monitor
+  MUSIC = 'music', // Music / Audio Player
+  DOCUMENTS = 'documents' // PDF Viewer / Documents
 }
 
 export interface WindowState {

@@ -15,6 +15,9 @@ import { CodeEditorApp } from './components/apps/CodeEditorApp';
 import { VideoPlayerApp } from './components/apps/VideoPlayerApp';
 import { AgentDashboard } from './components/apps/AgentDashboard';
 import { AgentVM } from './components/apps/AgentVM';
+import { SystemMonitorApp } from './components/apps/SystemMonitorApp';
+import { MusicApp } from './components/apps/MusicApp';
+import { DocumentsApp } from './components/apps/DocumentsApp';
 import { DesktopWidgets } from './components/os/DesktopWidgets';
 import { ContextMenu } from './components/os/ContextMenu';
 import { LoginScreen } from './components/os/LoginScreen';
@@ -37,9 +40,9 @@ const DOCK_APPS: AppID[] = [
   AppID.TERMINAL,
   AppID.CODE,
   AppID.NOTES,
-  AppID.PHOTOS,
-  AppID.CHAT,
-  AppID.CALCULATOR,
+  AppID.MONITOR,
+  AppID.MUSIC,
+  AppID.DOCUMENTS,
 ];
 
 const App: React.FC = () => {
@@ -505,6 +508,9 @@ const App: React.FC = () => {
       case AppID.CODE: return 'Code - Untitled';
       case AppID.VIDEO: return 'Media Player';
       case AppID.AGENTS: return 'Agent Center';
+      case AppID.MONITOR: return 'System Monitor';
+      case AppID.MUSIC: return 'Music';
+      case AppID.DOCUMENTS: return 'Documents';
       default: return 'App';
     }
   };
@@ -707,6 +713,12 @@ const App: React.FC = () => {
          const agent = agents.find(a => a.id === windowState.initialData?.agentId);
          if (!agent) return <div className="p-4 text-white">Agent not found or terminated.</div>;
          return <AgentVM agent={agent} onApprove={approveAgent} onReject={rejectAgent} onStop={stopAgent} onSyncGithub={syncGithub} />;
+      case AppID.MONITOR:
+        return <SystemMonitorApp />;
+      case AppID.MUSIC:
+        return <MusicApp />;
+      case AppID.DOCUMENTS:
+        return <DocumentsApp />;
       default: return null;
     }
   };

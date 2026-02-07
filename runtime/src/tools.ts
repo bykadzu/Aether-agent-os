@@ -141,14 +141,39 @@ export function createToolSet(): ToolDefinition[] {
     // ----- Web Browsing -----
     {
       name: 'browse_web',
-      description: 'Fetch and summarize a web page (text content only)',
+      description: 'Fetch and extract content from a web page. Uses Chromium when available, falls back to HTTP fetch.',
       execute: async (args, ctx) => {
         try {
           ctx.kernel.bus.emit('agent.browsing', {
             pid: ctx.pid,
             url: args.url,
           });
-          // Real fetch (text only for now)
+
+          // Try Chromium-powered browsing via BrowserManager
+          const browser = (ctx.kernel as any).browser;
+          if (browser && browser.playwrightAvailable) {
+            const sessionId = `browse-${ctx.pid}-${Date.now()}`;
+            try {
+              await browser.createSession(sessionId);
+              await browser.navigateTo(sessionId, args.url);
+              const snapshot = await browser.getDOMSnapshot(sessionId);
+              await browser.destroySession(sessionId);
+
+              const content = formatDOMSnapshot(snapshot);
+              ctx.kernel.bus.emit('agent.browsing', {
+                pid: ctx.pid,
+                url: snapshot.url,
+                summary: content.substring(0, 200),
+              });
+              return { success: true, output: content };
+            } catch (browserErr: any) {
+              // Clean up session on error
+              try { await browser.destroySession(sessionId); } catch {}
+              throw browserErr;
+            }
+          }
+
+          // Fallback: HTTP fetch (text only) when BrowserManager is unavailable
           const controller = new AbortController();
           const timeout = setTimeout(() => controller.abort(), 15_000);
           const response = await fetch(args.url, {
@@ -184,6 +209,133 @@ export function createToolSet(): ToolDefinition[] {
           return { success: true, output: plainText };
         } catch (err: any) {
           return { success: false, output: `Failed to fetch ${args.url}: ${err.message}` };
+        }
+      },
+    },
+
+    {
+      name: 'browse_interactive',
+      description: 'Open a URL in a persistent Chromium browser session for interactive browsing (clicking, typing, scrolling)',
+      execute: async (args, ctx) => {
+        const browser = (ctx.kernel as any).browser;
+        if (!browser || !browser.playwrightAvailable) {
+          return { success: false, output: 'BrowserManager not available. Install Playwright for real browser capabilities.' };
+        }
+        try {
+          const sessionId = `agent-${ctx.pid}`;
+          // Create session if it doesn't already exist
+          if (!browser.sessions?.has(sessionId)) {
+            try {
+              await browser.createSession(sessionId);
+            } catch {
+              // Session may already exist from a previous call; continue
+            }
+          }
+          await browser.navigateTo(sessionId, args.url);
+          const snapshot = await browser.getDOMSnapshot(sessionId);
+          return { success: true, output: formatDOMSnapshot(snapshot) };
+        } catch (err: any) {
+          return { success: false, output: `Browser error: ${err.message}` };
+        }
+      },
+    },
+
+    {
+      name: 'browser_click',
+      description: 'Click at x,y coordinates in the persistent browser session',
+      execute: async (args, ctx) => {
+        const browser = (ctx.kernel as any).browser;
+        if (!browser || !browser.playwrightAvailable) {
+          return { success: false, output: 'BrowserManager not available. Install Playwright for real browser capabilities.' };
+        }
+        try {
+          const sessionId = `agent-${ctx.pid}`;
+          await browser.click(sessionId, args.x, args.y);
+          const snapshot = await browser.getDOMSnapshot(sessionId);
+          return { success: true, output: formatDOMSnapshot(snapshot) };
+        } catch (err: any) {
+          return { success: false, output: `Browser error: ${err.message}` };
+        }
+      },
+    },
+
+    {
+      name: 'browser_type',
+      description: 'Type text into the currently focused element in the persistent browser session',
+      execute: async (args, ctx) => {
+        const browser = (ctx.kernel as any).browser;
+        if (!browser || !browser.playwrightAvailable) {
+          return { success: false, output: 'BrowserManager not available. Install Playwright for real browser capabilities.' };
+        }
+        try {
+          const sessionId = `agent-${ctx.pid}`;
+          await browser.type(sessionId, args.text);
+          const snapshot = await browser.getDOMSnapshot(sessionId);
+          return { success: true, output: formatDOMSnapshot(snapshot) };
+        } catch (err: any) {
+          return { success: false, output: `Browser error: ${err.message}` };
+        }
+      },
+    },
+
+    {
+      name: 'browser_screenshot',
+      description: 'Take a PNG screenshot of the current browser page, returned as base64',
+      execute: async (args, ctx) => {
+        const browser = (ctx.kernel as any).browser;
+        if (!browser || !browser.playwrightAvailable) {
+          return { success: false, output: 'BrowserManager not available. Install Playwright for real browser capabilities.' };
+        }
+        try {
+          const sessionId = `agent-${ctx.pid}`;
+          const base64 = await browser.getScreenshot(sessionId);
+          return {
+            success: true,
+            output: `Screenshot captured (${base64.length} bytes base64)`,
+            artifacts: [{ type: 'image/png', content: base64 }],
+          };
+        } catch (err: any) {
+          return { success: false, output: `Browser error: ${err.message}` };
+        }
+      },
+    },
+
+    {
+      name: 'browser_scroll',
+      description: 'Scroll the browser page up or down',
+      execute: async (args, ctx) => {
+        const browser = (ctx.kernel as any).browser;
+        if (!browser || !browser.playwrightAvailable) {
+          return { success: false, output: 'BrowserManager not available. Install Playwright for real browser capabilities.' };
+        }
+        try {
+          const sessionId = `agent-${ctx.pid}`;
+          const direction = args.direction || 'down';
+          const amount = args.amount || 500;
+          const deltaY = direction === 'up' ? -amount : amount;
+          await browser.scroll(sessionId, 0, deltaY);
+          const snapshot = await browser.getDOMSnapshot(sessionId);
+          return { success: true, output: formatDOMSnapshot(snapshot) };
+        } catch (err: any) {
+          return { success: false, output: `Browser error: ${err.message}` };
+        }
+      },
+    },
+
+    {
+      name: 'browser_close',
+      description: 'Close the persistent browser session',
+      execute: async (_args, ctx) => {
+        const browser = (ctx.kernel as any).browser;
+        if (!browser || !browser.playwrightAvailable) {
+          return { success: false, output: 'BrowserManager not available. Install Playwright for real browser capabilities.' };
+        }
+        try {
+          const sessionId = `agent-${ctx.pid}`;
+          await browser.destroySession(sessionId);
+          return { success: true, output: 'Browser session closed.' };
+        } catch (err: any) {
+          return { success: false, output: `Browser error: ${err.message}` };
         }
       },
     },
@@ -416,4 +568,23 @@ function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes}B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+
+/**
+ * Format a DOMSnapshot into a readable text representation for agent consumption.
+ */
+function formatDOMSnapshot(snapshot: { url: string; title: string; elements: any[] }): string {
+  let output = `Page: ${snapshot.title}\nURL: ${snapshot.url}\n\n`;
+  for (const el of snapshot.elements) {
+    let line = `[${el.tag}]`;
+    if (el.text) line += ` ${el.text}`;
+    if (el.href) line += ` -> ${el.href}`;
+    if (el.role) line += ` (role=${el.role})`;
+    if (el.ariaLabel) line += ` (aria-label="${el.ariaLabel}")`;
+    if (el.name) line += ` name="${el.name}"`;
+    if (el.type) line += ` type="${el.type}"`;
+    if (el.value) line += ` value="${el.value}"`;
+    output += line + '\n';
+  }
+  return output.trim();
 }

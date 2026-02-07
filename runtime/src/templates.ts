@@ -27,13 +27,41 @@ export const AGENT_TEMPLATES: AgentTemplate[] = [
     category: 'research',
     config: {
       role: 'Researcher',
-      tools: ['browse_web', 'write_file', 'read_file', 'think'],
+      tools: ['browse_web', 'browse_interactive', 'browser_click', 'browser_type', 'browser_close', 'write_file', 'read_file', 'think'],
       maxSteps: 30,
     },
     suggestedGoals: [
       'Research the latest developments in AI agents and write a summary',
       'Find the top 5 open-source LLM frameworks and compare them',
       'Research best practices for Kubernetes security',
+    ],
+  },
+  {
+    id: 'web-navigator',
+    name: 'Web Navigator',
+    description: 'Browses the web with a full Chromium browser. Can click, type, scroll, and take screenshots of real web pages.',
+    icon: 'Navigation',
+    category: 'research',
+    config: {
+      role: 'Navigator',
+      tools: [
+        'browse_web',
+        'browse_interactive',
+        'browser_click',
+        'browser_type',
+        'browser_screenshot',
+        'browser_scroll',
+        'browser_close',
+        'write_file',
+        'read_file',
+        'think',
+      ],
+      maxSteps: 40,
+    },
+    suggestedGoals: [
+      'Navigate to a website, fill out a form, and submit it',
+      'Take screenshots of competitor landing pages for analysis',
+      'Browse documentation sites and extract code examples',
     ],
   },
   {

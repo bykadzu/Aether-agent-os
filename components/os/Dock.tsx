@@ -1,6 +1,6 @@
 import React from 'react';
 import { AppID } from '../../types';
-import { StickyNote, Image, MessageSquare, FolderOpen, Settings as SettingsIcon, Terminal, Globe, Calculator, Code, Bot } from 'lucide-react';
+import { StickyNote, Image, MessageSquare, FolderOpen, Settings as SettingsIcon, Terminal, Globe, Calculator, Code, Bot, Activity, Music, FileText } from 'lucide-react';
 
 interface DockProps {
   onAppClick: (id: AppID) => void;
@@ -18,6 +18,9 @@ export const Dock: React.FC<DockProps> = ({ onAppClick, openApps }) => {
     { id: AppID.PHOTOS, icon: Image, label: 'Photos', color: 'bg-purple-100 text-purple-600' },
     { id: AppID.CHAT, icon: MessageSquare, label: 'Chat', color: 'bg-green-100 text-green-600' },
     { id: AppID.CALCULATOR, icon: Calculator, label: 'Calc', color: 'bg-orange-100 text-orange-600' },
+    { id: AppID.MONITOR, icon: Activity, label: 'Monitor', color: 'bg-emerald-100 text-emerald-600' },
+    { id: AppID.MUSIC, icon: Music, label: 'Music', color: 'bg-pink-100 text-pink-600' },
+    { id: AppID.DOCUMENTS, icon: FileText, label: 'Documents', color: 'bg-red-100 text-red-600' },
   ];
 
   return (

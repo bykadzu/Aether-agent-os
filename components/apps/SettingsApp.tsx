@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Wifi, User, Moon, Lock, Monitor, Bell, Search, Info,
+  Wifi, User, Moon, Sun, Lock, Monitor, Bell, Search, Info,
   Server, Cpu, HardDrive, Zap, Bot, Key, Activity
 } from 'lucide-react';
 import { getKernelClient, GPUInfo, ClusterInfo } from '../../services/kernelClient';
+import { themeManager, ThemeType } from '../../services/themeManager';
 
 interface LLMProviderInfo {
   name: string;
@@ -20,6 +21,23 @@ export const SettingsApp: React.FC = () => {
   const [clusterInfo, setClusterInfo] = useState<ClusterInfo | null>(null);
   const [currentUser, setCurrentUser] = useState<{ username: string; role: string } | null>(null);
   const [geminiKey, setGeminiKey] = useState(localStorage.getItem('gemini_api_key') || '');
+  const [currentTheme, setCurrentTheme] = useState<ThemeType>(themeManager.getTheme());
+  const [effectiveTheme, setEffectiveTheme] = useState<'dark' | 'light'>(themeManager.getEffectiveTheme());
+
+  // Subscribe to theme changes (e.g. OS-level colour-scheme flip for 'system')
+  useEffect(() => {
+    const unsub = themeManager.onThemeChange((theme, effective) => {
+      setCurrentTheme(theme);
+      setEffectiveTheme(effective);
+    });
+    return unsub;
+  }, []);
+
+  const handleThemeChange = (theme: ThemeType) => {
+    themeManager.setTheme(theme);
+    setCurrentTheme(theme);
+    setEffectiveTheme(themeManager.getEffectiveTheme());
+  };
 
   useEffect(() => {
     const client = getKernelClient();
@@ -249,15 +267,141 @@ export const SettingsApp: React.FC = () => {
 
         {/* Appearance */}
         {activeTab === 'Appearance' && (
-          <div className="bg-white/50 rounded-xl border border-white/40 p-4">
-            <h3 className="text-sm font-medium text-gray-700 mb-4">Theme</h3>
-            <div className="flex gap-4">
-              <div className="flex-1 aspect-video bg-gray-800 rounded-lg border-2 border-blue-500 relative cursor-pointer shadow-sm flex items-center justify-center">
-                <span className="text-xs font-medium text-gray-300">Dark</span>
-                <div className="absolute bottom-2 right-2 w-4 h-4 rounded-full bg-blue-500 text-white flex items-center justify-center text-[10px]">&#10003;</div>
+          <div className="space-y-4">
+            {/* Theme selector */}
+            <div className="bg-white/50 rounded-xl border border-white/40 overflow-hidden">
+              <div className="p-4 border-b border-gray-100">
+                <h3 className="text-sm font-bold text-gray-700 mb-1">Theme</h3>
+                <p className="text-xs text-gray-400">Choose how Aether OS looks. Select System to follow your OS preference.</p>
               </div>
-              <div className="flex-1 aspect-video bg-gray-100 rounded-lg border-2 border-transparent hover:border-gray-300 cursor-pointer shadow-sm flex items-center justify-center">
-                <span className="text-xs font-medium text-gray-600">Light</span>
+
+              {/* Segmented control */}
+              <div className="p-4">
+                <div className="flex bg-gray-100 rounded-lg p-1 gap-1">
+                  {([
+                    { value: 'dark' as ThemeType, label: 'Dark', icon: Moon },
+                    { value: 'light' as ThemeType, label: 'Light', icon: Sun },
+                    { value: 'system' as ThemeType, label: 'System', icon: Monitor },
+                  ]).map(({ value, label, icon: Icon }) => (
+                    <button
+                      key={value}
+                      onClick={() => handleThemeChange(value)}
+                      className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-md text-sm font-medium transition-all ${
+                        currentTheme === value
+                          ? 'bg-white text-gray-900 shadow-sm'
+                          : 'text-gray-500 hover:text-gray-700 hover:bg-white/50'
+                      }`}
+                    >
+                      <Icon size={14} />
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Theme preview cards */}
+            <div className="bg-white/50 rounded-xl border border-white/40 overflow-hidden">
+              <div className="p-4 border-b border-gray-100">
+                <h3 className="text-sm font-bold text-gray-700 mb-1">Preview</h3>
+                <p className="text-xs text-gray-400">
+                  Active theme: <span className="font-medium capitalize text-gray-600">{effectiveTheme}</span>
+                  {currentTheme === 'system' && <span className="text-gray-400"> (following system)</span>}
+                </p>
+              </div>
+              <div className="p-4 flex gap-4">
+                {/* Dark preview */}
+                <button
+                  onClick={() => handleThemeChange('dark')}
+                  className={`flex-1 rounded-xl overflow-hidden border-2 transition-all cursor-pointer ${
+                    currentTheme === 'dark' ? 'border-blue-500 shadow-md shadow-blue-500/20' : 'border-transparent hover:border-gray-300'
+                  }`}
+                >
+                  <div className="bg-[#1a1b26] p-3 space-y-2">
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-2 h-2 rounded-full bg-red-500/80" />
+                      <div className="w-2 h-2 rounded-full bg-yellow-500/80" />
+                      <div className="w-2 h-2 rounded-full bg-green-500/80" />
+                    </div>
+                    <div className="h-1.5 w-3/4 rounded bg-[#c0caf5]/30" />
+                    <div className="h-1.5 w-1/2 rounded bg-[#c0caf5]/20" />
+                    <div className="flex gap-1.5 pt-1">
+                      <div className="h-4 w-4 rounded bg-[#7aa2f7]/40" />
+                      <div className="h-4 flex-1 rounded bg-[#24283b]" />
+                    </div>
+                    <div className="h-1.5 w-2/3 rounded bg-[#565f89]/40" />
+                  </div>
+                  <div className="bg-[#24283b] px-3 py-2 text-center">
+                    <span className="text-[11px] font-medium text-[#c0caf5]">Dark</span>
+                  </div>
+                </button>
+
+                {/* Light preview */}
+                <button
+                  onClick={() => handleThemeChange('light')}
+                  className={`flex-1 rounded-xl overflow-hidden border-2 transition-all cursor-pointer ${
+                    currentTheme === 'light' ? 'border-blue-500 shadow-md shadow-blue-500/20' : 'border-transparent hover:border-gray-300'
+                  }`}
+                >
+                  <div className="bg-[#f8f9fc] p-3 space-y-2">
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-2 h-2 rounded-full bg-red-500/80" />
+                      <div className="w-2 h-2 rounded-full bg-yellow-500/80" />
+                      <div className="w-2 h-2 rounded-full bg-green-500/80" />
+                    </div>
+                    <div className="h-1.5 w-3/4 rounded bg-[#1a1b26]/20" />
+                    <div className="h-1.5 w-1/2 rounded bg-[#1a1b26]/10" />
+                    <div className="flex gap-1.5 pt-1">
+                      <div className="h-4 w-4 rounded bg-[#2563eb]/30" />
+                      <div className="h-4 flex-1 rounded bg-[#eef1f6]" />
+                    </div>
+                    <div className="h-1.5 w-2/3 rounded bg-[#9399b2]/30" />
+                  </div>
+                  <div className="bg-[#eef1f6] px-3 py-2 text-center">
+                    <span className="text-[11px] font-medium text-[#1a1b26]">Light</span>
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            {/* Color palette preview */}
+            <div className="bg-white/50 rounded-xl border border-white/40 overflow-hidden">
+              <div className="p-4 border-b border-gray-100">
+                <h3 className="text-sm font-bold text-gray-700">Active Palette</h3>
+              </div>
+              <div className="p-4 grid grid-cols-5 gap-2">
+                {[
+                  { label: 'Primary', var: 'var(--bg-primary)' },
+                  { label: 'Secondary', var: 'var(--bg-secondary)' },
+                  { label: 'Tertiary', var: 'var(--bg-tertiary)' },
+                  { label: 'Accent', var: 'var(--accent)' },
+                  { label: 'Accent Hover', var: 'var(--accent-hover)' },
+                ].map(({ label, var: cssVar }) => (
+                  <div key={label} className="flex flex-col items-center gap-1.5">
+                    <div
+                      className="w-10 h-10 rounded-lg border border-gray-200 shadow-sm"
+                      style={{ backgroundColor: cssVar }}
+                    />
+                    <span className="text-[10px] text-gray-500 text-center leading-tight">{label}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="px-4 pb-4 grid grid-cols-5 gap-2">
+                {[
+                  { label: 'Text', var: 'var(--text-primary)' },
+                  { label: 'Text 2', var: 'var(--text-secondary)' },
+                  { label: 'Muted', var: 'var(--text-muted)' },
+                  { label: 'Glass', var: 'var(--glass-bg)' },
+                  { label: 'Border', var: 'var(--border-color)' },
+                ].map(({ label, var: cssVar }) => (
+                  <div key={label} className="flex flex-col items-center gap-1.5">
+                    <div
+                      className="w-10 h-10 rounded-lg border border-gray-200 shadow-sm"
+                      style={{ backgroundColor: cssVar }}
+                    />
+                    <span className="text-[10px] text-gray-500 text-center leading-tight">{label}</span>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
