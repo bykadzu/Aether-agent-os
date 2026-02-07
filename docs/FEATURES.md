@@ -63,6 +63,10 @@ Status legend:
 | Virtual desktop | Done | `components/os/VirtualDesktop.tsx` — renders agent's simulated desktop windows |
 | Dark theme | Done | Tokyo Night inspired, glassmorphism throughout |
 | Light theme toggle | Stub | UI is dark-only currently |
+| Notification center | Done | `components/os/NotificationCenter.tsx` — toast notifications |
+| Keyboard shortcut overlay | Done | `components/os/ShortcutOverlay.tsx` — Cmd+? help overlay |
+| Workspace switcher | Done | `components/os/WorkspaceSwitcher.tsx` — virtual workspace switching |
+| Shortcut manager | Done | `services/shortcutManager.ts` — keyboard shortcut handling |
 | Responsive/mobile layout | Planned | Desktop-optimized only |
 
 ## Applications
@@ -81,6 +85,9 @@ Status legend:
 | Calculator | Done | Fully functional calculator |
 | Photos | Partial | Gallery UI exists, Gemini image analysis, but no real photo source |
 | Video Player | Partial | Player UI exists but no video source integration |
+| Sheets (Spreadsheet) | Done | `components/apps/SheetsApp.tsx` — spreadsheet app |
+| Canvas (Drawing) | Done | `components/apps/CanvasApp.tsx` — drawing canvas |
+| Writer (Document Editor) | Done | `components/apps/WriterApp.tsx` — document editor |
 | Settings | Done | Shows kernel status, LLM providers with availability, GPU/Docker/cluster info, API key config |
 | GitHub Sync | Done | Clone repos into agent workspace via modal, push changes with approval gating |
 
@@ -127,4 +134,4 @@ Status legend:
 | Error handling audit | Done | Graceful degradation for Docker, SQLite, PTY, VFS, API rate limits |
 | Setup script | Done | `scripts/setup.sh` — checks deps, installs packages, creates `.env` |
 | Production Dockerfile | Not started | No containerized deployment |
-| Documentation | Partial | You're reading it |
+| Documentation | Done | 14 markdown files: README, ARCHITECTURE, FEATURES, VISION, WHAT_IS_AETHER, NEXT_STEPS, 4 roadmaps, IDEAS, 2 research docs, SESSION-PROMPTS |

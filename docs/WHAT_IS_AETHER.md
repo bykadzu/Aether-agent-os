@@ -110,5 +110,5 @@ You'll need a `GEMINI_API_KEY` environment variable set for the AI reasoning to 
 | Database | SQLite (via better-sqlite3) |
 | Terminals | node-pty (real pseudo-terminals) |
 | Containers | Docker (optional, auto-detected) |
-| AI | Google Gemini API |
+| AI | Multi-provider — Google Gemini, OpenAI, Anthropic, Ollama (local) |
 | Graphics | Xvfb + x11vnc for graphical agent desktops |
