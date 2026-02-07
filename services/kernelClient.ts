@@ -20,7 +20,15 @@
 type PID = number;
 type Signal = 'SIGTERM' | 'SIGKILL' | 'SIGSTOP' | 'SIGCONT' | 'SIGINT' | 'SIGUSR1' | 'SIGUSR2';
 type ProcessState = 'created' | 'running' | 'sleeping' | 'stopped' | 'zombie' | 'dead';
-type AgentPhase = 'booting' | 'thinking' | 'executing' | 'waiting' | 'observing' | 'idle' | 'completed' | 'failed';
+type AgentPhase =
+  | 'booting'
+  | 'thinking'
+  | 'executing'
+  | 'waiting'
+  | 'observing'
+  | 'idle'
+  | 'completed'
+  | 'failed';
 
 export interface KernelProcessInfo {
   pid: PID;
@@ -152,9 +160,7 @@ export class KernelClient {
     if (this.ws?.readyState === WebSocket.OPEN) return;
 
     try {
-      const wsUrl = this._token
-        ? `${this.url}?token=${encodeURIComponent(this._token)}`
-        : this.url;
+      const wsUrl = this._token ? `${this.url}?token=${encodeURIComponent(this._token)}` : this.url;
       this.ws = new WebSocket(wsUrl);
 
       this.ws.onopen = () => {
@@ -326,7 +332,9 @@ export class KernelClient {
     const handlers = this.listeners.get(event);
     if (handlers) {
       for (const handler of handlers) {
-        try { handler(data); } catch (err) {
+        try {
+          handler(data);
+        } catch (err) {
           console.error(`[KernelClient] Error in handler for '${event}':`, err);
         }
       }
@@ -335,7 +343,9 @@ export class KernelClient {
     const wildcardHandlers = this.listeners.get('*');
     if (wildcardHandlers) {
       for (const handler of wildcardHandlers) {
-        try { handler({ type: event, ...data }); } catch {}
+        try {
+          handler({ type: event, ...data });
+        } catch {}
       }
     }
   }
@@ -500,7 +510,10 @@ export class KernelClient {
   /**
    * List available GPUs and allocations.
    */
-  async getGPUs(): Promise<{ gpus: GPUInfo[]; allocations: Array<{ pid: number; gpuIds: number[] }> }> {
+  async getGPUs(): Promise<{
+    gpus: GPUInfo[];
+    allocations: Array<{ pid: number; gpuIds: number[] }>;
+  }> {
     const res = await fetch('http://localhost:3001/api/gpu');
     if (!res.ok) throw new Error(`Failed to fetch GPUs: ${res.statusText}`);
     return res.json();
@@ -529,19 +542,26 @@ export class KernelClient {
   }
 
   private getBaseUrl(): string {
-    return this.url.replace('ws://', 'http://').replace('wss://', 'https://').replace('/kernel', '');
+    return this.url
+      .replace('ws://', 'http://')
+      .replace('wss://', 'https://')
+      .replace('/kernel', '');
   }
 
-  async getAgentHistory(pid: number): Promise<Array<{
-    id: number;
-    pid: number;
-    step: number;
-    phase: string;
-    tool?: string;
-    content: string;
-    timestamp: number;
-  }>> {
-    const res = await fetch(`${this.getBaseUrl()}/api/history/logs/${pid}`, { headers: this.getRestHeaders() });
+  async getAgentHistory(pid: number): Promise<
+    Array<{
+      id: number;
+      pid: number;
+      step: number;
+      phase: string;
+      tool?: string;
+      content: string;
+      timestamp: number;
+    }>
+  > {
+    const res = await fetch(`${this.getBaseUrl()}/api/history/logs/${pid}`, {
+      headers: this.getRestHeaders(),
+    });
     if (!res.ok) throw new Error(`Failed to fetch agent history: ${res.statusText}`);
     return res.json();
   }
@@ -549,19 +569,23 @@ export class KernelClient {
   /**
    * Get process history (all spawned agents).
    */
-  async getProcessHistory(): Promise<Array<{
-    pid: number;
-    uid: string;
-    name: string;
-    role: string;
-    goal: string;
-    state: string;
-    agentPhase?: string;
-    exitCode?: number;
-    createdAt: number;
-    exitedAt?: number;
-  }>> {
-    const res = await fetch(`${this.getBaseUrl()}/api/history/processes`, { headers: this.getRestHeaders() });
+  async getProcessHistory(): Promise<
+    Array<{
+      pid: number;
+      uid: string;
+      name: string;
+      role: string;
+      goal: string;
+      state: string;
+      agentPhase?: string;
+      exitCode?: number;
+      createdAt: number;
+      exitedAt?: number;
+    }>
+  > {
+    const res = await fetch(`${this.getBaseUrl()}/api/history/processes`, {
+      headers: this.getRestHeaders(),
+    });
     if (!res.ok) throw new Error(`Failed to fetch process history: ${res.statusText}`);
     return res.json();
   }
@@ -611,7 +635,10 @@ export class KernelClient {
    * Login via HTTP REST endpoint (useful before WS is connected).
    */
   async loginHttp(username: string, password: string): Promise<{ token: string; user: UserInfo }> {
-    const baseUrl = this.url.replace('ws://', 'http://').replace('wss://', 'https://').replace('/kernel', '');
+    const baseUrl = this.url
+      .replace('ws://', 'http://')
+      .replace('wss://', 'https://')
+      .replace('/kernel', '');
     const res = await fetch(`${baseUrl}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -630,8 +657,15 @@ export class KernelClient {
   /**
    * Register via HTTP REST endpoint.
    */
-  async registerHttp(username: string, password: string, displayName?: string): Promise<{ token: string; user: UserInfo }> {
-    const baseUrl = this.url.replace('ws://', 'http://').replace('wss://', 'https://').replace('/kernel', '');
+  async registerHttp(
+    username: string,
+    password: string,
+    displayName?: string,
+  ): Promise<{ token: string; user: UserInfo }> {
+    const baseUrl = this.url
+      .replace('ws://', 'http://')
+      .replace('wss://', 'https://')
+      .replace('/kernel', '');
     const res = await fetch(`${baseUrl}/api/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -693,12 +727,95 @@ export class KernelClient {
    * Get cluster status information.
    */
   async getClusterInfo(): Promise<ClusterInfo> {
-    const baseUrl = this.url.replace('ws://', 'http://').replace('wss://', 'https://').replace('/kernel', '');
+    const baseUrl = this.url
+      .replace('ws://', 'http://')
+      .replace('wss://', 'https://')
+      .replace('/kernel', '');
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (this._token) headers['Authorization'] = `Bearer ${this._token}`;
     const res = await fetch(`${baseUrl}/api/cluster`, { headers });
     if (!res.ok) throw new Error('Failed to fetch cluster info');
     return res.json();
+  }
+
+  // -----------------------------------------------------------------------
+  // Cron & Trigger API
+  // -----------------------------------------------------------------------
+
+  /**
+   * List all cron jobs.
+   */
+  async listCronJobs(): Promise<any[]> {
+    return this.request({ type: 'cron.list' });
+  }
+
+  /**
+   * Create a cron job.
+   */
+  async createCronJob(
+    name: string,
+    cron_expression: string,
+    agent_config: KernelAgentConfig,
+    owner_uid: string,
+  ): Promise<any> {
+    return this.request({ type: 'cron.create', name, cron_expression, agent_config, owner_uid });
+  }
+
+  /**
+   * Delete a cron job.
+   */
+  async deleteCronJob(jobId: string): Promise<void> {
+    return this.request({ type: 'cron.delete', jobId });
+  }
+
+  /**
+   * Enable a cron job.
+   */
+  async enableCronJob(jobId: string): Promise<void> {
+    return this.request({ type: 'cron.enable', jobId });
+  }
+
+  /**
+   * Disable a cron job.
+   */
+  async disableCronJob(jobId: string): Promise<void> {
+    return this.request({ type: 'cron.disable', jobId });
+  }
+
+  /**
+   * List all event triggers.
+   */
+  async listTriggers(): Promise<any[]> {
+    return this.request({ type: 'trigger.list' });
+  }
+
+  /**
+   * Create an event trigger.
+   */
+  async createTrigger(
+    name: string,
+    event_type: string,
+    agent_config: KernelAgentConfig,
+    owner_uid: string,
+    cooldown_ms?: number,
+    event_filter?: Record<string, any>,
+  ): Promise<any> {
+    return this.request({
+      type: 'trigger.create',
+      name,
+      event_type,
+      agent_config,
+      owner_uid,
+      cooldown_ms,
+      event_filter,
+    });
+  }
+
+  /**
+   * Delete an event trigger.
+   */
+  async deleteTrigger(triggerId: string): Promise<void> {
+    return this.request({ type: 'trigger.delete', triggerId });
   }
 
   // -----------------------------------------------------------------------
@@ -708,7 +825,11 @@ export class KernelClient {
   /**
    * Get kernel status.
    */
-  async getStatus(): Promise<{ version: string; uptime: number; processes: Record<string, number> }> {
+  async getStatus(): Promise<{
+    version: string;
+    uptime: number;
+    processes: Record<string, number>;
+  }> {
     return this.request({ type: 'kernel.status' });
   }
 }

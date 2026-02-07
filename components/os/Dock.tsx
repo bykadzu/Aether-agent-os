@@ -14,6 +14,7 @@ import {
   Activity,
   Music,
   FileText,
+  Brain,
 } from 'lucide-react';
 
 interface DockProps {
@@ -39,6 +40,12 @@ export const Dock: React.FC<DockProps> = ({ onAppClick, openApps }) => {
       icon: Activity,
       label: 'System Monitor',
       color: 'bg-red-100 text-red-600',
+    },
+    {
+      id: AppID.MEMORY_INSPECTOR,
+      icon: Brain,
+      label: 'Memory Inspector',
+      color: 'bg-violet-100 text-violet-600',
     },
   ];
 
