@@ -14,6 +14,7 @@ export default defineConfig({
       'server/src/__tests__/**/*.test.ts',
       'components/**/__tests__/**/*.test.{ts,tsx}',
       'sdk/__tests__/**/*.test.ts',
+      'cli/__tests__/**/*.test.ts',
     ],
     environmentMatchGlobs: [['components/**/__tests__/**', 'jsdom']],
     coverage: {
@@ -29,6 +30,7 @@ export default defineConfig({
       '@aether/shared': path.join(root, 'shared/src/index.ts'),
       '@aether/kernel': path.join(root, 'kernel/src/index.ts'),
       '@aether/runtime': path.join(root, 'runtime/src/index.ts'),
+      '@aether/sdk': path.join(root, 'sdk/src/index.ts'),
     },
   },
 });

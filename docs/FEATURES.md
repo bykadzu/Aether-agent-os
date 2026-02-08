@@ -24,6 +24,7 @@ Status legend:
 | Shared filesystem mounts | Done | Agents can create shared workspaces and mount them into each other's filesystems |
 | VNC / graphical desktop | Done | `kernel/src/VNCManager.ts` — Xvfb + x11vnc, WebSocket proxy for noVNC |
 | Authentication | Done | `kernel/src/AuthManager.ts` — scrypt password hashing, HMAC-SHA256 JWT, user CRUD |
+| RBAC & Organizations | Done | Organizations, teams, 5-tier role hierarchy (owner/admin/manager/member/viewer), 25+ permissions, permission checking, backward-compatible |
 | Hub-and-spoke clustering | Done | `kernel/src/ClusterManager.ts` — hub accepts nodes, health monitoring, load-based routing |
 | Kernel orchestrator | Done | `kernel/src/Kernel.ts` — boots all subsystems, routes commands to handlers |
 | Memory management | Done | `kernel/src/MemoryManager.ts` — 4-layer memory (episodic, semantic, procedural, social), FTS5 search, importance decay, consolidation, sharing, agent profiles |
@@ -99,7 +100,7 @@ Status legend:
 | Music/Audio Player | Done | `components/apps/MusicApp.tsx` — HTML5 audio with /api/fs/raw streaming, play/pause/seek/volume, shuffle/repeat, Web Audio API frequency visualizer, TTS tab with speechSynthesis, file browser sidebar |
 | Documents/PDF Viewer | Done | `components/apps/DocumentsApp.tsx` — PDF rendering via embed, page navigation, zoom controls, file browser sidebar, AI summarization via Gemini, search, dual view modes |
 | Memory Inspector | Done | `components/apps/MemoryInspectorApp.tsx` — agent list sidebar, 4-layer filter tabs, FTS5 search, memory cards with importance/tags, stats header, agent profile cards, mock data fallback |
-| Settings | Done | Shows kernel status, LLM providers with availability, GPU/Docker/cluster info, API key config, Appearance tab with theme toggle, Automation tab for cron jobs and event triggers |
+| Settings | Done | Shows kernel status, LLM providers with availability, GPU/Docker/cluster info, API key config, Appearance tab with theme toggle, Automation tab for cron jobs and event triggers, Organization tab for RBAC management |
 | GitHub Sync | Done | Clone repos into agent workspace via modal, push changes with approval gating |
 | System Monitor | Done | `components/apps/SystemMonitorApp.tsx` — real-time CPU/memory/disk/network charts, 2s polling, per-agent resource breakdown, `/api/system/stats` endpoint |
 
@@ -114,6 +115,11 @@ Status legend:
 | Gemini service | Done | `services/geminiService.ts` — text, image, chat, agent decisions |
 | Auto-reconnection | Done | Configurable retry with backoff |
 | Token management | Done | JWT stored in localStorage, sent with WS and HTTP requests |
+| REST API v1 | Done | 48+ routes at /api/v1/ covering agents, fs, system, cron, webhooks, integrations, orgs, teams |
+| Slack Integration | Done | Bidirectional — 8 actions, event-to-Slack bridge, slash commands, Events API receiver |
+| GitHub Integration | Done | 10 actions — repos, PRs, issues, comments |
+| TypeScript SDK | Done | `@aether/sdk` — AetherClient with namespaced methods (agents, fs, templates, system, events, cron, triggers, marketplace, orgs) |
+| CLI Tool | Done | `@aether/cli` — 20+ commands for headless management, ANSI output, --json flag |
 
 ## Security
 
@@ -126,20 +132,20 @@ Status legend:
 | Approval gating | Done | Agents must ask permission for sensitive operations |
 | Rate limiting | Planned | Not yet implemented |
 | Audit logging | Planned | Not yet implemented |
-| Role-based access control | Partial | Admin/user roles exist but enforcement is minimal |
+| Role-based access control | Done | Full RBAC with organizations, teams, 5-tier role hierarchy, 25+ permissions, requirePermission middleware |
 | Network isolation for containers | Partial | Container networking exists but no fine-grained control |
 
 ## Infrastructure
 
 | Feature | Status | Details |
 |---------|--------|---------|
-| TypeScript monorepo | Done | shared/, kernel/, runtime/, server/ packages |
+| TypeScript monorepo | Done | shared/, kernel/, runtime/, server/, sdk/, cli/ packages |
 | Vite build | Done | Frontend builds, HMR in dev |
 | Dual-mode runtime | Done | Works with kernel (full) or without (mock/client-side) |
 | SQLite database | Done | WAL mode, prepared statements, automatic schema creation |
 | Docker support | Done | Auto-detected, graceful fallback to child_process |
 | GPU detection | Done | nvidia-smi parsing |
-| Automated tests | Done | Vitest — 345+ tests across 19+ suites (kernel, runtime, shared, server integration, component tests) |
+| Automated tests | Done | Vitest — 600+ tests across 35+ suites (kernel, runtime, shared, server, CLI, component tests) |
 | CI/CD pipeline | Done | `.github/workflows/ci.yml` — lint + test on push/PR |
 | Linting / formatting | Done | ESLint (flat config) + Prettier, `npm run lint` / `npm run format` |
 | Error boundaries (React) | Done | `ErrorBoundary` wraps windows, dock, widgets; WS reconnect banner |

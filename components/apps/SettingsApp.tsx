@@ -21,6 +21,12 @@ import {
   ToggleRight,
   Play,
   Calendar,
+  Building2,
+  Users,
+  Shield,
+  UserPlus,
+  UserMinus,
+  Crown,
 } from 'lucide-react';
 import { getKernelClient, GPUInfo, ClusterInfo } from '../../services/kernelClient';
 import { useTheme, ThemeMode } from '../../services/themeManager';
@@ -135,6 +141,18 @@ export const SettingsApp: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<{ username: string; role: string } | null>(null);
   const [geminiKey, setGeminiKey] = useState(localStorage.getItem('gemini_api_key') || '');
 
+  // Organization state
+  const [orgs, setOrgs] = useState<any[]>([]);
+  const [selectedOrg, setSelectedOrg] = useState<any>(null);
+  const [orgMembers, setOrgMembers] = useState<any[]>([]);
+  const [orgTeams, setOrgTeams] = useState<any[]>([]);
+  const [newOrgName, setNewOrgName] = useState('');
+  const [newOrgDisplayName, setNewOrgDisplayName] = useState('');
+  const [inviteUserId, setInviteUserId] = useState('');
+  const [inviteRole, setInviteRole] = useState('member');
+  const [newTeamName, setNewTeamName] = useState('');
+  const [newTeamDescription, setNewTeamDescription] = useState('');
+
   // Automation state
   const [cronJobs, setCronJobs] = useState<CronJob[]>([]);
   const [triggers, setTriggers] = useState<EventTrigger[]>([]);
@@ -208,6 +226,50 @@ export const SettingsApp: React.FC = () => {
       .then((data) => setLlmProviders(data))
       .catch(() => setLlmProviders([]));
   }, []);
+
+  // Load org data when Organization tab is active
+  useEffect(() => {
+    if (activeTab !== 'Organization') return;
+    const client = getKernelClient();
+    if (!client.connected) return;
+
+    const token = localStorage.getItem('aether_token');
+    const base = client.getBaseUrl?.() || 'http://localhost:3001';
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    fetch(`${base}/api/v1/orgs`, { headers })
+      .then((r) => (r.ok ? r.json() : { data: [] }))
+      .then((d) => {
+        const list = d.data ?? d;
+        setOrgs(Array.isArray(list) ? list : []);
+      })
+      .catch(() => setOrgs([]));
+  }, [activeTab]);
+
+  // Load members/teams when an org is selected
+  useEffect(() => {
+    if (!selectedOrg) {
+      setOrgMembers([]);
+      setOrgTeams([]);
+      return;
+    }
+    const client = getKernelClient();
+    if (!client.connected) return;
+    const token = localStorage.getItem('aether_token');
+    const base = client.getBaseUrl?.() || 'http://localhost:3001';
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    fetch(`${base}/api/v1/orgs/${selectedOrg.id}/members`, { headers })
+      .then((r) => (r.ok ? r.json() : { data: [] }))
+      .then((d) => setOrgMembers(Array.isArray(d.data ?? d) ? (d.data ?? d) : []))
+      .catch(() => setOrgMembers([]));
+    fetch(`${base}/api/v1/orgs/${selectedOrg.id}/teams`, { headers })
+      .then((r) => (r.ok ? r.json() : { data: [] }))
+      .then((d) => setOrgTeams(Array.isArray(d.data ?? d) ? (d.data ?? d) : []))
+      .catch(() => setOrgTeams([]));
+  }, [selectedOrg]);
 
   // Load automation data when tab is active
   useEffect(() => {
@@ -417,6 +479,7 @@ export const SettingsApp: React.FC = () => {
     { name: 'Network', icon: Wifi, color: 'bg-blue-400' },
     { name: 'Privacy', icon: Lock, color: 'bg-sky-500' },
     { name: 'Notifications', icon: Bell, color: 'bg-red-500' },
+    { name: 'Organization', icon: Building2, color: 'bg-emerald-500' },
     { name: 'Automation', icon: Zap, color: 'bg-amber-500' },
   ];
 
@@ -774,6 +837,293 @@ export const SettingsApp: React.FC = () => {
                 </div>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Organization */}
+        {activeTab === 'Organization' && (
+          <div className="space-y-4">
+            {/* Create Org */}
+            <div className="bg-white/50 rounded-xl border border-white/40 overflow-hidden">
+              <div className="p-4 border-b border-gray-100">
+                <h3 className="text-sm font-bold text-gray-700 mb-1 flex items-center gap-2">
+                  <Building2 size={14} className="text-emerald-500" /> Organizations
+                </h3>
+                <p className="text-xs text-gray-400">Manage organizations, members, and teams</p>
+              </div>
+
+              {/* Org List */}
+              {orgs.length > 0 ? (
+                orgs.map((org: any) => (
+                  <div
+                    key={org.id}
+                    onClick={() => setSelectedOrg(org)}
+                    className={`p-4 flex items-center justify-between border-b border-gray-100 cursor-pointer transition-colors ${selectedOrg?.id === org.id ? 'bg-emerald-50' : 'hover:bg-white/60'}`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center">
+                        <Building2 size={14} className="text-emerald-600" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-gray-700 truncate">
+                          {org.displayName || org.name}
+                        </div>
+                        <div className="text-[10px] text-gray-400">{org.name}</div>
+                      </div>
+                    </div>
+                    <span className="text-xs text-gray-400 flex items-center gap-1">
+                      <Crown size={10} /> {org.ownerUid?.slice(0, 8)}...
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <div className="p-4 text-sm text-gray-400">No organizations yet.</div>
+              )}
+
+              {/* Create Org Form */}
+              <div className="p-4 bg-gray-50/50">
+                <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-1.5">
+                  <Plus size={12} /> Create Organization
+                </h4>
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newOrgName}
+                      onChange={(e) => setNewOrgName(e.target.value)}
+                      placeholder="Org slug (e.g. my-team)"
+                      className="flex-1 bg-gray-100 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-400 transition-colors"
+                    />
+                    <input
+                      type="text"
+                      value={newOrgDisplayName}
+                      onChange={(e) => setNewOrgDisplayName(e.target.value)}
+                      placeholder="Display name"
+                      className="flex-1 bg-gray-100 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-400 transition-colors"
+                    />
+                  </div>
+                  <button
+                    onClick={() => {
+                      if (!newOrgName) return;
+                      const client = getKernelClient();
+                      if (!client.connected) return;
+                      const token = localStorage.getItem('aether_token');
+                      const base = client.getBaseUrl?.() || 'http://localhost:3001';
+                      const headers: Record<string, string> = {
+                        'Content-Type': 'application/json',
+                      };
+                      if (token) headers['Authorization'] = `Bearer ${token}`;
+                      fetch(`${base}/api/v1/orgs`, {
+                        method: 'POST',
+                        headers,
+                        body: JSON.stringify({
+                          name: newOrgName,
+                          displayName: newOrgDisplayName || undefined,
+                        }),
+                      })
+                        .then((r) => r.json())
+                        .then((d) => {
+                          const org = d.data ?? d;
+                          setOrgs((prev) => [...prev, org]);
+                          setNewOrgName('');
+                          setNewOrgDisplayName('');
+                        })
+                        .catch(() => {});
+                    }}
+                    disabled={!newOrgName}
+                    className="bg-emerald-500 hover:bg-emerald-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5"
+                  >
+                    <Plus size={12} /> Create
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Selected Org Detail */}
+            {selectedOrg && (
+              <>
+                {/* Members */}
+                <div className="bg-white/50 rounded-xl border border-white/40 overflow-hidden">
+                  <div className="p-4 border-b border-gray-100">
+                    <h3 className="text-sm font-bold text-gray-700 mb-1 flex items-center gap-2">
+                      <Users size={14} className="text-blue-500" /> Members -{' '}
+                      {selectedOrg.displayName || selectedOrg.name}
+                    </h3>
+                  </div>
+                  {orgMembers.length > 0 ? (
+                    orgMembers.map((m: any) => (
+                      <div
+                        key={m.id}
+                        className="p-3 flex items-center justify-between border-b border-gray-100"
+                      >
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center text-[10px] font-bold text-blue-600">
+                            {m.userId?.slice(0, 2).toUpperCase()}
+                          </div>
+                          <span className="text-sm text-gray-700">{m.userId?.slice(0, 12)}...</span>
+                        </div>
+                        <span
+                          className={`text-xs font-medium px-2 py-0.5 rounded-full ${m.role === 'owner' ? 'bg-amber-100 text-amber-700' : m.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600'}`}
+                        >
+                          <Shield size={10} className="inline mr-0.5" />
+                          {m.role}
+                        </span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="p-4 text-sm text-gray-400">No members.</div>
+                  )}
+                  {/* Invite Member */}
+                  <div className="p-3 bg-gray-50/50 flex gap-2">
+                    <input
+                      type="text"
+                      value={inviteUserId}
+                      onChange={(e) => setInviteUserId(e.target.value)}
+                      placeholder="User ID"
+                      className="flex-1 bg-gray-100 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400"
+                    />
+                    <select
+                      value={inviteRole}
+                      onChange={(e) => setInviteRole(e.target.value)}
+                      className="w-28 bg-gray-100 border border-gray-200 rounded-lg px-2 py-1.5 text-sm"
+                    >
+                      <option value="viewer">Viewer</option>
+                      <option value="member">Member</option>
+                      <option value="manager">Manager</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                    <button
+                      onClick={() => {
+                        if (!inviteUserId || !selectedOrg) return;
+                        const client = getKernelClient();
+                        if (!client.connected) return;
+                        const token = localStorage.getItem('aether_token');
+                        const base = client.getBaseUrl?.() || 'http://localhost:3001';
+                        const headers: Record<string, string> = {
+                          'Content-Type': 'application/json',
+                        };
+                        if (token) headers['Authorization'] = `Bearer ${token}`;
+                        fetch(`${base}/api/v1/orgs/${selectedOrg.id}/members`, {
+                          method: 'POST',
+                          headers,
+                          body: JSON.stringify({ userId: inviteUserId, role: inviteRole }),
+                        })
+                          .then((r) => r.json())
+                          .then((d) => {
+                            const member = d.data ?? d;
+                            setOrgMembers((prev) => [...prev, member]);
+                            setInviteUserId('');
+                          })
+                          .catch(() => {});
+                      }}
+                      disabled={!inviteUserId}
+                      className="bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+                    >
+                      <UserPlus size={14} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Teams */}
+                <div className="bg-white/50 rounded-xl border border-white/40 overflow-hidden">
+                  <div className="p-4 border-b border-gray-100">
+                    <h3 className="text-sm font-bold text-gray-700 mb-1 flex items-center gap-2">
+                      <Users size={14} className="text-indigo-500" /> Teams
+                    </h3>
+                  </div>
+                  {orgTeams.length > 0 ? (
+                    orgTeams.map((t: any) => (
+                      <div
+                        key={t.id}
+                        className="p-3 flex items-center justify-between border-b border-gray-100"
+                      >
+                        <div>
+                          <div className="text-sm font-medium text-gray-700">{t.name}</div>
+                          {t.description && (
+                            <div className="text-[10px] text-gray-400">{t.description}</div>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => {
+                            const client = getKernelClient();
+                            if (!client.connected) return;
+                            const token = localStorage.getItem('aether_token');
+                            const base = client.getBaseUrl?.() || 'http://localhost:3001';
+                            const headers: Record<string, string> = {};
+                            if (token) headers['Authorization'] = `Bearer ${token}`;
+                            fetch(`${base}/api/v1/orgs/${selectedOrg.id}/teams/${t.id}`, {
+                              method: 'DELETE',
+                              headers,
+                            })
+                              .then(() =>
+                                setOrgTeams((prev) => prev.filter((x: any) => x.id !== t.id)),
+                              )
+                              .catch(() => {});
+                          }}
+                          className="p-1 hover:bg-red-50 rounded-lg transition-colors"
+                        >
+                          <Trash2 size={14} className="text-red-400" />
+                        </button>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="p-4 text-sm text-gray-400">No teams yet.</div>
+                  )}
+                  {/* Create Team */}
+                  <div className="p-3 bg-gray-50/50 space-y-2">
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={newTeamName}
+                        onChange={(e) => setNewTeamName(e.target.value)}
+                        placeholder="Team name"
+                        className="flex-1 bg-gray-100 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-indigo-400"
+                      />
+                      <input
+                        type="text"
+                        value={newTeamDescription}
+                        onChange={(e) => setNewTeamDescription(e.target.value)}
+                        placeholder="Description"
+                        className="flex-1 bg-gray-100 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-indigo-400"
+                      />
+                    </div>
+                    <button
+                      onClick={() => {
+                        if (!newTeamName || !selectedOrg) return;
+                        const client = getKernelClient();
+                        if (!client.connected) return;
+                        const token = localStorage.getItem('aether_token');
+                        const base = client.getBaseUrl?.() || 'http://localhost:3001';
+                        const headers: Record<string, string> = {
+                          'Content-Type': 'application/json',
+                        };
+                        if (token) headers['Authorization'] = `Bearer ${token}`;
+                        fetch(`${base}/api/v1/orgs/${selectedOrg.id}/teams`, {
+                          method: 'POST',
+                          headers,
+                          body: JSON.stringify({
+                            name: newTeamName,
+                            description: newTeamDescription || undefined,
+                          }),
+                        })
+                          .then((r) => r.json())
+                          .then((d) => {
+                            const team = d.data ?? d;
+                            setOrgTeams((prev) => [...prev, team]);
+                            setNewTeamName('');
+                            setNewTeamDescription('');
+                          })
+                          .catch(() => {});
+                      }}
+                      disabled={!newTeamName}
+                      className="bg-indigo-500 hover:bg-indigo-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-4 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5"
+                    >
+                      <Plus size={12} /> Create Team
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         )}
 

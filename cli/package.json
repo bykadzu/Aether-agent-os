@@ -1,0 +1,20 @@
+{
+  "name": "@aether/cli",
+  "version": "0.4.0",
+  "description": "Command-line interface for Aether OS",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "aether": "./dist/cli.js"
+  },
+  "main": "./src/cli.ts",
+  "exports": {
+    ".": "./src/cli.ts"
+  },
+  "dependencies": {
+    "@aether/sdk": "file:../sdk"
+  },
+  "devDependencies": {
+    "vitest": "^4.0.18"
+  }
+}

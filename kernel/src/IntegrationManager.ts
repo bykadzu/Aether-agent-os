@@ -13,6 +13,7 @@ import { EventBus } from './EventBus.js';
 import { StateStore } from './StateStore.js';
 import type { IIntegration } from './integrations/IIntegration.js';
 import { GitHubIntegration } from './integrations/GitHubIntegration.js';
+import { SlackIntegration } from './integrations/SlackIntegration.js';
 import type { IntegrationConfig, IntegrationInfo } from '@aether/shared';
 
 export class IntegrationManager {
@@ -27,6 +28,7 @@ export class IntegrationManager {
 
   async init(): Promise<void> {
     this.integrationTypes.set('github', new GitHubIntegration());
+    this.integrationTypes.set('slack', new SlackIntegration());
   }
 
   register(config: IntegrationConfig, ownerUid?: string): IntegrationInfo {

@@ -132,13 +132,25 @@ Implemented in 4 waves across PRs #31 and #32, merged to main.
 
 Full details in [ROADMAP-v0.4.md](./ROADMAP-v0.4.md).
 
+### Wave 1 (Complete)
+- [x] **REST API v1** — 34 routes at /api/v1/, WebhookManager (outbound + inbound), AppManager (manifest + lifecycle), App Store UI
+- [x] **Webhook & event system** — Inbound/outbound webhooks, event-triggered notifications
+
+### Wave 2 (Complete)
+- [x] **Plugin Marketplace** — PluginRegistryManager, Marketplace UI (7 categories, ratings, settings)
+- [x] **External integrations (GitHub)** — IntegrationManager + GitHubIntegration (10 actions)
+- [x] **TypeScript SDK** — @aether/sdk client with namespaced methods
+- [x] **Agent Marketplace** — TemplateManager (publish/rate/fork)
+
+### Wave 3 (Complete)
+- [x] **Slack Integration (bidirectional)** — SlackIntegration with 8 actions (send_message, list_channels, read_channel, add_reaction, set_topic, upload_file, list_users, send_dm), event-to-Slack bridge with Mustache templates, inbound slash commands (/aether spawn/status/kill/ask), Slack Events API receiver with signature verification
+- [x] **CLI Tool (@aether/cli)** — Headless CLI with hand-rolled arg parser, 20+ commands (agents, fs, system, cron, webhooks, templates), ANSI colored output, --json flag, ~/.aether/config.json storage
+- [x] **RBAC & Organizations** — Organizations, teams, 5-tier role hierarchy (owner/admin/manager/member/viewer), 25+ permissions, requirePermission middleware, 14 new REST routes, Organization tab in Settings UI, backward-compatible
+
+### Remaining
 - [ ] App Store framework (manifest, sandbox, permissions, lifecycle, SDK, CLI, registry)
-- [ ] Plugin Marketplace (8 categories, SDK, installer, auto-updates)
-- [ ] External integrations (GitHub, GitLab, Jira, Slack, Discord, Notion, S3, etc.)
-- [ ] REST API & SDKs (TypeScript, Python, CLI)
-- [ ] Agent Marketplace (template publishing, ratings)
-- [ ] Multi-tenant platform (organizations, teams, RBAC, billing, SSO)
-- [ ] Webhook & event system (inbound/outbound)
+- [ ] External integrations (GitLab, Jira, Discord, Notion, S3, etc.)
+- [ ] Python SDK
 - [ ] Lightweight skill format (simpler than full React apps — gap identified in research)
 - [ ] Remote access (Tailscale/SSH — not in any roadmap yet, identified as gap)
 
