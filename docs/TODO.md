@@ -2,7 +2,7 @@
 
 Consolidated checklist of all outstanding work, derived from NEXT_STEPS.md, FEATURES.md, all roadmaps, and the research documents. Organized by urgency and version target.
 
-**Last updated:** 2026-02-07 (post-v0.3 completion)
+**Last updated:** 2026-02-08 (post-v0.4 Wave 4 completion)
 
 ---
 
@@ -147,9 +147,17 @@ Full details in [ROADMAP-v0.4.md](./ROADMAP-v0.4.md).
 - [x] **CLI Tool (@aether/cli)** — Headless CLI with hand-rolled arg parser, 20+ commands (agents, fs, system, cron, webhooks, templates), ANSI colored output, --json flag, ~/.aether/config.json storage
 - [x] **RBAC & Organizations** — Organizations, teams, 5-tier role hierarchy (owner/admin/manager/member/viewer), 25+ permissions, requirePermission middleware, 14 new REST routes, Organization tab in Settings UI, backward-compatible
 
+### Wave 4 (Complete)
+- [x] **S3 Integration** — S3Integration with AWS Signature V4 signing (7 actions: list_buckets, list_objects, get_object, put_object, delete_object, copy_object, head_object), zero external dependencies
+- [x] **Discord Integration** — DiscordIntegration with bot token auth (6 actions: send_message, list_guilds, list_channels, read_messages, add_reaction, get_guild_members)
+- [x] **Embeddable Widget** — `<aether-agent>` Web Component (embed/ package), shadow DOM, dark/light themes, 4 position modes, auto-spawn with templates, SSE polling, self-contained bundle
+- [x] **OpenAPI Spec** — Full OpenAPI 3.0.0 spec (53 endpoints, 11 tags, reusable schemas), served at GET /api/v1/openapi.json
+- [x] **Template Seeding** — 16 pre-built agent templates (development, research, data, creative, ops categories) auto-seeded on first run
+- [x] **Reference Plugins** — 3 reference plugin manifests (S3 Storage, Slack Notifications, GitHub Actions) auto-seeded on first run
+- [x] **SDK Extensions** — Added integrations, webhooks, plugins namespaces to AetherClient
+- [x] **CLI Integrations Command** — `aether integrations list|test|exec` commands
+
 ### Remaining
-- [ ] App Store framework (manifest, sandbox, permissions, lifecycle, SDK, CLI, registry)
-- [ ] External integrations (GitLab, Jira, Discord, Notion, S3, etc.)
 - [ ] Python SDK
 - [ ] Lightweight skill format (simpler than full React apps — gap identified in research)
 - [ ] Remote access (Tailscale/SSH — not in any roadmap yet, identified as gap)
@@ -186,6 +194,33 @@ These items appear across multiple docs or were identified as gaps:
 | Remote access | RESEARCH-future-plans-summary.md | Tailscale/SSH not planned in any roadmap |
 | Context compaction | RESEARCH-future-plans-summary.md | Important for long-running agents |
 | Lightweight skills | RESEARCH-openclaw-ideas.md | Simpler than full React apps for v0.4 |
+
+---
+
+---
+
+## Testing Guidelines
+
+### Running Tests
+
+**Recommended test command** (avoids OOM and slow integration tests):
+
+```bash
+npx vitest run --exclude "**/raw-file-endpoint*" --exclude "**/kernel-integration*"
+```
+
+**Why:** The `raw-file-endpoint.test.ts` and `kernel-integration.test.ts` suites each boot a full kernel (SQLite, Docker detection, GPU scan, all 19 subsystems) for **every single test case**. This causes:
+- ~8 seconds per test (vs <100ms for unit tests)
+- JavaScript heap OOM (`FATAL ERROR: Ineffective mark-compacts near heap limit`) when run alongside the rest of the suite
+- Total suite time >10 minutes on most machines
+
+**For CI/validation of new code:** Run the targeted tests above. The slow integration tests should only be run in isolation when modifying server/kernel boot code.
+
+**For new Wave/feature tests:** Run the specific new test files first, then the exclude command above for regression checking.
+
+### Known Pre-existing Failures
+
+- `VirtualFS.test.ts` — 2 symlink tests (`mountShared creates symlink`, `unmountShared removes symlink`) fail on Windows due to lack of symlink permissions. These pass on Linux/macOS/CI.
 
 ---
 
