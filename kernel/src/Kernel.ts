@@ -1506,6 +1506,157 @@ export class Kernel {
           break;
         }
 
+        // ----- Organization Commands (v0.5 RBAC) -----
+        case 'org.create': {
+          try {
+            const org = this.auth.createOrg(cmd.name, user!.id, cmd.displayName);
+            events.push({ type: 'response.ok', id: cmd.id, data: org });
+            events.push({ type: 'org.created', org } as KernelEvent);
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        case 'org.delete': {
+          try {
+            this.auth.deleteOrg(cmd.orgId, user!.id);
+            events.push({ type: 'response.ok', id: cmd.id });
+            events.push({ type: 'org.deleted', orgId: cmd.orgId } as KernelEvent);
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        case 'org.list': {
+          const orgs = this.auth.listOrgs(user?.id);
+          events.push({ type: 'response.ok', id: cmd.id, data: orgs });
+          break;
+        }
+
+        case 'org.get': {
+          const org = this.auth.getOrg(cmd.orgId);
+          if (org) {
+            events.push({ type: 'response.ok', id: cmd.id, data: org });
+          } else {
+            events.push({ type: 'response.error', id: cmd.id, error: 'Organization not found' });
+          }
+          break;
+        }
+
+        case 'org.update': {
+          try {
+            const org = this.auth.updateOrg(cmd.orgId, { settings: cmd.settings }, user!.id);
+            events.push({ type: 'response.ok', id: cmd.id, data: org });
+            events.push({ type: 'org.updated', org } as KernelEvent);
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        case 'org.members.list': {
+          const members = this.auth.listMembers(cmd.orgId);
+          events.push({ type: 'response.ok', id: cmd.id, data: members });
+          break;
+        }
+
+        case 'org.members.invite': {
+          try {
+            this.auth.inviteMember(cmd.orgId, cmd.userId, cmd.role, user!.id);
+            events.push({ type: 'response.ok', id: cmd.id });
+            events.push({
+              type: 'org.member.invited',
+              orgId: cmd.orgId,
+              userId: cmd.userId,
+              role: cmd.role,
+            } as KernelEvent);
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        case 'org.members.remove': {
+          try {
+            this.auth.removeMember(cmd.orgId, cmd.userId, user!.id);
+            events.push({ type: 'response.ok', id: cmd.id });
+            events.push({
+              type: 'org.member.removed',
+              orgId: cmd.orgId,
+              userId: cmd.userId,
+            } as KernelEvent);
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        case 'org.members.update': {
+          try {
+            this.auth.updateMemberRole(cmd.orgId, cmd.userId, cmd.role, user!.id);
+            events.push({ type: 'response.ok', id: cmd.id });
+            events.push({
+              type: 'org.member.updated',
+              orgId: cmd.orgId,
+              userId: cmd.userId,
+              role: cmd.role,
+            } as KernelEvent);
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        case 'org.teams.create': {
+          try {
+            const team = this.auth.createTeam(cmd.orgId, cmd.name, user!.id, cmd.description);
+            events.push({ type: 'response.ok', id: cmd.id, data: team });
+            events.push({ type: 'org.team.created', team } as KernelEvent);
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        case 'org.teams.delete': {
+          try {
+            this.auth.deleteTeam(cmd.teamId, user!.id);
+            events.push({ type: 'response.ok', id: cmd.id });
+            events.push({ type: 'org.team.deleted', teamId: cmd.teamId } as KernelEvent);
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        case 'org.teams.list': {
+          const teams = this.auth.listTeams(cmd.orgId);
+          events.push({ type: 'response.ok', id: cmd.id, data: teams });
+          break;
+        }
+
+        case 'org.teams.addMember': {
+          try {
+            this.auth.addToTeam(cmd.teamId, cmd.userId, user!.id, cmd.role || 'member');
+            events.push({ type: 'response.ok', id: cmd.id });
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        case 'org.teams.removeMember': {
+          try {
+            this.auth.removeFromTeam(cmd.teamId, cmd.userId, user!.id);
+            events.push({ type: 'response.ok', id: cmd.id });
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
         // ----- System Commands -----
         case 'kernel.status': {
           events.push({

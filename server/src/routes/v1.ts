@@ -12,6 +12,7 @@
 
 import { type IncomingMessage, type ServerResponse } from 'node:http';
 import * as os from 'node:os';
+import { verifySlackSignature, parseSlashCommand } from '@aether/kernel';
 
 const API_VERSION = '0.4.0';
 
@@ -859,6 +860,135 @@ export function createV1Router(
     return false;
   }
 
+  // ----- Slack Webhooks (public — verified by Slack signing secret) -----
+
+  async function handleSlackWebhooks(
+    req: IncomingMessage,
+    res: ServerResponse,
+    url: URL,
+    _user: UserInfo,
+  ): Promise<boolean> {
+    const method = req.method || 'GET';
+    const pathname = url.pathname;
+
+    // POST /api/v1/integrations/slack/commands — Slash command receiver
+    if (pathname === '/api/v1/integrations/slack/commands' && method === 'POST') {
+      const body = await readBody(req);
+
+      // Find a registered Slack integration to get signing_secret
+      const allIntegrations = kernel.integrations.list();
+      const slackIntegration = allIntegrations.find((i: any) => i.type === 'slack' && i.enabled);
+      if (!slackIntegration) {
+        jsonError(res, 404, 'NOT_FOUND', 'No active Slack integration found');
+        return true;
+      }
+
+      // Get credentials from the integration row
+      const row = kernel.state.getIntegration(slackIntegration.id);
+      const credentials = row?.credentials ? JSON.parse(row.credentials) : {};
+
+      // Verify Slack signature
+      const timestamp = (req.headers['x-slack-request-timestamp'] as string) || '';
+      const signature = (req.headers['x-slack-signature'] as string) || '';
+      if (
+        !credentials.signing_secret ||
+        !verifySlackSignature(credentials.signing_secret, timestamp, body, signature)
+      ) {
+        jsonError(res, 401, 'INVALID_SIGNATURE', 'Slack signature verification failed');
+        return true;
+      }
+
+      // Parse URL-encoded slash command payload
+      const params = new URLSearchParams(body);
+      const commandText = params.get('text') || '';
+      const userId = params.get('user_id') || '';
+      const userName = params.get('user_name') || '';
+      const channelId = params.get('channel_id') || '';
+      const responseUrl = params.get('response_url') || '';
+
+      const parsed = parseSlashCommand(commandText);
+
+      // Emit event on the kernel bus for other subsystems to react
+      kernel.bus.emit('slack.command', {
+        integrationId: slackIntegration.id,
+        command: parsed.command,
+        args: parsed.args,
+        user_id: userId,
+        user_name: userName,
+        channel_id: channelId,
+        response_url: responseUrl,
+        raw_text: commandText,
+      });
+
+      // Return immediate acknowledgement to Slack
+      jsonOk(res, {
+        response_type: 'ephemeral',
+        text: `Processing command: ${parsed.command} ${parsed.args.join(' ')}`,
+      });
+      return true;
+    }
+
+    // POST /api/v1/integrations/slack/events — Events API receiver
+    if (pathname === '/api/v1/integrations/slack/events' && method === 'POST') {
+      const body = await readBody(req);
+
+      let payload: any;
+      try {
+        payload = JSON.parse(body);
+      } catch {
+        jsonError(res, 400, 'INVALID_JSON', 'Request body is not valid JSON');
+        return true;
+      }
+
+      // Handle Slack URL verification challenge
+      if (payload.type === 'url_verification') {
+        setVersionHeader(res);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ challenge: payload.challenge }));
+        return true;
+      }
+
+      // Find a registered Slack integration
+      const allIntegrations = kernel.integrations.list();
+      const slackIntegration = allIntegrations.find((i: any) => i.type === 'slack' && i.enabled);
+      if (!slackIntegration) {
+        jsonError(res, 404, 'NOT_FOUND', 'No active Slack integration found');
+        return true;
+      }
+
+      // Get credentials
+      const row = kernel.state.getIntegration(slackIntegration.id);
+      const credentials = row?.credentials ? JSON.parse(row.credentials) : {};
+
+      // Verify Slack signature
+      const timestamp = (req.headers['x-slack-request-timestamp'] as string) || '';
+      const signature = (req.headers['x-slack-signature'] as string) || '';
+      if (
+        !credentials.signing_secret ||
+        !verifySlackSignature(credentials.signing_secret, timestamp, body, signature)
+      ) {
+        jsonError(res, 401, 'INVALID_SIGNATURE', 'Slack signature verification failed');
+        return true;
+      }
+
+      // Emit event on kernel bus
+      if (payload.event) {
+        kernel.bus.emit('slack.event', {
+          integrationId: slackIntegration.id,
+          event_type: payload.event.type,
+          event: payload.event,
+          team_id: payload.team_id,
+        });
+      }
+
+      // Acknowledge receipt to Slack (must respond within 3s)
+      jsonOk(res, { ok: true });
+      return true;
+    }
+
+    return false;
+  }
+
   // ----- Marketplace (Plugin Registry + Template Marketplace) -----
 
   async function handleMarketplace(
@@ -939,6 +1069,211 @@ export function createV1Router(
     return false;
   }
 
+  // ----- Organizations (v0.5 RBAC) -----
+
+  async function handleOrgs(
+    req: IncomingMessage,
+    res: ServerResponse,
+    url: URL,
+    user: UserInfo,
+  ): Promise<boolean> {
+    const method = req.method || 'GET';
+    const pathname = url.pathname;
+
+    // POST /api/v1/orgs — Create org
+    if (pathname === '/api/v1/orgs' && method === 'POST') {
+      try {
+        const body = await readBody(req);
+        const { name, displayName } = JSON.parse(body);
+        if (!name) {
+          jsonError(res, 400, 'INVALID_INPUT', 'name is required');
+          return true;
+        }
+        const org = kernel.auth.createOrg(name, user.id, displayName);
+        jsonOk(res, org, 201);
+      } catch (err: any) {
+        jsonError(res, 400, 'INVALID_INPUT', err.message);
+      }
+      return true;
+    }
+
+    // GET /api/v1/orgs — List user's orgs
+    if (pathname === '/api/v1/orgs' && method === 'GET') {
+      const orgs = kernel.auth.listOrgs(user.id);
+      jsonOk(res, orgs);
+      return true;
+    }
+
+    // GET /api/v1/orgs/:orgId
+    let params = matchRoute(pathname, method, 'GET', '/api/v1/orgs/:orgId');
+    if (params) {
+      const org = kernel.auth.getOrg(params.orgId);
+      if (org) {
+        jsonOk(res, org);
+      } else {
+        jsonError(res, 404, 'NOT_FOUND', 'Organization not found');
+      }
+      return true;
+    }
+
+    // DELETE /api/v1/orgs/:orgId
+    params = matchRoute(pathname, method, 'DELETE', '/api/v1/orgs/:orgId');
+    if (params) {
+      try {
+        kernel.auth.deleteOrg(params.orgId, user.id);
+        jsonOk(res, { deleted: true });
+      } catch (err: any) {
+        jsonError(res, 403, 'FORBIDDEN', err.message);
+      }
+      return true;
+    }
+
+    // PATCH /api/v1/orgs/:orgId — Update org settings
+    params = matchRoute(pathname, method, 'PATCH', '/api/v1/orgs/:orgId');
+    if (params) {
+      try {
+        const body = await readBody(req);
+        const { settings, displayName } = JSON.parse(body);
+        const org = kernel.auth.updateOrg(params.orgId, { settings, displayName }, user.id);
+        jsonOk(res, org);
+      } catch (err: any) {
+        jsonError(res, 400, 'INVALID_INPUT', err.message);
+      }
+      return true;
+    }
+
+    // GET /api/v1/orgs/:orgId/members — List members
+    params = matchRoute(pathname, method, 'GET', '/api/v1/orgs/:orgId/members');
+    if (params) {
+      const members = kernel.auth.listMembers(params.orgId);
+      jsonOk(res, members);
+      return true;
+    }
+
+    // POST /api/v1/orgs/:orgId/members — Invite member
+    params = matchRoute(pathname, method, 'POST', '/api/v1/orgs/:orgId/members');
+    if (params) {
+      try {
+        const body = await readBody(req);
+        const { userId, role } = JSON.parse(body);
+        if (!userId || !role) {
+          jsonError(res, 400, 'INVALID_INPUT', 'userId and role are required');
+          return true;
+        }
+        kernel.auth.inviteMember(params.orgId, userId, role, user.id);
+        jsonOk(res, { invited: true }, 201);
+      } catch (err: any) {
+        jsonError(res, 400, 'INVALID_INPUT', err.message);
+      }
+      return true;
+    }
+
+    // DELETE /api/v1/orgs/:orgId/members/:userId — Remove member
+    params = matchRoute(pathname, method, 'DELETE', '/api/v1/orgs/:orgId/members/:userId');
+    if (params) {
+      try {
+        kernel.auth.removeMember(params.orgId, params.userId, user.id);
+        jsonOk(res, { removed: true });
+      } catch (err: any) {
+        jsonError(res, 403, 'FORBIDDEN', err.message);
+      }
+      return true;
+    }
+
+    // PATCH /api/v1/orgs/:orgId/members/:userId — Update role
+    params = matchRoute(pathname, method, 'PATCH', '/api/v1/orgs/:orgId/members/:userId');
+    if (params) {
+      try {
+        const body = await readBody(req);
+        const { role } = JSON.parse(body);
+        if (!role) {
+          jsonError(res, 400, 'INVALID_INPUT', 'role is required');
+          return true;
+        }
+        kernel.auth.updateMemberRole(params.orgId, params.userId, role, user.id);
+        jsonOk(res, { updated: true });
+      } catch (err: any) {
+        jsonError(res, 400, 'INVALID_INPUT', err.message);
+      }
+      return true;
+    }
+
+    // POST /api/v1/orgs/:orgId/teams — Create team
+    params = matchRoute(pathname, method, 'POST', '/api/v1/orgs/:orgId/teams');
+    if (params) {
+      try {
+        const body = await readBody(req);
+        const { name, description } = JSON.parse(body);
+        if (!name) {
+          jsonError(res, 400, 'INVALID_INPUT', 'name is required');
+          return true;
+        }
+        const team = kernel.auth.createTeam(params.orgId, name, user.id, description);
+        jsonOk(res, team, 201);
+      } catch (err: any) {
+        jsonError(res, 400, 'INVALID_INPUT', err.message);
+      }
+      return true;
+    }
+
+    // GET /api/v1/orgs/:orgId/teams — List teams
+    params = matchRoute(pathname, method, 'GET', '/api/v1/orgs/:orgId/teams');
+    if (params) {
+      const teams = kernel.auth.listTeams(params.orgId);
+      jsonOk(res, teams);
+      return true;
+    }
+
+    // DELETE /api/v1/orgs/:orgId/teams/:teamId — Delete team
+    params = matchRoute(pathname, method, 'DELETE', '/api/v1/orgs/:orgId/teams/:teamId');
+    if (params) {
+      try {
+        kernel.auth.deleteTeam(params.teamId, user.id);
+        jsonOk(res, { deleted: true });
+      } catch (err: any) {
+        jsonError(res, 403, 'FORBIDDEN', err.message);
+      }
+      return true;
+    }
+
+    // POST /api/v1/orgs/:orgId/teams/:teamId/members — Add to team
+    params = matchRoute(pathname, method, 'POST', '/api/v1/orgs/:orgId/teams/:teamId/members');
+    if (params) {
+      try {
+        const body = await readBody(req);
+        const { userId, role } = JSON.parse(body);
+        if (!userId) {
+          jsonError(res, 400, 'INVALID_INPUT', 'userId is required');
+          return true;
+        }
+        kernel.auth.addToTeam(params.teamId, userId, user.id, role || 'member');
+        jsonOk(res, { added: true }, 201);
+      } catch (err: any) {
+        jsonError(res, 400, 'INVALID_INPUT', err.message);
+      }
+      return true;
+    }
+
+    // DELETE /api/v1/orgs/:orgId/teams/:teamId/members/:userId — Remove from team
+    params = matchRoute(
+      pathname,
+      method,
+      'DELETE',
+      '/api/v1/orgs/:orgId/teams/:teamId/members/:userId',
+    );
+    if (params) {
+      try {
+        kernel.auth.removeFromTeam(params.teamId, params.userId, user.id);
+        jsonOk(res, { removed: true });
+      } catch (err: any) {
+        jsonError(res, 403, 'FORBIDDEN', err.message);
+      }
+      return true;
+    }
+
+    return false;
+  }
+
   // ----- Main handler -----
 
   return async function v1Handler(
@@ -956,7 +1291,9 @@ export function createV1Router(
     if (await handleCron(req, res, url, user)) return true;
     if (await handleTriggers(req, res, url, user)) return true;
     if (await handleIntegrations(req, res, url, user)) return true;
+    if (await handleSlackWebhooks(req, res, url, user)) return true;
     if (await handleMarketplace(req, res, url, user)) return true;
+    if (await handleOrgs(req, res, url, user)) return true;
 
     return false;
   };

@@ -102,6 +102,9 @@ function isPublicPath(pathname: string, method: string): boolean {
   if (pathname === '/health') return true;
   if (pathname === '/api/auth/login' && method === 'POST') return true;
   if (pathname === '/api/auth/register' && method === 'POST') return true;
+  // Slack webhook endpoints are verified by Slack signing secret, not user auth
+  if (pathname === '/api/v1/integrations/slack/commands' && method === 'POST') return true;
+  if (pathname === '/api/v1/integrations/slack/events' && method === 'POST') return true;
   return false;
 }
 
@@ -210,6 +213,23 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
       res.end(JSON.stringify({ error: err.message }));
     }
     return;
+  }
+
+  // ----- Slack Webhook Endpoints (public, verified by Slack signing secret) -----
+  if (
+    (url.pathname === '/api/v1/integrations/slack/commands' ||
+      url.pathname === '/api/v1/integrations/slack/events') &&
+    req.method === 'POST'
+  ) {
+    // Pass a dummy user — Slack routes verify via signing secret, not user auth
+    const dummyUser: UserInfo = {
+      id: 'slack-webhook',
+      username: 'slack',
+      displayName: 'Slack Webhook',
+      role: 'admin',
+    };
+    const handled = await v1Handler(req, res, url, dummyUser);
+    if (handled) return;
   }
 
   // ----- Auth Middleware for all other routes -----
@@ -1162,6 +1182,15 @@ const BROADCAST_EVENTS = [
   'template.unpublished',
   'template.rated',
   'template.forked',
+  // Organization events (v0.5 RBAC)
+  'org.created',
+  'org.deleted',
+  'org.updated',
+  'org.member.invited',
+  'org.member.removed',
+  'org.member.updated',
+  'org.team.created',
+  'org.team.deleted',
 ];
 
 for (const eventType of BROADCAST_EVENTS) {

@@ -182,6 +182,27 @@ export class StateStore {
     updateTemplateRating: Database.Statement;
     insertTemplateRating: Database.Statement;
     updateTemplateDownloads: Database.Statement;
+    // Organization statements (v0.5 RBAC)
+    insertOrg: Database.Statement;
+    getOrg: Database.Statement;
+    getOrgByName: Database.Statement;
+    getAllOrgs: Database.Statement;
+    getOrgsByUser: Database.Statement;
+    updateOrg: Database.Statement;
+    deleteOrg: Database.Statement;
+    insertTeam: Database.Statement;
+    getTeam: Database.Statement;
+    getTeamsByOrg: Database.Statement;
+    deleteTeam: Database.Statement;
+    insertOrgMember: Database.Statement;
+    getOrgMember: Database.Statement;
+    getOrgMembers: Database.Statement;
+    updateOrgMemberRole: Database.Statement;
+    deleteOrgMember: Database.Statement;
+    insertTeamMember: Database.Statement;
+    getTeamMember: Database.Statement;
+    getTeamMembers: Database.Statement;
+    deleteTeamMember: Database.Statement;
   };
 
   private _persistenceDisabled = false;
@@ -587,6 +608,53 @@ export class StateStore {
         created_at INTEGER NOT NULL,
         UNIQUE(template_id, user_id)
       );
+
+      -- Organizations tables (v0.5 RBAC)
+      CREATE TABLE IF NOT EXISTS organizations (
+        id TEXT PRIMARY KEY,
+        name TEXT UNIQUE NOT NULL,
+        display_name TEXT NOT NULL DEFAULT '',
+        owner_uid TEXT NOT NULL,
+        settings TEXT NOT NULL DEFAULT '{}',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS teams (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL,
+        UNIQUE(org_id, name),
+        FOREIGN KEY (org_id) REFERENCES organizations(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS org_members (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'member',
+        joined_at INTEGER NOT NULL,
+        UNIQUE(org_id, user_id),
+        FOREIGN KEY (org_id) REFERENCES organizations(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS team_members (
+        id TEXT PRIMARY KEY,
+        team_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'member',
+        joined_at INTEGER NOT NULL,
+        UNIQUE(team_id, user_id),
+        FOREIGN KEY (team_id) REFERENCES teams(id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_teams_org ON teams(org_id);
+      CREATE INDEX IF NOT EXISTS idx_org_members_org ON org_members(org_id);
+      CREATE INDEX IF NOT EXISTS idx_org_members_user ON org_members(user_id);
+      CREATE INDEX IF NOT EXISTS idx_team_members_team ON team_members(team_id);
+      CREATE INDEX IF NOT EXISTS idx_team_members_user ON team_members(user_id);
 
       -- Agent profiles table (v0.3 Wave 4)
       CREATE TABLE IF NOT EXISTS agent_profiles (
@@ -1079,6 +1147,80 @@ export class StateStore {
       updateTemplateDownloads: this.db.prepare(
         `UPDATE template_marketplace SET download_count = download_count + 1 WHERE id = ?`,
       ),
+      // Organization statements (v0.5 RBAC)
+      insertOrg: this.db.prepare(`
+        INSERT INTO organizations (id, name, display_name, owner_uid, settings, created_at, updated_at)
+        VALUES (@id, @name, @display_name, @owner_uid, @settings, @created_at, @updated_at)
+      `),
+      getOrg: this.db.prepare(`
+        SELECT id, name, display_name, owner_uid, settings, created_at, updated_at
+        FROM organizations WHERE id = ?
+      `),
+      getOrgByName: this.db.prepare(`
+        SELECT id, name, display_name, owner_uid, settings, created_at, updated_at
+        FROM organizations WHERE name = ?
+      `),
+      getAllOrgs: this.db.prepare(`
+        SELECT id, name, display_name, owner_uid, settings, created_at, updated_at
+        FROM organizations ORDER BY created_at ASC
+      `),
+      getOrgsByUser: this.db.prepare(`
+        SELECT o.id, o.name, o.display_name, o.owner_uid, o.settings, o.created_at, o.updated_at
+        FROM organizations o
+        JOIN org_members m ON o.id = m.org_id
+        WHERE m.user_id = ?
+        ORDER BY o.created_at ASC
+      `),
+      updateOrg: this.db.prepare(`
+        UPDATE organizations SET settings = @settings, display_name = @display_name, updated_at = @updated_at WHERE id = @id
+      `),
+      deleteOrg: this.db.prepare(`DELETE FROM organizations WHERE id = ?`),
+      insertTeam: this.db.prepare(`
+        INSERT INTO teams (id, org_id, name, description, created_at)
+        VALUES (@id, @org_id, @name, @description, @created_at)
+      `),
+      getTeam: this.db.prepare(`
+        SELECT id, org_id, name, description, created_at
+        FROM teams WHERE id = ?
+      `),
+      getTeamsByOrg: this.db.prepare(`
+        SELECT id, org_id, name, description, created_at
+        FROM teams WHERE org_id = ? ORDER BY created_at ASC
+      `),
+      deleteTeam: this.db.prepare(`DELETE FROM teams WHERE id = ?`),
+      insertOrgMember: this.db.prepare(`
+        INSERT INTO org_members (id, org_id, user_id, role, joined_at)
+        VALUES (@id, @org_id, @user_id, @role, @joined_at)
+      `),
+      getOrgMember: this.db.prepare(`
+        SELECT id, org_id, user_id, role, joined_at
+        FROM org_members WHERE org_id = ? AND user_id = ?
+      `),
+      getOrgMembers: this.db.prepare(`
+        SELECT id, org_id, user_id, role, joined_at
+        FROM org_members WHERE org_id = ? ORDER BY joined_at ASC
+      `),
+      updateOrgMemberRole: this.db.prepare(`
+        UPDATE org_members SET role = ? WHERE org_id = ? AND user_id = ?
+      `),
+      deleteOrgMember: this.db.prepare(`
+        DELETE FROM org_members WHERE org_id = ? AND user_id = ?
+      `),
+      insertTeamMember: this.db.prepare(`
+        INSERT INTO team_members (id, team_id, user_id, role, joined_at)
+        VALUES (@id, @team_id, @user_id, @role, @joined_at)
+      `),
+      getTeamMember: this.db.prepare(`
+        SELECT id, team_id, user_id, role, joined_at
+        FROM team_members WHERE team_id = ? AND user_id = ?
+      `),
+      getTeamMembers: this.db.prepare(`
+        SELECT id, team_id, user_id, role, joined_at
+        FROM team_members WHERE team_id = ? ORDER BY joined_at ASC
+      `),
+      deleteTeamMember: this.db.prepare(`
+        DELETE FROM team_members WHERE team_id = ? AND user_id = ?
+      `),
     };
   }
 
@@ -2100,6 +2242,136 @@ export class StateStore {
 
   incrementTemplateDownloads(id: string): void {
     this.stmts.updateTemplateDownloads.run(id);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Organizations (v0.5 RBAC)
+  // ---------------------------------------------------------------------------
+
+  insertOrg(record: {
+    id: string;
+    name: string;
+    display_name: string;
+    owner_uid: string;
+    settings: string;
+    created_at: number;
+    updated_at: number;
+  }): void {
+    this.stmts.insertOrg.run(record);
+  }
+
+  getOrg(id: string): any | undefined {
+    return this.stmts.getOrg.get(id);
+  }
+
+  getOrgByName(name: string): any | undefined {
+    return this.stmts.getOrgByName.get(name);
+  }
+
+  getAllOrgs(): any[] {
+    return this.stmts.getAllOrgs.all() as any[];
+  }
+
+  getOrgsByUser(userId: string): any[] {
+    return this.stmts.getOrgsByUser.all(userId) as any[];
+  }
+
+  updateOrg(id: string, updates: { settings?: string; display_name?: string }): void {
+    const existing = this.getOrg(id);
+    if (!existing) return;
+    this.stmts.updateOrg.run({
+      id,
+      settings: updates.settings ?? existing.settings,
+      display_name: updates.display_name ?? existing.display_name,
+      updated_at: Date.now(),
+    });
+  }
+
+  deleteOrg(id: string): void {
+    // Delete members and teams first
+    this.db
+      .prepare('DELETE FROM team_members WHERE team_id IN (SELECT id FROM teams WHERE org_id = ?)')
+      .run(id);
+    this.db.prepare('DELETE FROM teams WHERE org_id = ?').run(id);
+    this.db.prepare('DELETE FROM org_members WHERE org_id = ?').run(id);
+    this.stmts.deleteOrg.run(id);
+  }
+
+  // Teams
+
+  insertTeam(record: {
+    id: string;
+    org_id: string;
+    name: string;
+    description: string;
+    created_at: number;
+  }): void {
+    this.stmts.insertTeam.run(record);
+  }
+
+  getTeam(id: string): any | undefined {
+    return this.stmts.getTeam.get(id);
+  }
+
+  getTeamsByOrg(orgId: string): any[] {
+    return this.stmts.getTeamsByOrg.all(orgId) as any[];
+  }
+
+  deleteTeam(id: string): void {
+    this.db.prepare('DELETE FROM team_members WHERE team_id = ?').run(id);
+    this.stmts.deleteTeam.run(id);
+  }
+
+  // Org Members
+
+  insertOrgMember(record: {
+    id: string;
+    org_id: string;
+    user_id: string;
+    role: string;
+    joined_at: number;
+  }): void {
+    this.stmts.insertOrgMember.run(record);
+  }
+
+  getOrgMember(orgId: string, userId: string): any | undefined {
+    return this.stmts.getOrgMember.get(orgId, userId);
+  }
+
+  getOrgMembers(orgId: string): any[] {
+    return this.stmts.getOrgMembers.all(orgId) as any[];
+  }
+
+  updateOrgMemberRole(orgId: string, userId: string, role: string): void {
+    this.stmts.updateOrgMemberRole.run(role, orgId, userId);
+  }
+
+  deleteOrgMember(orgId: string, userId: string): void {
+    this.stmts.deleteOrgMember.run(orgId, userId);
+  }
+
+  // Team Members
+
+  insertTeamMember(record: {
+    id: string;
+    team_id: string;
+    user_id: string;
+    role: string;
+    joined_at: number;
+  }): void {
+    this.stmts.insertTeamMember.run(record);
+  }
+
+  getTeamMember(teamId: string, userId: string): any | undefined {
+    return this.stmts.getTeamMember.get(teamId, userId);
+  }
+
+  getTeamMembers(teamId: string): any[] {
+    return this.stmts.getTeamMembers.all(teamId) as any[];
+  }
+
+  deleteTeamMember(teamId: string, userId: string): void {
+    this.stmts.deleteTeamMember.run(teamId, userId);
   }
 
   /** Expose the underlying database for direct queries (used by MemoryManager for FTS5) */

@@ -77,6 +77,183 @@ export interface UserInfo {
 }
 
 // ---------------------------------------------------------------------------
+// RBAC & Organization Types (v0.5)
+// ---------------------------------------------------------------------------
+
+/** Fine-grained permissions for org-level RBAC */
+export type Permission =
+  | 'org.manage'
+  | 'org.delete'
+  | 'org.view'
+  | 'org.settings'
+  | 'members.invite'
+  | 'members.remove'
+  | 'members.update'
+  | 'members.view'
+  | 'teams.create'
+  | 'teams.delete'
+  | 'teams.manage'
+  | 'teams.view'
+  | 'agents.spawn'
+  | 'agents.kill'
+  | 'agents.view'
+  | 'fs.read'
+  | 'fs.write'
+  | 'fs.delete'
+  | 'cron.create'
+  | 'cron.delete'
+  | 'cron.view'
+  | 'webhooks.manage'
+  | 'webhooks.view'
+  | 'integrations.manage'
+  | 'integrations.view'
+  | 'plugins.manage'
+  | 'plugins.view';
+
+/** Organization roles (hierarchical) */
+export type OrgRole = 'owner' | 'admin' | 'manager' | 'member' | 'viewer';
+
+/** Team roles */
+export type TeamRole = 'lead' | 'member';
+
+/** Permissions granted to each org role */
+export const ROLE_PERMISSIONS: Record<OrgRole, Permission[]> = {
+  owner: [
+    'org.manage',
+    'org.delete',
+    'org.view',
+    'org.settings',
+    'members.invite',
+    'members.remove',
+    'members.update',
+    'members.view',
+    'teams.create',
+    'teams.delete',
+    'teams.manage',
+    'teams.view',
+    'agents.spawn',
+    'agents.kill',
+    'agents.view',
+    'fs.read',
+    'fs.write',
+    'fs.delete',
+    'cron.create',
+    'cron.delete',
+    'cron.view',
+    'webhooks.manage',
+    'webhooks.view',
+    'integrations.manage',
+    'integrations.view',
+    'plugins.manage',
+    'plugins.view',
+  ],
+  admin: [
+    'org.manage',
+    'org.view',
+    'org.settings',
+    'members.invite',
+    'members.remove',
+    'members.update',
+    'members.view',
+    'teams.create',
+    'teams.delete',
+    'teams.manage',
+    'teams.view',
+    'agents.spawn',
+    'agents.kill',
+    'agents.view',
+    'fs.read',
+    'fs.write',
+    'fs.delete',
+    'cron.create',
+    'cron.delete',
+    'cron.view',
+    'webhooks.manage',
+    'webhooks.view',
+    'integrations.manage',
+    'integrations.view',
+    'plugins.manage',
+    'plugins.view',
+  ],
+  manager: [
+    'org.view',
+    'members.invite',
+    'members.view',
+    'teams.create',
+    'teams.manage',
+    'teams.view',
+    'agents.spawn',
+    'agents.kill',
+    'agents.view',
+    'fs.read',
+    'fs.write',
+    'cron.create',
+    'cron.view',
+    'webhooks.view',
+    'integrations.view',
+    'plugins.view',
+  ],
+  member: [
+    'org.view',
+    'members.view',
+    'teams.view',
+    'agents.spawn',
+    'agents.view',
+    'fs.read',
+    'fs.write',
+    'cron.view',
+    'webhooks.view',
+    'integrations.view',
+    'plugins.view',
+  ],
+  viewer: [
+    'org.view',
+    'members.view',
+    'teams.view',
+    'agents.view',
+    'fs.read',
+    'cron.view',
+    'webhooks.view',
+    'integrations.view',
+    'plugins.view',
+  ],
+};
+
+export interface Organization {
+  id: string;
+  name: string;
+  displayName: string;
+  ownerUid: string;
+  settings: Record<string, any>;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface Team {
+  id: string;
+  orgId: string;
+  name: string;
+  description: string;
+  createdAt: number;
+}
+
+export interface OrgMember {
+  id: string;
+  orgId: string;
+  userId: string;
+  role: OrgRole;
+  joinedAt: number;
+}
+
+export interface TeamMember {
+  id: string;
+  teamId: string;
+  userId: string;
+  role: TeamRole;
+  joinedAt: number;
+}
+
+// ---------------------------------------------------------------------------
 // Process Types
 // ---------------------------------------------------------------------------
 
@@ -969,6 +1146,22 @@ export type KernelCommand =
   // LLM Providers
   | { type: 'llm.list'; id: string }
 
+  // Organization commands (v0.5)
+  | { type: 'org.create'; id: string; name: string; displayName?: string }
+  | { type: 'org.delete'; id: string; orgId: string }
+  | { type: 'org.list'; id: string }
+  | { type: 'org.get'; id: string; orgId: string }
+  | { type: 'org.update'; id: string; orgId: string; settings: Record<string, any> }
+  | { type: 'org.members.list'; id: string; orgId: string }
+  | { type: 'org.members.invite'; id: string; orgId: string; userId: string; role: OrgRole }
+  | { type: 'org.members.remove'; id: string; orgId: string; userId: string }
+  | { type: 'org.members.update'; id: string; orgId: string; userId: string; role: OrgRole }
+  | { type: 'org.teams.create'; id: string; orgId: string; name: string; description?: string }
+  | { type: 'org.teams.delete'; id: string; teamId: string }
+  | { type: 'org.teams.list'; id: string; orgId: string }
+  | { type: 'org.teams.addMember'; id: string; teamId: string; userId: string; role?: TeamRole }
+  | { type: 'org.teams.removeMember'; id: string; teamId: string; userId: string }
+
   // System
   | { type: 'kernel.status'; id: string }
   | { type: 'kernel.shutdown'; id: string };
@@ -1141,6 +1334,16 @@ export type KernelEvent =
   | { type: 'template.rated'; templateId: string; rating: number; newAvg: number }
   | { type: 'template.forked'; originalId: string; newId: string }
   | { type: 'template.marketplace.list'; templates: TemplateMarketplaceEntry[] }
+
+  // Organization events (v0.5)
+  | { type: 'org.created'; org: Organization }
+  | { type: 'org.deleted'; orgId: string }
+  | { type: 'org.updated'; org: Organization }
+  | { type: 'org.member.invited'; orgId: string; userId: string; role: OrgRole }
+  | { type: 'org.member.removed'; orgId: string; userId: string }
+  | { type: 'org.member.updated'; orgId: string; userId: string; role: OrgRole }
+  | { type: 'org.team.created'; team: Team }
+  | { type: 'org.team.deleted'; teamId: string }
 
   // Collaboration events (v0.3 Wave 4)
   | { type: 'collaboration.message'; protocol: string; fromPid: PID; toPid: PID }

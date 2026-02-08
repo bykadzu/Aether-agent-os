@@ -122,6 +122,36 @@ export class AetherClient {
     delete: (id: string) => this.delete<any>(`/api/v1/triggers/${id}`),
   };
 
+  // --- Organizations (RBAC) ---
+  readonly orgs = {
+    create: (data: { name: string; displayName?: string }) => this.post<any>('/api/v1/orgs', data),
+    list: () => this.get<any[]>('/api/v1/orgs'),
+    get: (orgId: string) => this.get<any>(`/api/v1/orgs/${orgId}`),
+    delete: (orgId: string) => this.delete<any>(`/api/v1/orgs/${orgId}`),
+    update: (orgId: string, data: { displayName?: string; settings?: Record<string, any> }) =>
+      this.patch<any>(`/api/v1/orgs/${orgId}`, data),
+    members: {
+      list: (orgId: string) => this.get<any[]>(`/api/v1/orgs/${orgId}/members`),
+      invite: (orgId: string, data: { userId: string; role?: string }) =>
+        this.post<any>(`/api/v1/orgs/${orgId}/members`, data),
+      remove: (orgId: string, userId: string) =>
+        this.delete<any>(`/api/v1/orgs/${orgId}/members/${userId}`),
+      updateRole: (orgId: string, userId: string, data: { role: string }) =>
+        this.patch<any>(`/api/v1/orgs/${orgId}/members/${userId}`, data),
+    },
+    teams: {
+      list: (orgId: string) => this.get<any[]>(`/api/v1/orgs/${orgId}/teams`),
+      create: (orgId: string, data: { name: string; description?: string }) =>
+        this.post<any>(`/api/v1/orgs/${orgId}/teams`, data),
+      delete: (orgId: string, teamId: string) =>
+        this.delete<any>(`/api/v1/orgs/${orgId}/teams/${teamId}`),
+      addMember: (orgId: string, teamId: string, data: { userId: string; role?: string }) =>
+        this.post<any>(`/api/v1/orgs/${orgId}/teams/${teamId}/members`, data),
+      removeMember: (orgId: string, teamId: string, userId: string) =>
+        this.delete<any>(`/api/v1/orgs/${orgId}/teams/${teamId}/members/${userId}`),
+    },
+  };
+
   // --- Marketplace (Template Marketplace) ---
   readonly marketplace = {
     templates: {
