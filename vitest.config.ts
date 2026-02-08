@@ -15,6 +15,7 @@ export default defineConfig({
       'components/**/__tests__/**/*.test.{ts,tsx}',
       'sdk/__tests__/**/*.test.ts',
       'cli/__tests__/**/*.test.ts',
+      'embed/__tests__/**/*.test.ts',
     ],
     environmentMatchGlobs: [['components/**/__tests__/**', 'jsdom']],
     coverage: {
