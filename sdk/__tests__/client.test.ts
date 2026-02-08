@@ -333,6 +333,125 @@ describe('AetherClient', () => {
   });
 
   // ---------------------------------------------------------------------------
+  // Integrations
+  // ---------------------------------------------------------------------------
+
+  describe('integrations', () => {
+    it('integrations.list sends GET /api/v1/integrations', async () => {
+      mockFetch.mockResolvedValueOnce(mockResponse({ data: [] }));
+      await client.integrations.list();
+      expect(mockFetch.mock.calls[0][0]).toContain('/api/v1/integrations');
+    });
+
+    it('integrations.get sends GET /api/v1/integrations/:id', async () => {
+      mockFetch.mockResolvedValueOnce(mockResponse({ data: { id: 'int_1' } }));
+      const result = await client.integrations.get('int_1');
+      expect(result).toEqual({ id: 'int_1' });
+      expect(mockFetch.mock.calls[0][0]).toContain('/api/v1/integrations/int_1');
+    });
+
+    it('integrations.register sends POST /api/v1/integrations', async () => {
+      mockFetch.mockResolvedValueOnce(mockResponse({ data: { id: 'int_1' } }));
+      const data = { type: 'slack', name: 'My Slack', credentials: { token: 'xoxb-123' } };
+      await client.integrations.register(data);
+      expect(mockFetch.mock.calls[0][1].method).toBe('POST');
+      expect(mockFetch.mock.calls[0][0]).toContain('/api/v1/integrations');
+      expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual(data);
+    });
+
+    it('integrations.test sends POST /api/v1/integrations/:id/test', async () => {
+      mockFetch.mockResolvedValueOnce(mockResponse({ data: { success: true } }));
+      await client.integrations.test('int_1');
+      expect(mockFetch.mock.calls[0][0]).toContain('/api/v1/integrations/int_1/test');
+      expect(mockFetch.mock.calls[0][1].method).toBe('POST');
+    });
+
+    it('integrations.execute sends POST /api/v1/integrations/:id/execute', async () => {
+      mockFetch.mockResolvedValueOnce(mockResponse({ data: { result: 'ok' } }));
+      await client.integrations.execute('int_1', 'send_message', { channel: '#general' });
+      expect(mockFetch.mock.calls[0][0]).toContain('/api/v1/integrations/int_1/execute');
+      expect(mockFetch.mock.calls[0][1].method).toBe('POST');
+      expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual({
+        action: 'send_message',
+        params: { channel: '#general' },
+      });
+    });
+
+    it('integrations.unregister sends DELETE /api/v1/integrations/:id', async () => {
+      mockFetch.mockResolvedValueOnce(mockResponse({ data: { deleted: true } }));
+      await client.integrations.unregister('int_1');
+      expect(mockFetch.mock.calls[0][0]).toContain('/api/v1/integrations/int_1');
+      expect(mockFetch.mock.calls[0][1].method).toBe('DELETE');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Webhooks
+  // ---------------------------------------------------------------------------
+
+  describe('webhooks', () => {
+    it('webhooks.list sends GET /api/v1/webhooks', async () => {
+      mockFetch.mockResolvedValueOnce(mockResponse({ data: [] }));
+      await client.webhooks.list();
+      expect(mockFetch.mock.calls[0][0]).toContain('/api/v1/webhooks');
+    });
+
+    it('webhooks.create sends POST /api/v1/webhooks', async () => {
+      mockFetch.mockResolvedValueOnce(mockResponse({ data: { id: 'wh_1' } }));
+      const data = {
+        url: 'https://example.com/hook',
+        events: ['agent:completed'],
+        secret: 's3cret',
+      };
+      await client.webhooks.create(data);
+      expect(mockFetch.mock.calls[0][1].method).toBe('POST');
+      expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual(data);
+    });
+
+    it('webhooks.delete sends DELETE /api/v1/webhooks/:id', async () => {
+      mockFetch.mockResolvedValueOnce(mockResponse({ data: { deleted: true } }));
+      await client.webhooks.delete('wh_1');
+      expect(mockFetch.mock.calls[0][0]).toContain('/api/v1/webhooks/wh_1');
+      expect(mockFetch.mock.calls[0][1].method).toBe('DELETE');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Plugins
+  // ---------------------------------------------------------------------------
+
+  describe('plugins', () => {
+    it('plugins.list sends GET /api/v1/marketplace/plugins', async () => {
+      mockFetch.mockResolvedValueOnce(mockResponse({ data: [] }));
+      await client.plugins.list();
+      expect(mockFetch.mock.calls[0][0]).toContain('/api/v1/marketplace/plugins');
+    });
+
+    it('plugins.list with category filter', async () => {
+      mockFetch.mockResolvedValueOnce(mockResponse({ data: [] }));
+      await client.plugins.list({ category: 'tools' });
+      const url = mockFetch.mock.calls[0][0];
+      expect(url).toContain('/api/v1/marketplace/plugins');
+      expect(url).toContain('category=tools');
+    });
+
+    it('plugins.install sends POST /api/v1/marketplace/plugins', async () => {
+      mockFetch.mockResolvedValueOnce(mockResponse({ data: { id: 'p1' } }));
+      const manifest = { id: 'p1', name: 'Test Plugin' };
+      await client.plugins.install(manifest);
+      expect(mockFetch.mock.calls[0][1].method).toBe('POST');
+      expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual(manifest);
+    });
+
+    it('plugins.uninstall sends DELETE /api/v1/marketplace/plugins/:id', async () => {
+      mockFetch.mockResolvedValueOnce(mockResponse({ data: { deleted: true } }));
+      await client.plugins.uninstall('p1');
+      expect(mockFetch.mock.calls[0][0]).toContain('/api/v1/marketplace/plugins/p1');
+      expect(mockFetch.mock.calls[0][1].method).toBe('DELETE');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // Error Handling
   // ---------------------------------------------------------------------------
 

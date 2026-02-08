@@ -17,6 +17,7 @@ import { runSystem } from './commands/system.js';
 import { runTemplates } from './commands/templates.js';
 import { runCron } from './commands/cron.js';
 import { runWebhooks } from './commands/webhooks.js';
+import { runIntegrations } from './commands/integrations.js';
 import { runVersion } from './commands/version.js';
 import { runHelp } from './commands/help.js';
 
@@ -126,6 +127,9 @@ export async function main(argv: string[]): Promise<void> {
         break;
       case 'webhooks':
         await runWebhooks(args, config);
+        break;
+      case 'integrations':
+        await runIntegrations(args, config);
         break;
       case 'version':
         runVersion(args);

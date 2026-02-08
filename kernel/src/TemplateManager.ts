@@ -13,6 +13,7 @@
 
 import { EventBus } from './EventBus.js';
 import { StateStore } from './StateStore.js';
+import { getDefaultTemplates } from './seedTemplates.js';
 import * as crypto from 'node:crypto';
 
 export interface TemplateMarketplaceEntry {
@@ -47,6 +48,15 @@ export class TemplateManager {
       SELECT COALESCE(SUM(rating), 0) as total, COUNT(*) as count
       FROM template_ratings WHERE template_id = ?
     `);
+
+    // Seed default templates if marketplace is empty
+    const existing = this.state.getAllTemplates();
+    if (existing.length === 0) {
+      const defaults = getDefaultTemplates();
+      for (const t of defaults) {
+        this.publish(t);
+      }
+    }
   }
 
   publish(

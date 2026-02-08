@@ -14,6 +14,8 @@ import { StateStore } from './StateStore.js';
 import type { IIntegration } from './integrations/IIntegration.js';
 import { GitHubIntegration } from './integrations/GitHubIntegration.js';
 import { SlackIntegration } from './integrations/SlackIntegration.js';
+import { S3Integration } from './integrations/S3Integration.js';
+import { DiscordIntegration } from './integrations/DiscordIntegration.js';
 import type { IntegrationConfig, IntegrationInfo } from '@aether/shared';
 
 export class IntegrationManager {
@@ -29,6 +31,8 @@ export class IntegrationManager {
   async init(): Promise<void> {
     this.integrationTypes.set('github', new GitHubIntegration());
     this.integrationTypes.set('slack', new SlackIntegration());
+    this.integrationTypes.set('s3', new S3Integration());
+    this.integrationTypes.set('discord', new DiscordIntegration());
   }
 
   register(config: IntegrationConfig, ownerUid?: string): IntegrationInfo {

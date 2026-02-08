@@ -16,6 +16,7 @@
 import { createServer, IncomingMessage, ServerResponse } from 'node:http';
 import * as os from 'node:os';
 import * as nodePath from 'node:path';
+import * as nodeFs from 'node:fs';
 import { WebSocketServer, WebSocket } from 'ws';
 import { Kernel } from '@aether/kernel';
 import { runAgentLoop, listProviders, AGENT_TEMPLATES } from '@aether/runtime';
@@ -105,6 +106,7 @@ function isPublicPath(pathname: string, method: string): boolean {
   // Slack webhook endpoints are verified by Slack signing secret, not user auth
   if (pathname === '/api/v1/integrations/slack/commands' && method === 'POST') return true;
   if (pathname === '/api/v1/integrations/slack/events' && method === 'POST') return true;
+  if (pathname === '/embed/aether-embed.js') return true;
   return false;
 }
 
@@ -230,6 +232,30 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
     };
     const handled = await v1Handler(req, res, url, dummyUser);
     if (handled) return;
+  }
+
+  // ----- Embed Widget Bundle (public, CORS-permissive) -----
+  if (url.pathname === '/embed/aether-embed.js') {
+    const embedPath = nodePath.join(
+      nodePath.dirname(new URL(import.meta.url).pathname),
+      '../../embed/dist/aether-embed.js',
+    );
+    // Normalize path for Windows (remove leading slash before drive letter)
+    const normalizedPath =
+      process.platform === 'win32' ? embedPath.replace(/^\/([A-Z]:)/i, '$1') : embedPath;
+    try {
+      const content = nodeFs.readFileSync(normalizedPath, 'utf-8');
+      res.writeHead(200, {
+        'Content-Type': 'application/javascript',
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'public, max-age=3600',
+      });
+      res.end(content);
+    } catch {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Embed bundle not found. Run: cd embed && npm run build' }));
+    }
+    return;
   }
 
   // ----- Auth Middleware for all other routes -----
