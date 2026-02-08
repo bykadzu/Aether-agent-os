@@ -107,7 +107,7 @@ export class PluginRegistryManager {
         install_source TEXT,
         owner_uid TEXT,
         download_count INTEGER DEFAULT 0,
-        rating_sum INTEGER DEFAULT 0,
+        rating_avg REAL DEFAULT 0.0,
         rating_count INTEGER DEFAULT 0
       )
     `);
@@ -134,15 +134,15 @@ export class PluginRegistryManager {
 
     this.stmts = {
       insertPlugin: db.prepare(
-        `INSERT OR REPLACE INTO plugin_registry (id, manifest, installed_at, updated_at, enabled, install_source, owner_uid, download_count, rating_sum, rating_count)
-         VALUES (@id, @manifest, @installed_at, @updated_at, @enabled, @install_source, @owner_uid, @download_count, @rating_sum, @rating_count)`,
+        `INSERT OR REPLACE INTO plugin_registry (id, manifest, installed_at, updated_at, enabled, install_source, owner_uid, download_count, rating_avg, rating_count)
+         VALUES (@id, @manifest, @installed_at, @updated_at, @enabled, @install_source, @owner_uid, @download_count, @rating_avg, @rating_count)`,
       ),
       getPlugin: db.prepare(`SELECT * FROM plugin_registry WHERE id = ?`),
       getAllPlugins: db.prepare(`SELECT * FROM plugin_registry`),
       deletePlugin: db.prepare(`DELETE FROM plugin_registry WHERE id = ?`),
       setEnabled: db.prepare(`UPDATE plugin_registry SET enabled = ?, updated_at = ? WHERE id = ?`),
       updateRating: db.prepare(
-        `UPDATE plugin_registry SET rating_sum = ?, rating_count = ?, updated_at = ? WHERE id = ?`,
+        `UPDATE plugin_registry SET rating_avg = ?, rating_count = ?, updated_at = ? WHERE id = ?`,
       ),
       upsertRating: db.prepare(
         `INSERT OR REPLACE INTO plugin_ratings (plugin_id, user_id, rating, review, created_at)
@@ -174,7 +174,7 @@ export class PluginRegistryManager {
       install_source: source,
       owner_uid: ownerUid || null,
       download_count: 0,
-      rating_sum: 0,
+      rating_avg: 0,
       rating_count: 0,
     });
 
@@ -251,11 +251,11 @@ export class PluginRegistryManager {
       cnt: number;
     };
 
-    this.stmts.updateRating.run(total, cnt, Date.now(), pluginId);
+    const newAvgVal = cnt > 0 ? total / cnt : 0;
+    this.stmts.updateRating.run(newAvgVal, cnt, Date.now(), pluginId);
     this.bus.emit('plugin.rated', { pluginId, userId, rating, review });
 
-    const newAvg = cnt > 0 ? total / cnt : 0;
-    return { newAvg };
+    return { newAvg: newAvgVal };
   }
 
   getSettings(pluginId: string): Record<string, any> {
@@ -288,8 +288,6 @@ export class PluginRegistryManager {
   // ---------------------------------------------------------------------------
 
   private rowToPlugin(row: any): RegisteredPlugin {
-    const ratingCount = row.rating_count || 0;
-    const ratingSum = row.rating_sum || 0;
     return {
       id: row.id,
       manifest: JSON.parse(row.manifest),
@@ -299,8 +297,8 @@ export class PluginRegistryManager {
       install_source: row.install_source,
       owner_uid: row.owner_uid,
       download_count: row.download_count || 0,
-      rating_avg: ratingCount > 0 ? ratingSum / ratingCount : 0,
-      rating_count: ratingCount,
+      rating_avg: row.rating_avg || 0,
+      rating_count: row.rating_count || 0,
     };
   }
 }
