@@ -15,3 +15,6 @@ export { AuthManager } from './AuthManager.js';
 export { ClusterManager } from './ClusterManager.js';
 export { AppManager } from './AppManager.js';
 export { WebhookManager } from './WebhookManager.js';
+export { PluginRegistryManager } from './PluginRegistryManager.js';
+export { IntegrationManager } from './IntegrationManager.js';
+export { TemplateManager } from './TemplateManager.js';

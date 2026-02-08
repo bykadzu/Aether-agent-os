@@ -442,6 +442,130 @@ export interface InstalledApp {
 }
 
 // ---------------------------------------------------------------------------
+// Plugin Registry Types (v0.4 Wave 2)
+// ---------------------------------------------------------------------------
+
+export type PluginCategory =
+  | 'tools'
+  | 'llm-providers'
+  | 'data-sources'
+  | 'notification-channels'
+  | 'auth-providers'
+  | 'themes'
+  | 'widgets';
+
+export interface PluginSettingSchema {
+  key: string;
+  label: string;
+  type: 'string' | 'number' | 'boolean' | 'select';
+  required?: boolean;
+  default?: any;
+  options?: string[];
+  description?: string;
+}
+
+export interface PluginRegistryManifest {
+  id: string;
+  name: string;
+  version: string;
+  author: string;
+  description: string;
+  category: PluginCategory;
+  icon: string;
+  tools: Array<{
+    name: string;
+    description: string;
+    parameters: Record<string, { type: string; description: string; required?: boolean }>;
+  }>;
+  dependencies?: string[];
+  settings?: PluginSettingSchema[];
+  events?: string[];
+  min_aether_version?: string;
+  keywords?: string[];
+  repository?: string;
+}
+
+export interface RegisteredPlugin {
+  id: string;
+  manifest: PluginRegistryManifest;
+  installed_at: number;
+  updated_at: number;
+  enabled: boolean;
+  install_source: 'local' | 'registry' | 'url';
+  owner_uid?: string;
+  download_count: number;
+  rating_avg: number;
+  rating_count: number;
+}
+
+// ---------------------------------------------------------------------------
+// Integration Types (v0.4 Wave 2)
+// ---------------------------------------------------------------------------
+
+export type IntegrationType = 'github' | 'gitlab' | 'slack' | 'jira' | 'linear' | 'custom';
+
+export interface IntegrationActionDef {
+  name: string;
+  description: string;
+  parameters?: Record<string, { type: string; description: string; required?: boolean }>;
+}
+
+export interface IntegrationConfig {
+  type: IntegrationType;
+  name: string;
+  credentials?: Record<string, string>;
+  settings?: Record<string, any>;
+  event_subscriptions?: string[];
+}
+
+export interface IntegrationInfo {
+  id: string;
+  type: IntegrationType;
+  name: string;
+  enabled: boolean;
+  owner_uid?: string;
+  created_at: number;
+  updated_at: number;
+  settings?: Record<string, any>;
+  available_actions: IntegrationActionDef[];
+  status: 'connected' | 'disconnected' | 'error';
+  last_error?: string;
+}
+
+export interface IntegrationLogEntry {
+  id: number;
+  integration_id: string;
+  action: string;
+  status: 'success' | 'error';
+  request_summary?: string;
+  response_summary?: string;
+  duration_ms: number;
+  created_at: number;
+}
+
+// ---------------------------------------------------------------------------
+// Template Marketplace Types (v0.4 Wave 2)
+// ---------------------------------------------------------------------------
+
+export interface TemplateMarketplaceEntry {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  category: 'development' | 'research' | 'data' | 'creative' | 'ops';
+  config: Partial<AgentConfig>;
+  suggestedGoals: string[];
+  author: string;
+  tags: string[];
+  download_count: number;
+  rating_avg: number;
+  rating_count: number;
+  published_at: number;
+  updated_at: number;
+  enabled: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // Snapshot Types
 // ---------------------------------------------------------------------------
 
@@ -764,6 +888,84 @@ export type KernelCommand =
   | { type: 'app.list'; id: string }
   | { type: 'app.get'; id: string; appId: string }
 
+  // Plugin Registry commands (v0.4 Wave 2)
+  | {
+      type: 'plugin.registry.install';
+      id: string;
+      manifest: PluginRegistryManifest;
+      source?: 'local' | 'registry' | 'url';
+      owner_uid?: string;
+    }
+  | { type: 'plugin.registry.uninstall'; id: string; pluginId: string }
+  | { type: 'plugin.registry.enable'; id: string; pluginId: string }
+  | { type: 'plugin.registry.disable'; id: string; pluginId: string }
+  | { type: 'plugin.registry.list'; id: string; category?: PluginCategory }
+  | { type: 'plugin.registry.search'; id: string; query: string; category?: PluginCategory }
+  | {
+      type: 'plugin.registry.rate';
+      id: string;
+      pluginId: string;
+      rating: number;
+      review?: string;
+      user_id: string;
+    }
+  | { type: 'plugin.registry.settings.get'; id: string; pluginId: string }
+  | { type: 'plugin.registry.settings.set'; id: string; pluginId: string; key: string; value: any }
+
+  // Integration commands (v0.4 Wave 2)
+  | {
+      type: 'integration.register';
+      id: string;
+      config: IntegrationConfig;
+      owner_uid?: string;
+    }
+  | { type: 'integration.unregister'; id: string; integrationId: string }
+  | {
+      type: 'integration.configure';
+      id: string;
+      integrationId: string;
+      settings: Record<string, any>;
+    }
+  | { type: 'integration.enable'; id: string; integrationId: string }
+  | { type: 'integration.disable'; id: string; integrationId: string }
+  | { type: 'integration.list'; id: string }
+  | { type: 'integration.test'; id: string; integrationId: string }
+  | {
+      type: 'integration.execute';
+      id: string;
+      integrationId: string;
+      action: string;
+      params?: Record<string, any>;
+    }
+
+  // Template Marketplace commands (v0.4 Wave 2)
+  | {
+      type: 'template.publish';
+      id: string;
+      template: {
+        id: string;
+        name: string;
+        description: string;
+        icon: string;
+        category: 'development' | 'research' | 'data' | 'creative' | 'ops';
+        config: Partial<AgentConfig>;
+        suggestedGoals: string[];
+        author: string;
+        tags: string[];
+      };
+    }
+  | { type: 'template.unpublish'; id: string; templateId: string }
+  | { type: 'template.marketplace.list'; id: string; category?: string; tags?: string[] }
+  | {
+      type: 'template.rate';
+      id: string;
+      templateId: string;
+      rating: number;
+      review?: string;
+      user_id: string;
+    }
+  | { type: 'template.fork'; id: string; templateId: string; user_id: string }
+
   // LLM Providers
   | { type: 'llm.list'; id: string }
 
@@ -914,6 +1116,31 @@ export type KernelEvent =
   | { type: 'app.enabled'; appId: string }
   | { type: 'app.disabled'; appId: string }
   | { type: 'app.list'; apps: InstalledApp[] }
+
+  // Plugin Registry events (v0.4 Wave 2)
+  | { type: 'plugin.registry.installed'; plugin: RegisteredPlugin }
+  | { type: 'plugin.registry.uninstalled'; pluginId: string }
+  | { type: 'plugin.registry.enabled'; pluginId: string }
+  | { type: 'plugin.registry.disabled'; pluginId: string }
+  | { type: 'plugin.registry.rated'; pluginId: string; rating: number; newAvg: number }
+  | { type: 'plugin.registry.list'; plugins: RegisteredPlugin[] }
+
+  // Integration events (v0.4 Wave 2)
+  | { type: 'integration.registered'; integration: IntegrationInfo }
+  | { type: 'integration.unregistered'; integrationId: string }
+  | { type: 'integration.enabled'; integrationId: string }
+  | { type: 'integration.disabled'; integrationId: string }
+  | { type: 'integration.action_result'; integrationId: string; action: string; result: any }
+  | { type: 'integration.error'; integrationId: string; action: string; error: string }
+  | { type: 'integration.list'; integrations: IntegrationInfo[] }
+  | { type: 'integration.tested'; integrationId: string; success: boolean; message: string }
+
+  // Template Marketplace events (v0.4 Wave 2)
+  | { type: 'template.published'; entry: TemplateMarketplaceEntry }
+  | { type: 'template.unpublished'; templateId: string }
+  | { type: 'template.rated'; templateId: string; rating: number; newAvg: number }
+  | { type: 'template.forked'; originalId: string; newId: string }
+  | { type: 'template.marketplace.list'; templates: TemplateMarketplaceEntry[] }
 
   // Collaboration events (v0.3 Wave 4)
   | { type: 'collaboration.message'; protocol: string; fromPid: PID; toPid: PID }

@@ -19,6 +19,8 @@ export enum AppID {
   DOCUMENTS = 'documents',
   MEMORY_INSPECTOR = 'memory_inspector',
   APP_STORE = 'app_store',
+  PLUGIN_MARKETPLACE = 'plugin_marketplace',
+  INTEGRATIONS = 'integrations',
 }
 
 export interface WindowState {

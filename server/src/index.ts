@@ -1143,6 +1143,25 @@ const BROADCAST_EVENTS = [
   // Auth events
   'user.created',
   'user.deleted',
+  // Integration events
+  'integration.registered',
+  'integration.unregistered',
+  'integration.enabled',
+  'integration.disabled',
+  'integration.tested',
+  'integration.action_result',
+  'integration.error',
+  // Plugin registry events
+  'plugin.registry.installed',
+  'plugin.registry.uninstalled',
+  'plugin.registry.enabled',
+  'plugin.registry.disabled',
+  'plugin.registry.rated',
+  // Template marketplace events
+  'template.published',
+  'template.unpublished',
+  'template.rated',
+  'template.forked',
 ];
 
 for (const eventType of BROADCAST_EVENTS) {
