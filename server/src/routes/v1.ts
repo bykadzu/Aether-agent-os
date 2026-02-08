@@ -13,6 +13,7 @@
 import { type IncomingMessage, type ServerResponse } from 'node:http';
 import * as os from 'node:os';
 import { verifySlackSignature, parseSlashCommand } from '@aether/kernel';
+import { generateOpenApiSpec } from '../openapi.js';
 
 const API_VERSION = '0.4.0';
 
@@ -1282,6 +1283,12 @@ export function createV1Router(
     url: URL,
     user: UserInfo,
   ): Promise<boolean> {
+    // GET /api/v1/openapi.json — OpenAPI spec
+    if (url.pathname === '/api/v1/openapi.json' && (req.method || 'GET') === 'GET') {
+      jsonOk(res, generateOpenApiSpec());
+      return true;
+    }
+
     // Try each handler in order
     if (await handleAgents(req, res, url, user)) return true;
     if (await handleFilesystem(req, res, url, user)) return true;

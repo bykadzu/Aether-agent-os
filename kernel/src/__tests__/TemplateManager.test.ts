@@ -111,21 +111,23 @@ describe('TemplateManager', () => {
 
   describe('list / filter', () => {
     it('list returns all published templates', () => {
+      const baseline = templates.list().length;
       templates.publish(makeTemplate({ name: 'T1' }));
       templates.publish(makeTemplate({ name: 'T2' }));
 
       const list = templates.list();
-      expect(list).toHaveLength(2);
+      expect(list).toHaveLength(baseline + 2);
     });
 
     it('list filters by category', () => {
+      const baselineDev = templates.list('development').length;
       templates.publish(makeTemplate({ name: 'Dev', category: 'development' }));
       templates.publish(makeTemplate({ name: 'Res', category: 'research' }));
       templates.publish(makeTemplate({ name: 'Data', category: 'data' }));
 
       const devOnly = templates.list('development');
-      expect(devOnly).toHaveLength(1);
-      expect(devOnly[0].name).toBe('Dev');
+      expect(devOnly).toHaveLength(baselineDev + 1);
+      expect(devOnly.map((t) => t.name)).toContain('Dev');
     });
 
     it('list filters by tags', () => {
@@ -313,11 +315,11 @@ describe('TemplateManager', () => {
 
       try {
         const list = templates2.list();
-        expect(list).toHaveLength(1);
-        expect(list[0].name).toBe('Persistent');
-        expect(list[0].download_count).toBe(1);
-        expect(list[0].rating_count).toBe(1);
-        expect(list[0].rating_avg).toBe(4);
+        const persistent = list.find((t) => t.name === 'Persistent');
+        expect(persistent).toBeDefined();
+        expect(persistent!.download_count).toBe(1);
+        expect(persistent!.rating_count).toBe(1);
+        expect(persistent!.rating_avg).toBe(4);
       } finally {
         templates2.shutdown();
         store2.close();

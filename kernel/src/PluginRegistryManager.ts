@@ -12,6 +12,7 @@
 
 import { EventBus } from './EventBus.js';
 import { StateStore } from './StateStore.js';
+import { getDefaultPlugins } from './seedPlugins.js';
 
 // ---------------------------------------------------------------------------
 // Types (local — Agent 2 will add to protocol.ts later)
@@ -157,6 +158,15 @@ export class PluginRegistryManager {
         `INSERT OR REPLACE INTO plugin_settings (plugin_id, key, value) VALUES (?, ?, ?)`,
       ),
     };
+
+    // Seed default plugins if registry is empty
+    const existingPlugins = this.stmts.getAllPlugins.all();
+    if (existingPlugins.length === 0) {
+      const defaults = getDefaultPlugins();
+      for (const manifest of defaults) {
+        this.install(manifest, 'registry', 'system');
+      }
+    }
   }
 
   install(

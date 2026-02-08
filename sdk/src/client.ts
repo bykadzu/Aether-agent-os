@@ -165,6 +165,33 @@ export class AetherClient {
     },
   };
 
+  // --- Integrations ---
+  readonly integrations = {
+    list: () => this.get<any[]>('/api/v1/integrations'),
+    get: (id: string) => this.get<any>(`/api/v1/integrations/${id}`),
+    register: (data: { type: string; name: string; credentials?: Record<string, string> }) =>
+      this.post<any>('/api/v1/integrations', data),
+    unregister: (id: string) => this.delete<any>(`/api/v1/integrations/${id}`),
+    test: (id: string) => this.post<any>(`/api/v1/integrations/${id}/test`),
+    execute: (id: string, action: string, params?: Record<string, any>) =>
+      this.post<any>(`/api/v1/integrations/${id}/execute`, { action, params }),
+  };
+
+  // --- Webhooks ---
+  readonly webhooks = {
+    list: () => this.get<any[]>('/api/v1/webhooks'),
+    create: (data: { url: string; events: string[]; secret?: string }) =>
+      this.post<any>('/api/v1/webhooks', data),
+    delete: (id: string) => this.delete<any>(`/api/v1/webhooks/${id}`),
+  };
+
+  // --- Plugins ---
+  readonly plugins = {
+    list: (opts?: { category?: string }) => this.get<any[]>('/api/v1/marketplace/plugins', opts),
+    install: (manifest: any) => this.post<any>('/api/v1/marketplace/plugins', manifest),
+    uninstall: (id: string) => this.delete<any>(`/api/v1/marketplace/plugins/${id}`),
+  };
+
   // --- Internal HTTP methods ---
   private async get<T>(path: string, queryParams?: Record<string, any>): Promise<T> {
     const url = this.buildUrl(path, queryParams);

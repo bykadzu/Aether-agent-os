@@ -176,24 +176,27 @@ describe('PluginRegistryManager', () => {
 
   describe('list / search', () => {
     it('lists all installed plugins', () => {
+      const baseline = registry.list().length;
       registry.install(SAMPLE_MANIFEST);
       registry.install(SAMPLE_MANIFEST_2);
 
       const plugins = registry.list();
-      expect(plugins).toHaveLength(2);
+      expect(plugins).toHaveLength(baseline + 2);
     });
 
     it('filters by category', () => {
+      const baselineTools = registry.list('tools').length;
+      const baselineData = registry.list('data-sources').length;
       registry.install(SAMPLE_MANIFEST);
       registry.install(SAMPLE_MANIFEST_2);
 
       const tools = registry.list('tools');
-      expect(tools).toHaveLength(1);
-      expect(tools[0].id).toBe('com.test.sample-plugin');
+      expect(tools).toHaveLength(baselineTools + 1);
+      expect(tools.map((p) => p.id)).toContain('com.test.sample-plugin');
 
       const dataSources = registry.list('data-sources');
-      expect(dataSources).toHaveLength(1);
-      expect(dataSources[0].id).toBe('com.test.another-plugin');
+      expect(dataSources).toHaveLength(baselineData + 1);
+      expect(dataSources.map((p) => p.id)).toContain('com.test.another-plugin');
     });
 
     it('searches by name', () => {
@@ -366,11 +369,11 @@ describe('PluginRegistryManager', () => {
 
       try {
         const plugins = registry2.list();
-        expect(plugins).toHaveLength(1);
-        expect(plugins[0].id).toBe('com.test.sample-plugin');
-        expect(plugins[0].manifest.name).toBe('Sample Plugin');
-        expect(plugins[0].install_source).toBe('local');
-        expect(plugins[0].owner_uid).toBe('user_1');
+        const sample = plugins.find((p) => p.id === 'com.test.sample-plugin');
+        expect(sample).toBeDefined();
+        expect(sample!.manifest.name).toBe('Sample Plugin');
+        expect(sample!.install_source).toBe('local');
+        expect(sample!.owner_uid).toBe('user_1');
       } finally {
         registry2.shutdown();
         store2.close();
