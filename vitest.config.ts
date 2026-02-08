@@ -13,6 +13,7 @@ export default defineConfig({
       'shared/src/__tests__/**/*.test.ts',
       'server/src/__tests__/**/*.test.ts',
       'components/**/__tests__/**/*.test.{ts,tsx}',
+      'sdk/__tests__/**/*.test.ts',
     ],
     environmentMatchGlobs: [['components/**/__tests__/**', 'jsdom']],
     coverage: {

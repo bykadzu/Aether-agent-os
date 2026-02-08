@@ -34,6 +34,9 @@ import { AuthManager } from './AuthManager.js';
 import { ClusterManager } from './ClusterManager.js';
 import { WebhookManager } from './WebhookManager.js';
 import { AppManager } from './AppManager.js';
+import { PluginRegistryManager } from './PluginRegistryManager.js';
+import { IntegrationManager } from './IntegrationManager.js';
+import { TemplateManager } from './TemplateManager.js';
 import {
   KernelCommand,
   KernelEvent,
@@ -62,6 +65,9 @@ export class Kernel {
   readonly cluster: ClusterManager;
   readonly webhooks: WebhookManager;
   readonly apps: AppManager;
+  readonly pluginRegistry: PluginRegistryManager;
+  readonly integrations: IntegrationManager;
+  readonly templateMarketplace: TemplateManager;
 
   private startTime: number;
   private running = false;
@@ -83,6 +89,9 @@ export class Kernel {
     this.cluster = new ClusterManager(this.bus);
     this.webhooks = new WebhookManager(this.bus, this.state);
     this.apps = new AppManager(this.bus, this.state);
+    this.pluginRegistry = new PluginRegistryManager(this.bus, this.state);
+    this.integrations = new IntegrationManager(this.bus, this.state);
+    this.templateMarketplace = new TemplateManager(this.bus, this.state);
     this.startTime = Date.now();
   }
 
@@ -173,6 +182,18 @@ export class Kernel {
       return null;
     });
     console.log('[Kernel] Webhook manager initialized');
+
+    // Initialize plugin registry
+    await this.pluginRegistry.init();
+    console.log('[Kernel] Plugin registry initialized');
+
+    // Initialize integration manager
+    await this.integrations.init();
+    console.log('[Kernel] Integration manager initialized');
+
+    // Initialize template marketplace
+    await this.templateMarketplace.init();
+    console.log('[Kernel] Template marketplace initialized');
 
     this.running = true;
     this.startTime = Date.now();
@@ -1271,6 +1292,220 @@ export class Kernel {
           break;
         }
 
+        // ----- Plugin Registry Commands (v0.4 Wave 2) -----
+        case 'plugin.registry.install': {
+          try {
+            const plugin = this.pluginRegistry.install(cmd.manifest, cmd.source, cmd.owner_uid);
+            events.push({ type: 'response.ok', id: cmd.id, data: plugin });
+            events.push({ type: 'plugin.registry.installed', plugin } as KernelEvent);
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        case 'plugin.registry.uninstall': {
+          try {
+            this.pluginRegistry.uninstall(cmd.pluginId);
+            events.push({ type: 'response.ok', id: cmd.id });
+            events.push({
+              type: 'plugin.registry.uninstalled',
+              pluginId: cmd.pluginId,
+            } as KernelEvent);
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        case 'plugin.registry.enable': {
+          this.pluginRegistry.enable(cmd.pluginId);
+          events.push({ type: 'response.ok', id: cmd.id });
+          events.push({ type: 'plugin.registry.enabled', pluginId: cmd.pluginId } as KernelEvent);
+          break;
+        }
+
+        case 'plugin.registry.disable': {
+          this.pluginRegistry.disable(cmd.pluginId);
+          events.push({ type: 'response.ok', id: cmd.id });
+          events.push({ type: 'plugin.registry.disabled', pluginId: cmd.pluginId } as KernelEvent);
+          break;
+        }
+
+        case 'plugin.registry.list': {
+          const plugins = this.pluginRegistry.list(cmd.category);
+          events.push({ type: 'response.ok', id: cmd.id, data: plugins });
+          events.push({ type: 'plugin.registry.list', plugins } as KernelEvent);
+          break;
+        }
+
+        case 'plugin.registry.search': {
+          const searchResults = this.pluginRegistry.search(cmd.query, cmd.category);
+          events.push({ type: 'response.ok', id: cmd.id, data: searchResults });
+          break;
+        }
+
+        case 'plugin.registry.rate': {
+          try {
+            const rateResult = this.pluginRegistry.rate(
+              cmd.pluginId,
+              cmd.user_id,
+              cmd.rating,
+              cmd.review,
+            );
+            events.push({ type: 'response.ok', id: cmd.id, data: rateResult });
+            events.push({
+              type: 'plugin.registry.rated',
+              pluginId: cmd.pluginId,
+              rating: cmd.rating,
+              newAvg: rateResult.newAvg,
+            } as KernelEvent);
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        case 'plugin.registry.settings.get': {
+          const settings = this.pluginRegistry.getSettings(cmd.pluginId);
+          events.push({ type: 'response.ok', id: cmd.id, data: settings });
+          break;
+        }
+
+        case 'plugin.registry.settings.set': {
+          this.pluginRegistry.setSetting(cmd.pluginId, cmd.key, cmd.value);
+          events.push({ type: 'response.ok', id: cmd.id });
+          break;
+        }
+
+        // ----- Integration Commands (v0.4 Wave 2) -----
+        case 'integration.register': {
+          try {
+            const integration = this.integrations.register(cmd.config, cmd.owner_uid);
+            events.push({ type: 'response.ok', id: cmd.id, data: integration });
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        case 'integration.unregister': {
+          this.integrations.unregister(cmd.integrationId);
+          events.push({ type: 'response.ok', id: cmd.id });
+          break;
+        }
+
+        case 'integration.configure': {
+          this.integrations.configure(cmd.integrationId, cmd.settings);
+          events.push({ type: 'response.ok', id: cmd.id });
+          break;
+        }
+
+        case 'integration.enable': {
+          this.integrations.enable(cmd.integrationId);
+          events.push({ type: 'response.ok', id: cmd.id });
+          break;
+        }
+
+        case 'integration.disable': {
+          this.integrations.disable(cmd.integrationId);
+          events.push({ type: 'response.ok', id: cmd.id });
+          break;
+        }
+
+        case 'integration.list': {
+          const integrationsList = this.integrations.list();
+          events.push({ type: 'response.ok', id: cmd.id, data: integrationsList });
+          events.push({ type: 'integration.list', integrations: integrationsList } as KernelEvent);
+          break;
+        }
+
+        case 'integration.test': {
+          try {
+            const testResult = await this.integrations.test(cmd.integrationId);
+            events.push({ type: 'response.ok', id: cmd.id, data: testResult });
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        case 'integration.execute': {
+          try {
+            const execResult = await this.integrations.execute(
+              cmd.integrationId,
+              cmd.action,
+              cmd.params,
+            );
+            events.push({ type: 'response.ok', id: cmd.id, data: execResult });
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        // ----- Template Marketplace Commands (v0.4 Wave 2) -----
+        case 'template.publish': {
+          try {
+            const entry = this.templateMarketplace.publish(cmd.template);
+            events.push({ type: 'response.ok', id: cmd.id, data: entry });
+            events.push({ type: 'template.published', entry } as KernelEvent);
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        case 'template.unpublish': {
+          this.templateMarketplace.unpublish(cmd.templateId);
+          events.push({ type: 'response.ok', id: cmd.id });
+          events.push({ type: 'template.unpublished', templateId: cmd.templateId } as KernelEvent);
+          break;
+        }
+
+        case 'template.marketplace.list': {
+          const templates = this.templateMarketplace.list(cmd.category, cmd.tags);
+          events.push({ type: 'response.ok', id: cmd.id, data: templates });
+          events.push({ type: 'template.marketplace.list', templates } as KernelEvent);
+          break;
+        }
+
+        case 'template.rate': {
+          try {
+            const rateRes = this.templateMarketplace.rate(
+              cmd.templateId,
+              cmd.user_id,
+              cmd.rating,
+              cmd.review,
+            );
+            events.push({ type: 'response.ok', id: cmd.id, data: rateRes });
+            events.push({
+              type: 'template.rated',
+              templateId: cmd.templateId,
+              rating: cmd.rating,
+              newAvg: rateRes.newAvg,
+            } as KernelEvent);
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        case 'template.fork': {
+          try {
+            const forked = this.templateMarketplace.fork(cmd.templateId, cmd.user_id);
+            events.push({ type: 'response.ok', id: cmd.id, data: forked });
+            events.push({
+              type: 'template.forked',
+              originalId: cmd.templateId,
+              newId: forked.id,
+            } as KernelEvent);
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
         // ----- System Commands -----
         case 'kernel.status': {
           events.push({
@@ -1360,6 +1595,9 @@ export class Kernel {
       ['ClusterManager', true],
       ['AppManager', true],
       ['WebhookManager', true],
+      ['PluginRegistry', true],
+      ['IntegrationMgr', true],
+      ['TemplateMktplace', true],
     ];
 
     const port = process.env.AETHER_PORT || String(DEFAULT_PORT);
@@ -1423,6 +1661,9 @@ export class Kernel {
 
     this.webhooks.shutdown();
     this.apps.shutdown();
+    this.pluginRegistry.shutdown();
+    this.integrations.shutdown();
+    this.templateMarketplace.shutdown();
     this.cron.stop();
     await this.cluster.shutdown();
     await this.browser.shutdown();

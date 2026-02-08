@@ -23,6 +23,8 @@ import { MusicApp } from './components/apps/MusicApp';
 import { DocumentsApp } from './components/apps/DocumentsApp';
 import { MemoryInspectorApp } from './components/apps/MemoryInspectorApp';
 import { AppStoreApp } from './components/apps/AppStoreApp';
+import { PluginMarketplaceApp } from './components/apps/PluginMarketplaceApp';
+import { IntegrationsApp } from './components/apps/IntegrationsApp';
 import { DesktopWidgets } from './components/os/DesktopWidgets';
 import { ContextMenu } from './components/os/ContextMenu';
 import { LoginScreen } from './components/os/LoginScreen';
@@ -65,6 +67,8 @@ const DOCK_APPS: AppID[] = [
   AppID.SYSTEM_MONITOR,
   AppID.MEMORY_INSPECTOR,
   AppID.APP_STORE,
+  AppID.PLUGIN_MARKETPLACE,
+  AppID.INTEGRATIONS,
 ];
 
 const App: React.FC = () => {
@@ -847,6 +851,10 @@ const App: React.FC = () => {
         return 'Memory Inspector';
       case AppID.APP_STORE:
         return 'App Store';
+      case AppID.PLUGIN_MARKETPLACE:
+        return 'Plugin Marketplace';
+      case AppID.INTEGRATIONS:
+        return 'Integrations';
       default:
         return 'App';
     }
@@ -1263,6 +1271,10 @@ const App: React.FC = () => {
         return <MemoryInspectorApp />;
       case AppID.APP_STORE:
         return <AppStoreApp />;
+      case AppID.PLUGIN_MARKETPLACE:
+        return <PluginMarketplaceApp />;
+      case AppID.INTEGRATIONS:
+        return <IntegrationsApp />;
       case AppID.VM:
         const agent = agents.find((a) => a.id === windowState.initialData?.agentId);
         if (!agent) return <div className="p-4 text-white">Agent not found or terminated.</div>;

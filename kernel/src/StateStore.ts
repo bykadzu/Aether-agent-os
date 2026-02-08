@@ -149,6 +149,39 @@ export class StateStore {
     getInboundWebhooksByOwner: Database.Statement;
     updateInboundWebhookTriggered: Database.Statement;
     deleteInboundWebhook: Database.Statement;
+    // Plugin registry statements (v0.4 Wave 2)
+    insertPlugin: Database.Statement;
+    getPlugin: Database.Statement;
+    getAllPlugins: Database.Statement;
+    getPluginsByCategory: Database.Statement;
+    deletePlugin: Database.Statement;
+    updatePluginEnabled: Database.Statement;
+    updatePluginRating: Database.Statement;
+    insertPluginRating: Database.Statement;
+    getPluginRatings: Database.Statement;
+    getPluginSetting: Database.Statement;
+    upsertPluginSetting: Database.Statement;
+    getPluginSettings: Database.Statement;
+    deletePluginSettings: Database.Statement;
+    // Integration statements (v0.4 Wave 2)
+    insertIntegration: Database.Statement;
+    getIntegration: Database.Statement;
+    getAllIntegrations: Database.Statement;
+    deleteIntegration: Database.Statement;
+    updateIntegrationEnabled: Database.Statement;
+    updateIntegrationSettings: Database.Statement;
+    updateIntegrationStatus: Database.Statement;
+    insertIntegrationLog: Database.Statement;
+    getIntegrationLogs: Database.Statement;
+    // Template marketplace statements (v0.4 Wave 2)
+    insertTemplate: Database.Statement;
+    getTemplate: Database.Statement;
+    getAllTemplates: Database.Statement;
+    getTemplatesByCategory: Database.Statement;
+    deleteTemplate: Database.Statement;
+    updateTemplateRating: Database.Statement;
+    insertTemplateRating: Database.Statement;
+    updateTemplateDownloads: Database.Statement;
   };
 
   private _persistenceDisabled = false;
@@ -464,6 +497,96 @@ export class StateStore {
       );
 
       CREATE INDEX IF NOT EXISTS idx_inbound_webhooks_token ON inbound_webhooks(token);
+
+      -- Plugin registry table (v0.4 Wave 2)
+      CREATE TABLE IF NOT EXISTS plugin_registry (
+        id TEXT PRIMARY KEY,
+        manifest TEXT NOT NULL,
+        installed_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        enabled INTEGER DEFAULT 1,
+        install_source TEXT DEFAULT 'registry',
+        owner_uid TEXT,
+        download_count INTEGER DEFAULT 0,
+        rating_avg REAL DEFAULT 0.0,
+        rating_count INTEGER DEFAULT 0
+      );
+
+      CREATE TABLE IF NOT EXISTS plugin_ratings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        plugin_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        rating INTEGER NOT NULL CHECK(rating BETWEEN 1 AND 5),
+        review TEXT,
+        created_at INTEGER NOT NULL,
+        UNIQUE(plugin_id, user_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS plugin_settings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        plugin_id TEXT NOT NULL,
+        key TEXT NOT NULL,
+        value TEXT,
+        UNIQUE(plugin_id, key)
+      );
+
+      -- Integrations tables (v0.4 Wave 2)
+      CREATE TABLE IF NOT EXISTS integrations (
+        id TEXT PRIMARY KEY,
+        type TEXT NOT NULL,
+        name TEXT NOT NULL,
+        enabled INTEGER DEFAULT 1,
+        owner_uid TEXT,
+        credentials TEXT,
+        settings TEXT,
+        status TEXT DEFAULT 'disconnected',
+        last_error TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS integration_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        integration_id TEXT NOT NULL,
+        action TEXT NOT NULL,
+        status TEXT NOT NULL,
+        request_summary TEXT,
+        response_summary TEXT,
+        duration_ms INTEGER NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_integration_logs_integration ON integration_logs(integration_id);
+      CREATE INDEX IF NOT EXISTS idx_integration_logs_created ON integration_logs(created_at);
+
+      -- Template marketplace tables (v0.4 Wave 2)
+      CREATE TABLE IF NOT EXISTS template_marketplace (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL,
+        icon TEXT NOT NULL DEFAULT '',
+        category TEXT NOT NULL,
+        config TEXT NOT NULL,
+        suggested_goals TEXT NOT NULL DEFAULT '[]',
+        author TEXT NOT NULL,
+        tags TEXT NOT NULL DEFAULT '[]',
+        download_count INTEGER DEFAULT 0,
+        rating_avg REAL DEFAULT 0.0,
+        rating_count INTEGER DEFAULT 0,
+        published_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        enabled INTEGER DEFAULT 1
+      );
+
+      CREATE TABLE IF NOT EXISTS template_ratings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        template_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        rating INTEGER NOT NULL CHECK(rating BETWEEN 1 AND 5),
+        review TEXT,
+        created_at INTEGER NOT NULL,
+        UNIQUE(template_id, user_id)
+      );
 
       -- Agent profiles table (v0.3 Wave 4)
       CREATE TABLE IF NOT EXISTS agent_profiles (
@@ -856,6 +979,106 @@ export class StateStore {
         UPDATE inbound_webhooks SET last_triggered = ?, trigger_count = trigger_count + 1 WHERE id = ?
       `),
       deleteInboundWebhook: this.db.prepare(`DELETE FROM inbound_webhooks WHERE id = ?`),
+      // Plugin registry statements (v0.4 Wave 2)
+      insertPlugin: this.db.prepare(`
+        INSERT OR REPLACE INTO plugin_registry (id, manifest, installed_at, updated_at, enabled, install_source, owner_uid, download_count, rating_avg, rating_count)
+        VALUES (@id, @manifest, @installed_at, @updated_at, @enabled, @install_source, @owner_uid, @download_count, @rating_avg, @rating_count)
+      `),
+      getPlugin: this.db.prepare(`
+        SELECT id, manifest, installed_at, updated_at, enabled, install_source, owner_uid, download_count, rating_avg, rating_count
+        FROM plugin_registry WHERE id = ?
+      `),
+      getAllPlugins: this.db.prepare(`
+        SELECT id, manifest, installed_at, updated_at, enabled, install_source, owner_uid, download_count, rating_avg, rating_count
+        FROM plugin_registry ORDER BY installed_at DESC
+      `),
+      getPluginsByCategory: this.db.prepare(`
+        SELECT id, manifest, installed_at, updated_at, enabled, install_source, owner_uid, download_count, rating_avg, rating_count
+        FROM plugin_registry WHERE json_extract(manifest, '$.category') = ? ORDER BY installed_at DESC
+      `),
+      deletePlugin: this.db.prepare(`DELETE FROM plugin_registry WHERE id = ?`),
+      updatePluginEnabled: this.db.prepare(
+        `UPDATE plugin_registry SET enabled = ?, updated_at = ? WHERE id = ?`,
+      ),
+      updatePluginRating: this.db.prepare(
+        `UPDATE plugin_registry SET rating_avg = ?, rating_count = ?, updated_at = ? WHERE id = ?`,
+      ),
+      insertPluginRating: this.db.prepare(`
+        INSERT OR REPLACE INTO plugin_ratings (plugin_id, user_id, rating, review, created_at)
+        VALUES (@plugin_id, @user_id, @rating, @review, @created_at)
+      `),
+      getPluginRatings: this.db.prepare(`
+        SELECT plugin_id, user_id, rating, review, created_at FROM plugin_ratings WHERE plugin_id = ?
+      `),
+      getPluginSetting: this.db.prepare(
+        `SELECT value FROM plugin_settings WHERE plugin_id = ? AND key = ?`,
+      ),
+      upsertPluginSetting: this.db.prepare(`
+        INSERT OR REPLACE INTO plugin_settings (plugin_id, key, value) VALUES (?, ?, ?)
+      `),
+      getPluginSettings: this.db.prepare(
+        `SELECT key, value FROM plugin_settings WHERE plugin_id = ?`,
+      ),
+      deletePluginSettings: this.db.prepare(`DELETE FROM plugin_settings WHERE plugin_id = ?`),
+      // Integration statements (v0.4 Wave 2)
+      insertIntegration: this.db.prepare(`
+        INSERT INTO integrations (id, type, name, enabled, owner_uid, credentials, settings, status, last_error, created_at, updated_at)
+        VALUES (@id, @type, @name, @enabled, @owner_uid, @credentials, @settings, @status, @last_error, @created_at, @updated_at)
+      `),
+      getIntegration: this.db.prepare(`
+        SELECT id, type, name, enabled, owner_uid, credentials, settings, status, last_error, created_at, updated_at
+        FROM integrations WHERE id = ?
+      `),
+      getAllIntegrations: this.db.prepare(`
+        SELECT id, type, name, enabled, owner_uid, credentials, settings, status, last_error, created_at, updated_at
+        FROM integrations ORDER BY created_at ASC
+      `),
+      deleteIntegration: this.db.prepare(`DELETE FROM integrations WHERE id = ?`),
+      updateIntegrationEnabled: this.db.prepare(
+        `UPDATE integrations SET enabled = ?, updated_at = ? WHERE id = ?`,
+      ),
+      updateIntegrationSettings: this.db.prepare(
+        `UPDATE integrations SET settings = ?, updated_at = ? WHERE id = ?`,
+      ),
+      updateIntegrationStatus: this.db.prepare(
+        `UPDATE integrations SET status = ?, last_error = ?, updated_at = ? WHERE id = ?`,
+      ),
+      insertIntegrationLog: this.db.prepare(`
+        INSERT INTO integration_logs (integration_id, action, status, request_summary, response_summary, duration_ms, created_at)
+        VALUES (@integration_id, @action, @status, @request_summary, @response_summary, @duration_ms, @created_at)
+      `),
+      getIntegrationLogs: this.db.prepare(`
+        SELECT id, integration_id, action, status, request_summary, response_summary, duration_ms, created_at
+        FROM integration_logs WHERE integration_id = ? ORDER BY created_at DESC LIMIT ?
+      `),
+      // Template marketplace statements (v0.4 Wave 2)
+      insertTemplate: this.db.prepare(`
+        INSERT OR REPLACE INTO template_marketplace (id, name, description, icon, category, config, suggested_goals, author, tags, download_count, rating_avg, rating_count, published_at, updated_at, enabled)
+        VALUES (@id, @name, @description, @icon, @category, @config, @suggested_goals, @author, @tags, @download_count, @rating_avg, @rating_count, @published_at, @updated_at, @enabled)
+      `),
+      getTemplate: this.db.prepare(`
+        SELECT id, name, description, icon, category, config, suggested_goals, author, tags, download_count, rating_avg, rating_count, published_at, updated_at, enabled
+        FROM template_marketplace WHERE id = ?
+      `),
+      getAllTemplates: this.db.prepare(`
+        SELECT id, name, description, icon, category, config, suggested_goals, author, tags, download_count, rating_avg, rating_count, published_at, updated_at, enabled
+        FROM template_marketplace WHERE enabled = 1 ORDER BY download_count DESC
+      `),
+      getTemplatesByCategory: this.db.prepare(`
+        SELECT id, name, description, icon, category, config, suggested_goals, author, tags, download_count, rating_avg, rating_count, published_at, updated_at, enabled
+        FROM template_marketplace WHERE category = ? AND enabled = 1 ORDER BY download_count DESC
+      `),
+      deleteTemplate: this.db.prepare(`DELETE FROM template_marketplace WHERE id = ?`),
+      updateTemplateRating: this.db.prepare(
+        `UPDATE template_marketplace SET rating_avg = ?, rating_count = ?, updated_at = ? WHERE id = ?`,
+      ),
+      insertTemplateRating: this.db.prepare(`
+        INSERT OR REPLACE INTO template_ratings (template_id, user_id, rating, review, created_at)
+        VALUES (@template_id, @user_id, @rating, @review, @created_at)
+      `),
+      updateTemplateDownloads: this.db.prepare(
+        `UPDATE template_marketplace SET download_count = download_count + 1 WHERE id = ?`,
+      ),
     };
   }
 
@@ -1680,6 +1903,203 @@ export class StateStore {
 
   deleteInboundWebhook(id: string): void {
     this.stmts.deleteInboundWebhook.run(id);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Plugin Registry (v0.4 Wave 2)
+  // ---------------------------------------------------------------------------
+
+  insertPlugin(record: {
+    id: string;
+    manifest: string;
+    installed_at: number;
+    updated_at: number;
+    enabled: number;
+    install_source: string;
+    owner_uid: string | null;
+    download_count: number;
+    rating_avg: number;
+    rating_count: number;
+  }): void {
+    this.stmts.insertPlugin.run(record);
+  }
+
+  getPlugin(id: string): any | undefined {
+    return this.stmts.getPlugin.get(id);
+  }
+
+  getAllPlugins(): any[] {
+    return this.stmts.getAllPlugins.all() as any[];
+  }
+
+  getPluginsByCategory(category: string): any[] {
+    return this.stmts.getPluginsByCategory.all(category) as any[];
+  }
+
+  deletePlugin(id: string): void {
+    this.stmts.deletePluginSettings.run(id);
+    this.stmts.deletePlugin.run(id);
+  }
+
+  setPluginEnabled(id: string, enabled: boolean): void {
+    this.stmts.updatePluginEnabled.run(enabled ? 1 : 0, Date.now(), id);
+  }
+
+  updatePluginRating(id: string, avg: number, count: number): void {
+    this.stmts.updatePluginRating.run(avg, count, Date.now(), id);
+  }
+
+  insertPluginRating(record: {
+    plugin_id: string;
+    user_id: string;
+    rating: number;
+    review: string | null;
+    created_at: number;
+  }): void {
+    this.stmts.insertPluginRating.run(record);
+  }
+
+  getPluginRatings(pluginId: string): any[] {
+    return this.stmts.getPluginRatings.all(pluginId) as any[];
+  }
+
+  getPluginSetting(pluginId: string, key: string): string | undefined {
+    const row = this.stmts.getPluginSetting.get(pluginId, key) as { value: string } | undefined;
+    return row?.value;
+  }
+
+  setPluginSetting(pluginId: string, key: string, value: string): void {
+    this.stmts.upsertPluginSetting.run(pluginId, key, value);
+  }
+
+  getPluginSettings(pluginId: string): Record<string, string> {
+    const rows = this.stmts.getPluginSettings.all(pluginId) as Array<{
+      key: string;
+      value: string;
+    }>;
+    const result: Record<string, string> = {};
+    for (const row of rows) {
+      result[row.key] = row.value;
+    }
+    return result;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Integrations (v0.4 Wave 2)
+  // ---------------------------------------------------------------------------
+
+  insertIntegration(record: {
+    id: string;
+    type: string;
+    name: string;
+    enabled: number;
+    owner_uid: string | null;
+    credentials: string | null;
+    settings: string | null;
+    status: string;
+    last_error: string | null;
+    created_at: number;
+    updated_at: number;
+  }): void {
+    this.stmts.insertIntegration.run(record);
+  }
+
+  getIntegration(id: string): any | undefined {
+    return this.stmts.getIntegration.get(id);
+  }
+
+  getAllIntegrations(): any[] {
+    return this.stmts.getAllIntegrations.all() as any[];
+  }
+
+  deleteIntegration(id: string): void {
+    this.stmts.deleteIntegration.run(id);
+  }
+
+  setIntegrationEnabled(id: string, enabled: boolean): void {
+    this.stmts.updateIntegrationEnabled.run(enabled ? 1 : 0, Date.now(), id);
+  }
+
+  updateIntegrationSettings(id: string, settings: string): void {
+    this.stmts.updateIntegrationSettings.run(settings, Date.now(), id);
+  }
+
+  updateIntegrationStatus(id: string, status: string, lastError: string | null): void {
+    this.stmts.updateIntegrationStatus.run(status, lastError, Date.now(), id);
+  }
+
+  insertIntegrationLog(record: {
+    integration_id: string;
+    action: string;
+    status: string;
+    request_summary: string | null;
+    response_summary: string | null;
+    duration_ms: number;
+    created_at: number;
+  }): void {
+    this.stmts.insertIntegrationLog.run(record);
+  }
+
+  getIntegrationLogs(integrationId: string, limit: number = 50): any[] {
+    return this.stmts.getIntegrationLogs.all(integrationId, limit) as any[];
+  }
+
+  // ---------------------------------------------------------------------------
+  // Template Marketplace (v0.4 Wave 2)
+  // ---------------------------------------------------------------------------
+
+  insertTemplate(record: {
+    id: string;
+    name: string;
+    description: string;
+    icon: string;
+    category: string;
+    config: string;
+    suggested_goals: string;
+    author: string;
+    tags: string;
+    download_count: number;
+    rating_avg: number;
+    rating_count: number;
+    published_at: number;
+    updated_at: number;
+    enabled: number;
+  }): void {
+    this.stmts.insertTemplate.run(record);
+  }
+
+  getTemplate(id: string): any | undefined {
+    return this.stmts.getTemplate.get(id);
+  }
+
+  getAllTemplates(): any[] {
+    return this.stmts.getAllTemplates.all() as any[];
+  }
+
+  getTemplatesByCategory(category: string): any[] {
+    return this.stmts.getTemplatesByCategory.all(category) as any[];
+  }
+
+  deleteTemplate(id: string): void {
+    this.stmts.deleteTemplate.run(id);
+  }
+
+  updateTemplateRating(id: string, avg: number, count: number): void {
+    this.stmts.updateTemplateRating.run(avg, count, Date.now(), id);
+  }
+
+  insertTemplateRating(record: {
+    template_id: string;
+    user_id: string;
+    rating: number;
+    review: string | null;
+    created_at: number;
+  }): void {
+    this.stmts.insertTemplateRating.run(record);
+  }
+
+  incrementTemplateDownloads(id: string): void {
+    this.stmts.updateTemplateDownloads.run(id);
   }
 
   /** Expose the underlying database for direct queries (used by MemoryManager for FTS5) */

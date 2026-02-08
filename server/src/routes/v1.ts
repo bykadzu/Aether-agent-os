@@ -753,6 +753,192 @@ export function createV1Router(
     return false;
   }
 
+  // ----- Integrations -----
+
+  async function handleIntegrations(
+    req: IncomingMessage,
+    res: ServerResponse,
+    url: URL,
+    user: UserInfo,
+  ): Promise<boolean> {
+    const method = req.method || 'GET';
+    const pathname = url.pathname;
+
+    // GET /api/v1/integrations — List integrations
+    if (pathname === '/api/v1/integrations' && method === 'GET') {
+      const list = kernel.integrations.list();
+      jsonOk(res, list);
+      return true;
+    }
+
+    // POST /api/v1/integrations — Register integration
+    if (pathname === '/api/v1/integrations' && method === 'POST') {
+      try {
+        const body = await readBody(req);
+        const config = JSON.parse(body);
+        if (!config.type || !config.name) {
+          jsonError(res, 400, 'INVALID_INPUT', 'type and name are required');
+          return true;
+        }
+        const info = kernel.integrations.register(config, user.id);
+        jsonOk(res, info, 201);
+      } catch (err: any) {
+        jsonError(res, 400, 'INVALID_INPUT', err.message);
+      }
+      return true;
+    }
+
+    // GET /api/v1/integrations/:id
+    let params = matchRoute(pathname, method, 'GET', '/api/v1/integrations/:id');
+    if (params) {
+      const info = kernel.integrations.get(params.id);
+      if (info) {
+        jsonOk(res, info);
+      } else {
+        jsonError(res, 404, 'NOT_FOUND', `Integration ${params.id} not found`);
+      }
+      return true;
+    }
+
+    // DELETE /api/v1/integrations/:id
+    params = matchRoute(pathname, method, 'DELETE', '/api/v1/integrations/:id');
+    if (params) {
+      kernel.integrations.unregister(params.id);
+      jsonOk(res, { deleted: true });
+      return true;
+    }
+
+    // POST /api/v1/integrations/:id/test
+    params = matchRoute(pathname, method, 'POST', '/api/v1/integrations/:id/test');
+    if (params) {
+      const result = await kernel.integrations.test(params.id);
+      jsonOk(res, result);
+      return true;
+    }
+
+    // POST /api/v1/integrations/:id/execute
+    params = matchRoute(pathname, method, 'POST', '/api/v1/integrations/:id/execute');
+    if (params) {
+      try {
+        const body = await readBody(req);
+        const { action, params: actionParams } = JSON.parse(body);
+        if (!action) {
+          jsonError(res, 400, 'INVALID_INPUT', 'action is required');
+          return true;
+        }
+        const result = await kernel.integrations.execute(params!.id, action, actionParams);
+        jsonOk(res, result);
+      } catch (err: any) {
+        jsonError(res, 400, 'EXECUTION_ERROR', err.message);
+      }
+      return true;
+    }
+
+    // PATCH /api/v1/integrations/:id — Enable/disable
+    params = matchRoute(pathname, method, 'PATCH', '/api/v1/integrations/:id');
+    if (params) {
+      try {
+        const body = await readBody(req);
+        const { enabled } = JSON.parse(body);
+        if (typeof enabled !== 'boolean') {
+          jsonError(res, 400, 'INVALID_INPUT', 'enabled (boolean) is required');
+          return true;
+        }
+        if (enabled) {
+          kernel.integrations.enable(params.id);
+        } else {
+          kernel.integrations.disable(params.id);
+        }
+        jsonOk(res, { id: params.id, enabled });
+      } catch (err: any) {
+        jsonError(res, 400, 'INVALID_INPUT', err.message);
+      }
+      return true;
+    }
+
+    return false;
+  }
+
+  // ----- Marketplace (Plugin Registry + Template Marketplace) -----
+
+  async function handleMarketplace(
+    req: IncomingMessage,
+    res: ServerResponse,
+    url: URL,
+    _user: UserInfo,
+  ): Promise<boolean> {
+    const method = req.method || 'GET';
+    const pathname = url.pathname;
+
+    // GET /api/v1/marketplace/plugins — List plugins
+    if (pathname === '/api/v1/marketplace/plugins' && method === 'GET') {
+      const category = url.searchParams.get('category') || undefined;
+      const search = url.searchParams.get('q') || undefined;
+      let plugins;
+      if (search) {
+        plugins = kernel.pluginRegistry.search(search);
+      } else if (category) {
+        plugins = kernel.pluginRegistry.list().filter((p: any) => p.category === category);
+      } else {
+        plugins = kernel.pluginRegistry.list();
+      }
+      jsonOk(res, plugins);
+      return true;
+    }
+
+    // POST /api/v1/marketplace/plugins — Install plugin
+    if (pathname === '/api/v1/marketplace/plugins' && method === 'POST') {
+      try {
+        const body = await readBody(req);
+        const manifest = JSON.parse(body);
+        const plugin = kernel.pluginRegistry.install(manifest);
+        jsonOk(res, plugin, 201);
+      } catch (err: any) {
+        jsonError(res, 400, 'INVALID_INPUT', err.message);
+      }
+      return true;
+    }
+
+    // DELETE /api/v1/marketplace/plugins/:id
+    let params = matchRoute(pathname, method, 'DELETE', '/api/v1/marketplace/plugins/:id');
+    if (params) {
+      kernel.pluginRegistry.uninstall(params.id);
+      jsonOk(res, { deleted: true });
+      return true;
+    }
+
+    // GET /api/v1/marketplace/templates — List templates
+    if (pathname === '/api/v1/marketplace/templates' && method === 'GET') {
+      const category = url.searchParams.get('category') || undefined;
+      const entries = kernel.templateMarketplace.list(category);
+      jsonOk(res, entries);
+      return true;
+    }
+
+    // POST /api/v1/marketplace/templates — Publish template
+    if (pathname === '/api/v1/marketplace/templates' && method === 'POST') {
+      try {
+        const body = await readBody(req);
+        const entry = JSON.parse(body);
+        const published = kernel.templateMarketplace.publish(entry);
+        jsonOk(res, published, 201);
+      } catch (err: any) {
+        jsonError(res, 400, 'INVALID_INPUT', err.message);
+      }
+      return true;
+    }
+
+    // DELETE /api/v1/marketplace/templates/:id
+    params = matchRoute(pathname, method, 'DELETE', '/api/v1/marketplace/templates/:id');
+    if (params) {
+      kernel.templateMarketplace.unpublish(params.id);
+      jsonOk(res, { deleted: true });
+      return true;
+    }
+
+    return false;
+  }
+
   // ----- Main handler -----
 
   return async function v1Handler(
@@ -769,6 +955,8 @@ export function createV1Router(
     if (await handleEvents(req, res, url, user)) return true;
     if (await handleCron(req, res, url, user)) return true;
     if (await handleTriggers(req, res, url, user)) return true;
+    if (await handleIntegrations(req, res, url, user)) return true;
+    if (await handleMarketplace(req, res, url, user)) return true;
 
     return false;
   };
