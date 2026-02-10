@@ -9,15 +9,22 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { KernelClient, KernelProcessInfo, KernelAgentConfig, UserInfo, ClusterInfo, getKernelClient } from './kernelClient';
+import {
+  KernelClient,
+  KernelProcessInfo,
+  KernelAgentConfig,
+  UserInfo,
+  ClusterInfo,
+  getKernelClient,
+} from './kernelClient';
 
 export interface AgentProcess {
   pid: number;
   name: string;
   role: string;
   goal: string;
-  state: string;       // ProcessState
-  phase: string;       // AgentPhase
+  state: string; // ProcessState
+  phase: string; // AgentPhase
   ttyId?: string;
   createdAt: number;
   logs: AgentLog[];
@@ -68,13 +75,23 @@ export function useKernel(wsUrl?: string) {
 
       if (!isConnected && wasConnected) {
         // Connection dropped — show reconnecting state
-        setState(prev => ({ ...prev, connected: false, reconnecting: true }));
+        setState((prev) => ({ ...prev, connected: false, reconnecting: true }));
       } else if (isConnected && !wasConnected && wasConnected !== undefined) {
         // Reconnected — refresh process list to sync state
-        setState(prev => ({ ...prev, connected: true, reconnecting: false, version: client.version }));
+        setState((prev) => ({
+          ...prev,
+          connected: true,
+          reconnecting: false,
+          version: client.version,
+        }));
         client.listProcesses().catch(() => {});
       } else {
-        setState(prev => ({ ...prev, connected: isConnected, reconnecting: false, version: client.version }));
+        setState((prev) => ({
+          ...prev,
+          connected: isConnected,
+          reconnecting: false,
+          version: client.version,
+        }));
       }
 
       wasConnected = isConnected;
@@ -95,200 +112,208 @@ export function useKernel(wsUrl?: string) {
         logs: [{ timestamp: Date.now(), type: 'system', message: `Process ${info.pid} spawned.` }],
         progress: { step: 0, maxSteps: 50, summary: 'Initializing...' },
       };
-      setState(prev => ({
-        ...prev,
-        processes: [...prev.processes, proc],
-      }));
+      setState((prev) => {
+        // Deduplicate — ignore if PID already exists (event may arrive via bus + command response)
+        if (prev.processes.some((p) => p.pid === proc.pid)) return prev;
+        return {
+          ...prev,
+          processes: [...prev.processes, proc],
+        };
+      });
     });
 
     const unsubStateChange = client.on('process.stateChange', (data: any) => {
-      setState(prev => ({
+      setState((prev) => ({
         ...prev,
-        processes: prev.processes.map(p =>
-          p.pid === data.pid
-            ? { ...p, state: data.state, phase: data.agentPhase || p.phase }
-            : p
+        processes: prev.processes.map((p) =>
+          p.pid === data.pid ? { ...p, state: data.state, phase: data.agentPhase || p.phase } : p,
         ),
       }));
     });
 
     const unsubExit = client.on('process.exit', (data: any) => {
-      setState(prev => ({
+      setState((prev) => ({
         ...prev,
-        processes: prev.processes.map(p =>
+        processes: prev.processes.map((p) =>
           p.pid === data.pid
             ? {
                 ...p,
                 state: 'zombie',
                 phase: data.code === 0 ? 'completed' : 'failed',
-                logs: [...p.logs, {
-                  timestamp: Date.now(),
-                  type: 'system' as const,
-                  message: `Process exited with code ${data.code}${data.signal ? ` (${data.signal})` : ''}`,
-                }],
+                logs: [
+                  ...p.logs,
+                  {
+                    timestamp: Date.now(),
+                    type: 'system' as const,
+                    message: `Process exited with code ${data.code}${data.signal ? ` (${data.signal})` : ''}`,
+                  },
+                ],
               }
-            : p
+            : p,
         ),
       }));
     });
 
     // Agent-specific events
+    // Helper: append log only if it's not a duplicate of the last entry
+    const appendLog = (
+      proc: AgentProcess,
+      entry: {
+        timestamp: number;
+        type: 'thought' | 'action' | 'observation' | 'system';
+        message: string;
+      },
+    ): AgentProcess => {
+      const last = proc.logs[proc.logs.length - 1];
+      if (last && last.type === entry.type && last.message === entry.message) return proc;
+      return { ...proc, logs: [...proc.logs, entry] };
+    };
+
     const unsubThought = client.on('agent.thought', (data: any) => {
-      setState(prev => ({
+      setState((prev) => ({
         ...prev,
-        processes: prev.processes.map(p =>
+        processes: prev.processes.map((p) =>
           p.pid === data.pid
-            ? { ...p, logs: [...p.logs, { timestamp: Date.now(), type: 'thought' as const, message: data.thought }] }
-            : p
+            ? appendLog(p, { timestamp: Date.now(), type: 'thought', message: data.thought })
+            : p,
         ),
       }));
     });
 
     const unsubAction = client.on('agent.action', (data: any) => {
-      setState(prev => ({
+      setState((prev) => ({
         ...prev,
-        processes: prev.processes.map(p =>
+        processes: prev.processes.map((p) =>
           p.pid === data.pid
-            ? {
-                ...p,
-                logs: [...p.logs, {
-                  timestamp: Date.now(),
-                  type: 'action' as const,
-                  message: `${data.tool}(${JSON.stringify(data.args).substring(0, 100)})`,
-                }],
-              }
-            : p
+            ? appendLog(p, {
+                timestamp: Date.now(),
+                type: 'action',
+                message: `${data.tool}(${JSON.stringify(data.args).substring(0, 100)})`,
+              })
+            : p,
         ),
       }));
     });
 
     const unsubObservation = client.on('agent.observation', (data: any) => {
-      setState(prev => ({
+      setState((prev) => ({
         ...prev,
-        processes: prev.processes.map(p =>
+        processes: prev.processes.map((p) =>
           p.pid === data.pid
-            ? {
-                ...p,
-                logs: [...p.logs, {
-                  timestamp: Date.now(),
-                  type: 'observation' as const,
-                  message: data.result,
-                }],
-              }
-            : p
+            ? appendLog(p, { timestamp: Date.now(), type: 'observation', message: data.result })
+            : p,
         ),
       }));
     });
 
     const unsubProgress = client.on('agent.progress', (data: any) => {
-      setState(prev => ({
+      setState((prev) => ({
         ...prev,
-        processes: prev.processes.map(p =>
+        processes: prev.processes.map((p) =>
           p.pid === data.pid
-            ? { ...p, progress: { step: data.step, maxSteps: data.maxSteps, summary: data.summary } }
-            : p
+            ? {
+                ...p,
+                progress: { step: data.step, maxSteps: data.maxSteps, summary: data.summary },
+              }
+            : p,
         ),
       }));
     });
 
     const unsubFileCreated = client.on('agent.file_created', (data: any) => {
-      setState(prev => ({
+      setState((prev) => ({
         ...prev,
-        processes: prev.processes.map(p =>
+        processes: prev.processes.map((p) =>
           p.pid === data.pid
             ? {
                 ...p,
                 currentCode: data.content,
-                logs: [...p.logs, {
-                  timestamp: Date.now(),
-                  type: 'action' as const,
-                  message: `Created file: ${data.path}`,
-                }],
+                logs: [
+                  ...p.logs,
+                  {
+                    timestamp: Date.now(),
+                    type: 'action' as const,
+                    message: `Created file: ${data.path}`,
+                  },
+                ],
               }
-            : p
+            : p,
         ),
       }));
     });
 
     const unsubBrowsing = client.on('agent.browsing', (data: any) => {
-      setState(prev => ({
+      setState((prev) => ({
         ...prev,
-        processes: prev.processes.map(p =>
-          p.pid === data.pid
-            ? { ...p, currentUrl: data.url }
-            : p
+        processes: prev.processes.map((p) =>
+          p.pid === data.pid ? { ...p, currentUrl: data.url } : p,
         ),
       }));
     });
 
     const unsubApproval = client.on('process.approval_required', (data: any) => {
-      setState(prev => ({
+      setState((prev) => ({
         ...prev,
-        processes: prev.processes.map(p =>
+        processes: prev.processes.map((p) =>
           p.pid === data.pid
             ? {
                 ...p,
                 phase: 'waiting',
-                logs: [...p.logs, {
-                  timestamp: Date.now(),
-                  type: 'system' as const,
-                  message: `Awaiting approval: ${data.action} - ${data.details}`,
-                }],
+                logs: [
+                  ...p.logs,
+                  {
+                    timestamp: Date.now(),
+                    type: 'system' as const,
+                    message: `Awaiting approval: ${data.action} - ${data.details}`,
+                  },
+                ],
               }
-            : p
+            : p,
         ),
       }));
     });
 
     // VNC events
     const unsubVncStarted = client.on('vnc.started', (data: any) => {
-      setState(prev => ({
+      setState((prev) => ({
         ...prev,
-        processes: prev.processes.map(p =>
+        processes: prev.processes.map((p) =>
           p.pid === data.pid
             ? { ...p, vncInfo: { wsPort: data.wsPort, display: data.display } }
-            : p
+            : p,
         ),
       }));
     });
 
     const unsubVncStopped = client.on('vnc.stopped', (data: any) => {
-      setState(prev => ({
+      setState((prev) => ({
         ...prev,
-        processes: prev.processes.map(p =>
-          p.pid === data.pid
-            ? { ...p, vncInfo: null }
-            : p
-        ),
+        processes: prev.processes.map((p) => (p.pid === data.pid ? { ...p, vncInfo: null } : p)),
       }));
     });
 
     // GPU events
     const unsubGpuAllocated = client.on('gpu.allocated', (data: any) => {
-      setState(prev => ({
+      setState((prev) => ({
         ...prev,
-        processes: prev.processes.map(p =>
-          p.pid === data.pid
-            ? { ...p, gpuIds: data.gpuIds }
-            : p
+        processes: prev.processes.map((p) =>
+          p.pid === data.pid ? { ...p, gpuIds: data.gpuIds } : p,
         ),
       }));
     });
 
     const unsubGpuReleased = client.on('gpu.released', (data: any) => {
-      setState(prev => ({
+      setState((prev) => ({
         ...prev,
-        processes: prev.processes.map(p =>
-          p.pid === data.pid
-            ? { ...p, gpuIds: undefined }
-            : p
+        processes: prev.processes.map((p) =>
+          p.pid === data.pid ? { ...p, gpuIds: undefined } : p,
         ),
       }));
     });
 
     // Metrics
     const unsubMetrics = client.on('kernel.metrics', (data: any) => {
-      setState(prev => ({
+      setState((prev) => ({
         ...prev,
         metrics: {
           processCount: data.processCount,
@@ -313,7 +338,7 @@ export function useKernel(wsUrl?: string) {
           logs: [],
           progress: { step: 0, maxSteps: 50, summary: '' },
         }));
-        setState(prev => ({
+        setState((prev) => ({
           ...prev,
           processes: procs,
         }));
@@ -322,21 +347,30 @@ export function useKernel(wsUrl?: string) {
 
     // Listen for cluster events
     const unsubClusterJoined = client.on('cluster.nodeJoined', () => {
-      client.getClusterInfo().then(info => {
-        setState(prev => ({ ...prev, clusterInfo: info }));
-      }).catch(() => {});
+      client
+        .getClusterInfo()
+        .then((info) => {
+          setState((prev) => ({ ...prev, clusterInfo: info }));
+        })
+        .catch(() => {});
     });
 
     const unsubClusterLeft = client.on('cluster.nodeLeft', () => {
-      client.getClusterInfo().then(info => {
-        setState(prev => ({ ...prev, clusterInfo: info }));
-      }).catch(() => {});
+      client
+        .getClusterInfo()
+        .then((info) => {
+          setState((prev) => ({ ...prev, clusterInfo: info }));
+        })
+        .catch(() => {});
     });
 
     const unsubClusterOffline = client.on('cluster.nodeOffline', () => {
-      client.getClusterInfo().then(info => {
-        setState(prev => ({ ...prev, clusterInfo: info }));
-      }).catch(() => {});
+      client
+        .getClusterInfo()
+        .then((info) => {
+          setState((prev) => ({ ...prev, clusterInfo: info }));
+        })
+        .catch(() => {});
     });
 
     // Fetch cluster info on connect
@@ -344,12 +378,15 @@ export function useKernel(wsUrl?: string) {
       // Set user from client if already authenticated
       const currentUser = client.getCurrentUser();
       if (currentUser) {
-        setState(prev => ({ ...prev, user: currentUser }));
+        setState((prev) => ({ ...prev, user: currentUser }));
       }
 
-      client.getClusterInfo().then(info => {
-        setState(prev => ({ ...prev, clusterInfo: info }));
-      }).catch(() => {});
+      client
+        .getClusterInfo()
+        .then((info) => {
+          setState((prev) => ({ ...prev, clusterInfo: info }));
+        })
+        .catch(() => {});
     });
 
     // Connect

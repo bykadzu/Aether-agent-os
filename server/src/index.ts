@@ -13,6 +13,13 @@
  * The server just handles transport.
  */
 
+import dotenv from 'dotenv';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+dotenv.config({ path: resolve(__dirname, '../../.env') });
+
 import { createServer, IncomingMessage, ServerResponse } from 'node:http';
 import * as os from 'node:os';
 import * as nodePath from 'node:path';
@@ -1059,6 +1066,7 @@ wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
             signal: proc.abortController.signal,
           }).catch((err) => {
             console.error(`[Server] Agent loop error for PID ${okEvent.data.pid}:`, err);
+            kernel.processes.setState(okEvent.data.pid, 'stopped', 'failed');
           });
         }
       }

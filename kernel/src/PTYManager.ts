@@ -74,18 +74,23 @@ export class PTYManager {
    * Uses Docker container shell if a container exists for the process,
    * otherwise uses node-pty for a real pseudo-terminal.
    */
-  open(pid: PID, options: {
-    cwd?: string;
-    env?: Record<string, string>;
-    cols?: number;
-    rows?: number;
-    shell?: string;
-  } = {}): PTYSession {
+  open(
+    pid: PID,
+    options: {
+      cwd?: string;
+      env?: Record<string, string>;
+      cols?: number;
+      rows?: number;
+      shell?: string;
+    } = {},
+  ): PTYSession {
     const id = `tty_${pid}_${Date.now()}`;
     const cols = options.cols || DEFAULT_TTY_COLS;
     const rows = options.rows || DEFAULT_TTY_ROWS;
     const cwd = options.cwd || '/tmp';
-    const shell = options.shell || '/bin/bash';
+    const defaultShell =
+      process.platform === 'win32' ? process.env.COMSPEC || 'cmd.exe' : '/bin/bash';
+    const shell = options.shell || defaultShell;
 
     // Try to use container shell if ContainerManager has a container for this PID
     if (this.containerManager) {
@@ -125,7 +130,8 @@ export class PTYManager {
     rows: number,
     env?: Record<string, string>,
   ): LocalPTYSession {
-    const ptyProcess = pty.spawn(shell, ['--login'], {
+    const shellArgs = process.platform === 'win32' ? [] : ['--login'];
+    const ptyProcess = pty.spawn(shell, shellArgs, {
       name: 'xterm-256color',
       cols,
       rows,
@@ -292,7 +298,7 @@ export class PTYManager {
           unsub();
           // Extract output between command and marker
           const lines = output.split('\n');
-          const markerIdx = lines.findIndex(l => l.includes(marker));
+          const markerIdx = lines.findIndex((l) => l.includes(marker));
           const result = lines.slice(0, markerIdx).join('\n').trim();
           resolve(result);
         }
@@ -363,7 +369,7 @@ export class PTYManager {
    * Get all sessions for a process.
    */
   getByPid(pid: PID): PTYSession[] {
-    return Array.from(this.sessions.values()).filter(s => s.pid === pid);
+    return Array.from(this.sessions.values()).filter((s) => s.pid === pid);
   }
 
   /**

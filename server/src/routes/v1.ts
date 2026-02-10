@@ -185,6 +185,7 @@ export function createV1Router(
             signal: proc.abortController.signal,
           }).catch((err: any) => {
             console.error(`[API v1] Agent loop error for PID ${pid}:`, err);
+            kernel.processes.setState(pid, 'stopped', 'failed');
           });
         }
 

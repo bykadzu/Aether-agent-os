@@ -31,7 +31,7 @@ import {
   ToolResult,
   ToolContext,
 } from './tools.js';
-import { getProviderFromModelString, getProvider } from './llm/index.js';
+import { getProviderFromModelString, getProvider, GeminiProvider } from './llm/index.js';
 import type { LLMProvider, ChatMessage, ToolDefinition as LLMToolDef } from './llm/index.js';
 import { runReflection } from './reflection.js';
 import { getActivePlan, renderPlanAsMarkdown } from './planner.js';
@@ -349,7 +349,6 @@ function resolveProvider(config: AgentConfig, apiKey?: string): LLMProvider | nu
   // If an API key was passed explicitly (legacy GEMINI_API_KEY path),
   // and no provider was specified, default to Gemini
   if (apiKey) {
-    const { GeminiProvider } = require('./llm/GeminiProvider.js');
     const gemini = new GeminiProvider(config.model);
     return gemini;
   }

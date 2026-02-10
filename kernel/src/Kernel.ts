@@ -282,11 +282,7 @@ export class Kernel {
             id: cmd.id,
             data: { pid, ttyId: tty.id, containerId: proc.info.containerId, vncWsPort },
           });
-          events.push({
-            type: 'process.spawned',
-            pid,
-            info: { ...proc.info },
-          });
+          // Note: process.spawned is already emitted by ProcessManager via EventBus
           break;
         }
 

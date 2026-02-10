@@ -44,7 +44,7 @@ export class GeminiProvider implements LLMProvider {
           properties: {
             reasoning: { type: 'string' as any, description: 'Your step-by-step reasoning' },
             tool: { type: 'string' as any, description: 'The tool to use' },
-            args: { type: 'object' as any, description: 'Arguments for the tool' },
+            args: { type: 'string' as any, description: 'JSON-encoded arguments for the tool' },
           },
           required: ['reasoning', 'tool', 'args'],
         },
@@ -54,6 +54,16 @@ export class GeminiProvider implements LLMProvider {
     const text = response.text || '{}';
     const parsed = JSON.parse(text);
 
+    // args may be a JSON string (from schema) or an object
+    let args = parsed.args || {};
+    if (typeof args === 'string') {
+      try {
+        args = JSON.parse(args);
+      } catch {
+        args = {};
+      }
+    }
+
     return {
       content: parsed.reasoning || text,
       toolCalls: parsed.tool
@@ -61,7 +71,7 @@ export class GeminiProvider implements LLMProvider {
             {
               id: `call_${Date.now()}`,
               name: parsed.tool,
-              arguments: parsed.args || {},
+              arguments: args,
             },
           ]
         : undefined,
