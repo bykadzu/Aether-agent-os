@@ -495,7 +495,25 @@ function buildSystemPrompt(
     `- Goal: ${config.goal}`,
     ``,
     `## Your Environment`,
-    `- You have a real Linux terminal with bash`,
+    ...(process.platform === 'win32'
+      ? [
+          `- You are running on Windows with cmd.exe / PowerShell`,
+          `- Use Windows commands (dir, type, copy, del, mkdir, etc.) — NOT Linux commands`,
+          `- File paths use backslashes (C:\\Users\\...) or forward slashes`,
+          `- Use 'where' instead of 'which', 'type' instead of 'cat', 'dir' instead of 'ls'`,
+          `- Package managers: winget, choco, pip, npm — NOT apt-get or brew`,
+        ]
+      : process.platform === 'darwin'
+        ? [
+            `- You have a real macOS terminal with zsh/bash`,
+            `- Use macOS / Unix commands (ls, cat, cp, rm, mkdir, etc.)`,
+            `- Package managers: brew, pip, npm`,
+          ]
+        : [
+            `- You have a real Linux terminal with bash`,
+            `- Use Linux / Unix commands (ls, cat, cp, rm, mkdir, etc.)`,
+            `- Package managers: apt-get, pip, npm`,
+          ]),
     `- You have a real filesystem with your home directory`,
     `- You can create files, run commands, and browse the web`,
     `- Your actions are observable by the human operator`,

@@ -372,9 +372,13 @@ export const AgentVM: React.FC<AgentVMProps> = ({
   const submitFeedback = async (logIdx: number, rating: 1 | -1, comment?: string) => {
     setFeedbackRatings((prev) => ({ ...prev, [logIdx]: rating }));
     try {
+      const token = localStorage.getItem('aether_token');
       await fetch('http://localhost:3001/api/feedback', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({
           pid: agent.pid || 0,
           step: logIdx,

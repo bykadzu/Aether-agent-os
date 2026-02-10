@@ -1,5 +1,31 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Bot, Monitor, List, Grid3x3, Filter, ExternalLink, Activity, Cpu, HardDrive, Clock, Zap, History, ChevronRight, Eye, Server, Globe, Code, FileSearch, BarChart3, BookOpen, TestTube, Users, Wrench, ArrowLeft } from 'lucide-react';
+import {
+  Plus,
+  Bot,
+  Monitor,
+  List,
+  Grid3x3,
+  Filter,
+  ExternalLink,
+  Activity,
+  Cpu,
+  HardDrive,
+  Clock,
+  Zap,
+  History,
+  ChevronRight,
+  Eye,
+  Server,
+  Globe,
+  Code,
+  FileSearch,
+  BarChart3,
+  BookOpen,
+  TestTube,
+  Users,
+  Wrench,
+  ArrowLeft,
+} from 'lucide-react';
 import { Agent, AgentStatus } from '../../types';
 import { VirtualDesktop } from '../os/VirtualDesktop';
 import { getKernelClient, ClusterInfo, GPUInfo } from '../../services/kernelClient';
@@ -88,7 +114,12 @@ const SkeletonGrid: React.FC = () => (
   </div>
 );
 
-export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunchAgent, onOpenVM, onStopAgent }) => {
+export const AgentDashboard: React.FC<AgentDashboardProps> = ({
+  agents,
+  onLaunchAgent,
+  onOpenVM,
+  onStopAgent,
+}) => {
   const [showNewAgentModal, setShowNewAgentModal] = useState(false);
   const [newGoal, setNewGoal] = useState('');
   const [newRole, setNewRole] = useState('Researcher');
@@ -101,21 +132,31 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
   const [modalView, setModalView] = useState<'templates' | 'configure'>('templates');
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
-  const [kernelMetrics, setKernelMetrics] = useState<{ uptime: number; memoryMB: number; cpuPercent: number } | null>(null);
-  const [gpuInfo, setGpuInfo] = useState<{ available: boolean; count: number; gpus: GPUInfo[] }>({ available: false, count: 0, gpus: [] });
+  const [kernelMetrics, setKernelMetrics] = useState<{
+    uptime: number;
+    memoryMB: number;
+    cpuPercent: number;
+  } | null>(null);
+  const [gpuInfo, setGpuInfo] = useState<{ available: boolean; count: number; gpus: GPUInfo[] }>({
+    available: false,
+    count: 0,
+    gpus: [],
+  });
   const [showHistory, setShowHistory] = useState(false);
-  const [historyProcesses, setHistoryProcesses] = useState<Array<{
-    pid: number;
-    uid: string;
-    name: string;
-    role: string;
-    goal: string;
-    state: string;
-    agentPhase?: string;
-    exitCode?: number;
-    createdAt: number;
-    exitedAt?: number;
-  }>>([]);
+  const [historyProcesses, setHistoryProcesses] = useState<
+    Array<{
+      pid: number;
+      uid: string;
+      name: string;
+      role: string;
+      goal: string;
+      state: string;
+      agentPhase?: string;
+      exitCode?: number;
+      createdAt: number;
+      exitedAt?: number;
+    }>
+  >([]);
   const [selectedHistoryPid, setSelectedHistoryPid] = useState<number | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [clusterInfo, setClusterInfo] = useState<ClusterInfo | null>(null);
@@ -167,49 +208,159 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
 
     // Try to get initial status
     if (client.connected) {
-      client.getStatus().then(status => {
-        if (status?.uptime) {
-          setKernelMetrics(prev => ({ ...prev!, uptime: status.uptime, memoryMB: prev?.memoryMB || 0, cpuPercent: prev?.cpuPercent || 0 }));
-        }
-      }).catch(() => {});
+      client
+        .getStatus()
+        .then((status) => {
+          if (status?.uptime) {
+            setKernelMetrics((prev) => ({
+              ...prev!,
+              uptime: status.uptime,
+              memoryMB: prev?.memoryMB || 0,
+              cpuPercent: prev?.cpuPercent || 0,
+            }));
+          }
+        })
+        .catch(() => {});
 
       // Check GPU availability
-      client.getGPUs().then(data => {
-        setGpuInfo({
-          available: data.gpus.length > 0,
-          count: data.gpus.length,
-          gpus: data.gpus,
-        });
-      }).catch(() => {});
+      client
+        .getGPUs()
+        .then((data) => {
+          setGpuInfo({
+            available: data.gpus.length > 0,
+            count: data.gpus.length,
+            gpus: data.gpus,
+          });
+        })
+        .catch(() => {});
 
       // Fetch cluster info
-      client.getClusterInfo().then(info => {
-        setClusterInfo(info);
-      }).catch(() => {});
+      client
+        .getClusterInfo()
+        .then((info) => {
+          setClusterInfo(info);
+        })
+        .catch(() => {});
     }
 
     // Fetch agent templates
-    fetch('http://localhost:3001/api/templates')
-      .then(res => res.ok ? res.json() : [])
-      .then(data => setTemplates(data))
+    const token = localStorage.getItem('aether_token');
+    const authHeaders: Record<string, string> = {};
+    if (token) authHeaders['Authorization'] = `Bearer ${token}`;
+
+    fetch('http://localhost:3001/api/templates', { headers: authHeaders })
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => setTemplates(data))
       .catch(() => {
         // Use built-in defaults if server unavailable
         setTemplates([
-          { id: 'web-researcher', name: 'Web Researcher', description: 'Searches the web and compiles research summaries.', icon: 'Globe', category: 'research', config: { role: 'Researcher', tools: ['browse_web', 'write_file', 'think'], maxSteps: 30 }, suggestedGoals: ['Research the latest developments in AI agents'] },
-          { id: 'code-developer', name: 'Code Developer', description: 'Writes, reads, and executes code.', icon: 'Code', category: 'development', config: { role: 'Coder', tools: ['read_file', 'write_file', 'run_command', 'think'], maxSteps: 50 }, suggestedGoals: ['Build a REST API for a todo list'] },
-          { id: 'code-reviewer', name: 'Code Reviewer', description: 'Reviews code and provides feedback.', icon: 'FileSearch', category: 'development', config: { role: 'Reviewer', tools: ['read_file', 'list_files', 'think'], maxSteps: 20 }, suggestedGoals: ['Review the codebase for security issues'] },
-          { id: 'data-analyst', name: 'Data Analyst', description: 'Analyzes data and generates reports.', icon: 'BarChart3', category: 'data', config: { role: 'Analyst', tools: ['read_file', 'write_file', 'run_command', 'think'], maxSteps: 40 }, suggestedGoals: ['Analyze the dataset and generate a report'] },
-          { id: 'system-admin', name: 'System Admin', description: 'Manages systems and infrastructure.', icon: 'Server', category: 'ops', config: { role: 'SysAdmin', tools: ['run_command', 'read_file', 'write_file', 'think'], maxSteps: 40 }, suggestedGoals: ['Set up a development environment'] },
-          { id: 'technical-writer', name: 'Technical Writer', description: 'Creates documentation and tutorials.', icon: 'BookOpen', category: 'creative', config: { role: 'Writer', tools: ['read_file', 'write_file', 'browse_web', 'think'], maxSteps: 30 }, suggestedGoals: ['Write API documentation'] },
-          { id: 'test-engineer', name: 'Test Engineer', description: 'Writes tests and validates quality.', icon: 'TestTube', category: 'development', config: { role: 'Tester', tools: ['read_file', 'write_file', 'run_command', 'think'], maxSteps: 40 }, suggestedGoals: ['Write unit tests for the auth module'] },
-          { id: 'project-manager', name: 'Project Manager', description: 'Coordinates agents and tracks progress.', icon: 'Users', category: 'ops', config: { role: 'PM', tools: ['list_agents', 'send_message', 'check_messages', 'think'], maxSteps: 30 }, suggestedGoals: ['Coordinate the team to ship v2.0'] },
+          {
+            id: 'web-researcher',
+            name: 'Web Researcher',
+            description: 'Searches the web and compiles research summaries.',
+            icon: 'Globe',
+            category: 'research',
+            config: {
+              role: 'Researcher',
+              tools: ['browse_web', 'write_file', 'think'],
+              maxSteps: 30,
+            },
+            suggestedGoals: ['Research the latest developments in AI agents'],
+          },
+          {
+            id: 'code-developer',
+            name: 'Code Developer',
+            description: 'Writes, reads, and executes code.',
+            icon: 'Code',
+            category: 'development',
+            config: {
+              role: 'Coder',
+              tools: ['read_file', 'write_file', 'run_command', 'think'],
+              maxSteps: 50,
+            },
+            suggestedGoals: ['Build a REST API for a todo list'],
+          },
+          {
+            id: 'code-reviewer',
+            name: 'Code Reviewer',
+            description: 'Reviews code and provides feedback.',
+            icon: 'FileSearch',
+            category: 'development',
+            config: { role: 'Reviewer', tools: ['read_file', 'list_files', 'think'], maxSteps: 20 },
+            suggestedGoals: ['Review the codebase for security issues'],
+          },
+          {
+            id: 'data-analyst',
+            name: 'Data Analyst',
+            description: 'Analyzes data and generates reports.',
+            icon: 'BarChart3',
+            category: 'data',
+            config: {
+              role: 'Analyst',
+              tools: ['read_file', 'write_file', 'run_command', 'think'],
+              maxSteps: 40,
+            },
+            suggestedGoals: ['Analyze the dataset and generate a report'],
+          },
+          {
+            id: 'system-admin',
+            name: 'System Admin',
+            description: 'Manages systems and infrastructure.',
+            icon: 'Server',
+            category: 'ops',
+            config: {
+              role: 'SysAdmin',
+              tools: ['run_command', 'read_file', 'write_file', 'think'],
+              maxSteps: 40,
+            },
+            suggestedGoals: ['Set up a development environment'],
+          },
+          {
+            id: 'technical-writer',
+            name: 'Technical Writer',
+            description: 'Creates documentation and tutorials.',
+            icon: 'BookOpen',
+            category: 'creative',
+            config: {
+              role: 'Writer',
+              tools: ['read_file', 'write_file', 'browse_web', 'think'],
+              maxSteps: 30,
+            },
+            suggestedGoals: ['Write API documentation'],
+          },
+          {
+            id: 'test-engineer',
+            name: 'Test Engineer',
+            description: 'Writes tests and validates quality.',
+            icon: 'TestTube',
+            category: 'development',
+            config: {
+              role: 'Tester',
+              tools: ['read_file', 'write_file', 'run_command', 'think'],
+              maxSteps: 40,
+            },
+            suggestedGoals: ['Write unit tests for the auth module'],
+          },
+          {
+            id: 'project-manager',
+            name: 'Project Manager',
+            description: 'Coordinates agents and tracks progress.',
+            icon: 'Users',
+            category: 'ops',
+            config: {
+              role: 'PM',
+              tools: ['list_agents', 'send_message', 'check_messages', 'think'],
+              maxSteps: 30,
+            },
+            suggestedGoals: ['Coordinate the team to ship v2.0'],
+          },
         ]);
       });
 
     // Fetch LLM providers
-    fetch('http://localhost:3001/api/llm/providers')
-      .then(res => res.ok ? res.json() : [])
-      .then(data => setLlmProviders(data))
+    fetch('http://localhost:3001/api/llm/providers', { headers: authHeaders })
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => setLlmProviders(data))
       .catch(() => setLlmProviders([]));
 
     return unsub;
@@ -222,11 +373,16 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
     if (!client.connected) return;
 
     setHistoryLoading(true);
-    client.getProcessHistory()
-      .then(processes => {
+    client
+      .getProcessHistory()
+      .then((processes) => {
         // Filter to completed/failed agents
-        const pastAgents = processes.filter(p =>
-          p.state === 'zombie' || p.state === 'dead' || p.agentPhase === 'completed' || p.agentPhase === 'failed'
+        const pastAgents = processes.filter(
+          (p) =>
+            p.state === 'zombie' ||
+            p.state === 'dead' ||
+            p.agentPhase === 'completed' ||
+            p.agentPhase === 'failed',
         );
         setHistoryProcesses(pastAgents);
         setHistoryLoading(false);
@@ -282,10 +438,14 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
   };
 
   // Filtered agents
-  const filteredAgents = agents.filter(agent => {
+  const filteredAgents = agents.filter((agent) => {
     switch (filterMode) {
       case 'active':
-        return agent.status === 'working' || agent.status === 'thinking' || agent.status === 'waiting_approval';
+        return (
+          agent.status === 'working' ||
+          agent.status === 'thinking' ||
+          agent.status === 'waiting_approval'
+        );
       case 'completed':
         return agent.status === 'completed';
       case 'failed':
@@ -296,10 +456,12 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
   });
 
   // Counts
-  const activeCount = agents.filter(a => a.status === 'working' || a.status === 'thinking').length;
-  const idleCount = agents.filter(a => a.status === 'idle').length;
-  const completedCount = agents.filter(a => a.status === 'completed').length;
-  const failedCount = agents.filter(a => a.status === 'error').length;
+  const activeCount = agents.filter(
+    (a) => a.status === 'working' || a.status === 'thinking',
+  ).length;
+  const idleCount = agents.filter((a) => a.status === 'idle').length;
+  const completedCount = agents.filter((a) => a.status === 'completed').length;
+  const failedCount = agents.filter((a) => a.status === 'error').length;
 
   const formatUptime = (seconds: number) => {
     if (!seconds) return '--:--';
@@ -310,18 +472,23 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
 
   const getStatusStyles = (status: AgentStatus) => {
     switch (status) {
-      case 'working': return 'bg-green-500/20 text-green-400 border-green-500/30';
-      case 'thinking': return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
-      case 'waiting_approval': return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30';
-      case 'completed': return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
-      case 'error': return 'bg-red-500/20 text-red-400 border-red-500/30';
-      default: return 'bg-gray-500/20 text-gray-400 border-gray-500/30';
+      case 'working':
+        return 'bg-green-500/20 text-green-400 border-green-500/30';
+      case 'thinking':
+        return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
+      case 'waiting_approval':
+        return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30';
+      case 'completed':
+        return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
+      case 'error':
+        return 'bg-red-500/20 text-red-400 border-red-500/30';
+      default:
+        return 'bg-gray-500/20 text-gray-400 border-gray-500/30';
     }
   };
 
   return (
     <div className="h-full flex flex-col bg-[#1a1b26] text-gray-200 font-sans relative overflow-hidden">
-
       {/* Background Ambience */}
       <div className="absolute inset-0 bg-gradient-to-br from-[#1a1b26] via-[#1a1b26] to-[#0f111a] -z-10"></div>
 
@@ -360,22 +527,39 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
             <>
               <div className="flex items-center gap-2 text-white/40">
                 <Clock size={12} />
-                <span>Uptime: <span className="text-white/70 font-mono">{formatUptime(kernelMetrics.uptime)}</span></span>
+                <span>
+                  Uptime:{' '}
+                  <span className="text-white/70 font-mono">
+                    {formatUptime(kernelMetrics.uptime)}
+                  </span>
+                </span>
               </div>
               <div className="flex items-center gap-2 text-white/40">
                 <Cpu size={12} />
-                <span>CPU: <span className="text-white/70 font-mono">{kernelMetrics.cpuPercent.toFixed(1)}%</span></span>
+                <span>
+                  CPU:{' '}
+                  <span className="text-white/70 font-mono">
+                    {kernelMetrics.cpuPercent.toFixed(1)}%
+                  </span>
+                </span>
               </div>
               <div className="flex items-center gap-2 text-white/40">
                 <HardDrive size={12} />
-                <span>Mem: <span className="text-white/70 font-mono">{kernelMetrics.memoryMB.toFixed(0)} MB</span></span>
+                <span>
+                  Mem:{' '}
+                  <span className="text-white/70 font-mono">
+                    {kernelMetrics.memoryMB.toFixed(0)} MB
+                  </span>
+                </span>
               </div>
             </>
           )}
           {gpuInfo.available && (
             <div className="flex items-center gap-2 text-white/40">
               <Monitor size={12} className="text-yellow-400" />
-              <span>GPU: <span className="text-yellow-400 font-mono">{gpuInfo.count}</span></span>
+              <span>
+                GPU: <span className="text-yellow-400 font-mono">{gpuInfo.count}</span>
+              </span>
             </div>
           )}
           {clusterInfo && clusterInfo.role !== 'standalone' && (
@@ -384,13 +568,23 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
               <div className="flex items-center gap-2 text-white/40">
                 <Server size={12} className="text-indigo-400" />
                 <span>
-                  {clusterInfo.role === 'hub'
-                    ? <><span className="text-indigo-400 font-medium">Hub</span> · {clusterInfo.nodes.length} node{clusterInfo.nodes.length !== 1 ? 's' : ''}</>
-                    : <span className="text-indigo-400 font-medium">Node</span>}
+                  {clusterInfo.role === 'hub' ? (
+                    <>
+                      <span className="text-indigo-400 font-medium">Hub</span> ·{' '}
+                      {clusterInfo.nodes.length} node{clusterInfo.nodes.length !== 1 ? 's' : ''}
+                    </>
+                  ) : (
+                    <span className="text-indigo-400 font-medium">Node</span>
+                  )}
                 </span>
               </div>
               <div className="flex items-center gap-2 text-white/40">
-                <span>Capacity: <span className="text-white/70 font-mono">{clusterInfo.totalLoad}/{clusterInfo.totalCapacity}</span></span>
+                <span>
+                  Capacity:{' '}
+                  <span className="text-white/70 font-mono">
+                    {clusterInfo.totalLoad}/{clusterInfo.totalCapacity}
+                  </span>
+                </span>
               </div>
             </>
           )}
@@ -402,13 +596,15 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
         <div>
           <h1 className="text-3xl font-light text-white tracking-tight flex items-center gap-3">
             Mission Control
-            <span className="text-sm font-normal text-gray-500 bg-white/10 px-2 py-0.5 rounded-full">{agents.length} Active</span>
+            <span className="text-sm font-normal text-gray-500 bg-white/10 px-2 py-0.5 rounded-full">
+              {agents.length} Active
+            </span>
           </h1>
         </div>
         <div className="flex items-center gap-3">
           {/* Filter Buttons */}
           <div className="flex items-center bg-white/5 rounded-lg border border-white/5 p-0.5">
-            {(['all', 'active', 'completed', 'failed'] as FilterMode[]).map(mode => (
+            {(['all', 'active', 'completed', 'failed'] as FilterMode[]).map((mode) => (
               <button
                 key={mode}
                 onClick={() => setFilterMode(mode)}
@@ -469,22 +665,24 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
           <SkeletonGrid />
         ) : filteredAgents.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-gray-500 gap-6 opacity-60">
-             <div className="w-32 h-32 rounded-3xl bg-white/5 border border-white/10 flex items-center justify-center">
-                <Bot size={48} />
-             </div>
-             <div className="text-center">
-                <p className="text-lg font-medium text-white">
-                  {agents.length === 0 ? 'No Agents Deployed' : 'No agents match this filter'}
-                </p>
-                <p className="text-sm">
-                  {agents.length === 0 ? 'Create a new agent to see their virtual desktop.' : 'Try selecting a different filter.'}
-                </p>
-             </div>
+            <div className="w-32 h-32 rounded-3xl bg-white/5 border border-white/10 flex items-center justify-center">
+              <Bot size={48} />
+            </div>
+            <div className="text-center">
+              <p className="text-lg font-medium text-white">
+                {agents.length === 0 ? 'No Agents Deployed' : 'No agents match this filter'}
+              </p>
+              <p className="text-sm">
+                {agents.length === 0
+                  ? 'Create a new agent to see their virtual desktop.'
+                  : 'Try selecting a different filter.'}
+              </p>
+            </div>
           </div>
         ) : viewMode === 'grid' ? (
           /* Grid View */
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-8">
-            {filteredAgents.map(agent => (
+            {filteredAgents.map((agent) => (
               <div
                 key={agent.id}
                 className={`group relative flex flex-col gap-3 animate-scale-in transition-all duration-500 ${
@@ -492,62 +690,69 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
                 } ${agent.status === 'error' ? 'opacity-50' : ''}`}
               >
                 {/* Desktop Preview Container */}
-                <div className={`aspect-video w-full rounded-2xl overflow-hidden border-[6px] shadow-2xl bg-black relative transition-all duration-300 group-hover:scale-[1.02] cursor-pointer ${
-                  agent.status === 'working' || agent.status === 'thinking'
-                    ? 'border-indigo-500/30 group-hover:border-indigo-500/60'
-                    : agent.status === 'completed'
-                    ? 'border-emerald-500/20 group-hover:border-emerald-500/40'
-                    : agent.status === 'error'
-                    ? 'border-red-500/20 group-hover:border-red-500/40'
-                    : 'border-[#2c2e3a] group-hover:border-indigo-500/50'
-                }`}
+                <div
+                  className={`aspect-video w-full rounded-2xl overflow-hidden border-[6px] shadow-2xl bg-black relative transition-all duration-300 group-hover:scale-[1.02] cursor-pointer ${
+                    agent.status === 'working' || agent.status === 'thinking'
+                      ? 'border-indigo-500/30 group-hover:border-indigo-500/60'
+                      : agent.status === 'completed'
+                        ? 'border-emerald-500/20 group-hover:border-emerald-500/40'
+                        : agent.status === 'error'
+                          ? 'border-red-500/20 group-hover:border-red-500/40'
+                          : 'border-[#2c2e3a] group-hover:border-indigo-500/50'
+                  }`}
                   onClick={() => onOpenVM(agent.id)}
                 >
-                    {/* The Virtual Desktop Component */}
-                    <VirtualDesktop agent={agent} scale={0.5} />
+                  {/* The Virtual Desktop Component */}
+                  <VirtualDesktop agent={agent} scale={0.5} />
 
-                    {/* Phase Change Pulse Overlay */}
-                    {(agent.status === 'working' || agent.status === 'thinking') && (
-                      <div className="absolute top-2 left-2 z-50">
-                        <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse shadow-lg shadow-green-500/50" />
-                      </div>
-                    )}
-
-                    {/* Hover Overlay */}
-                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
-                        <div className="bg-black/60 backdrop-blur-md text-white px-4 py-2 rounded-full flex items-center gap-2 font-medium transform scale-90 group-hover:scale-100 transition-all">
-                            <Monitor size={16} /> Enter VM
-                        </div>
+                  {/* Phase Change Pulse Overlay */}
+                  {(agent.status === 'working' || agent.status === 'thinking') && (
+                    <div className="absolute top-2 left-2 z-50">
+                      <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse shadow-lg shadow-green-500/50" />
                     </div>
+                  )}
 
-                    {/* Detach Button */}
-                    <button
-                      onClick={(e) => handleDetach(e, agent.id)}
-                      className="absolute top-2 right-2 z-50 p-1.5 bg-black/50 backdrop-blur-sm rounded-lg border border-white/10 text-white/60 hover:text-white hover:bg-black/70 transition-all opacity-0 group-hover:opacity-100"
-                      title="Open in new window"
-                    >
-                      <ExternalLink size={12} />
-                    </button>
+                  {/* Hover Overlay */}
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+                    <div className="bg-black/60 backdrop-blur-md text-white px-4 py-2 rounded-full flex items-center gap-2 font-medium transform scale-90 group-hover:scale-100 transition-all">
+                      <Monitor size={16} /> Enter VM
+                    </div>
+                  </div>
+
+                  {/* Detach Button */}
+                  <button
+                    onClick={(e) => handleDetach(e, agent.id)}
+                    className="absolute top-2 right-2 z-50 p-1.5 bg-black/50 backdrop-blur-sm rounded-lg border border-white/10 text-white/60 hover:text-white hover:bg-black/70 transition-all opacity-0 group-hover:opacity-100"
+                    title="Open in new window"
+                  >
+                    <ExternalLink size={12} />
+                  </button>
                 </div>
 
                 {/* Agent Meta Info under the desktop */}
                 <div className="flex items-center justify-between px-2">
-                    <div className="flex items-center gap-3">
-                        <div className={`w-8 h-8 rounded-full bg-gradient-to-tr flex items-center justify-center text-white shadow-lg text-xs font-bold ${
-                          agent.status === 'completed' ? 'from-emerald-500 to-green-500' :
-                          agent.status === 'error' ? 'from-red-500 to-orange-500' :
-                          'from-indigo-500 to-purple-500'
-                        }`}>
-                            {agent.role.substring(0,2).toUpperCase()}
-                        </div>
-                        <div>
-                            <h3 className="text-sm font-medium text-white leading-none">{agent.name}</h3>
-                            <p className="text-xs text-gray-400 mt-1 line-clamp-1">{agent.goal}</p>
-                        </div>
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`w-8 h-8 rounded-full bg-gradient-to-tr flex items-center justify-center text-white shadow-lg text-xs font-bold ${
+                        agent.status === 'completed'
+                          ? 'from-emerald-500 to-green-500'
+                          : agent.status === 'error'
+                            ? 'from-red-500 to-orange-500'
+                            : 'from-indigo-500 to-purple-500'
+                      }`}
+                    >
+                      {agent.role.substring(0, 2).toUpperCase()}
                     </div>
-                    <div className={`text-[10px] font-bold px-2 py-1 rounded-md uppercase tracking-wide border ${getStatusStyles(agent.status)}`}>
-                        {agent.phase || agent.status}
+                    <div>
+                      <h3 className="text-sm font-medium text-white leading-none">{agent.name}</h3>
+                      <p className="text-xs text-gray-400 mt-1 line-clamp-1">{agent.goal}</p>
                     </div>
+                  </div>
+                  <div
+                    className={`text-[10px] font-bold px-2 py-1 rounded-md uppercase tracking-wide border ${getStatusStyles(agent.status)}`}
+                  >
+                    {agent.phase || agent.status}
+                  </div>
                 </div>
               </div>
             ))}
@@ -565,7 +770,7 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
               <div className="col-span-1">Steps</div>
               <div className="col-span-1">Actions</div>
             </div>
-            {filteredAgents.map(agent => (
+            {filteredAgents.map((agent) => (
               <div
                 key={agent.id}
                 onClick={() => onOpenVM(agent.id)}
@@ -574,29 +779,45 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
                 }`}
               >
                 <div className="col-span-1 flex items-center">
-                  <div className={`w-2.5 h-2.5 rounded-full ${
-                    agent.status === 'working' ? 'bg-green-500 animate-pulse' :
-                    agent.status === 'thinking' ? 'bg-blue-500 animate-pulse' :
-                    agent.status === 'completed' ? 'bg-emerald-500' :
-                    agent.status === 'error' ? 'bg-red-500' :
-                    'bg-gray-500'
-                  }`} />
+                  <div
+                    className={`w-2.5 h-2.5 rounded-full ${
+                      agent.status === 'working'
+                        ? 'bg-green-500 animate-pulse'
+                        : agent.status === 'thinking'
+                          ? 'bg-blue-500 animate-pulse'
+                          : agent.status === 'completed'
+                            ? 'bg-emerald-500'
+                            : agent.status === 'error'
+                              ? 'bg-red-500'
+                              : 'bg-gray-500'
+                    }`}
+                  />
                 </div>
                 <div className="col-span-2 flex items-center gap-2">
                   <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center text-white text-[9px] font-bold">
-                    {agent.role.substring(0,2).toUpperCase()}
+                    {agent.role.substring(0, 2).toUpperCase()}
                   </div>
                   <span className="text-sm text-white font-medium truncate">{agent.name}</span>
                 </div>
-                <div className="col-span-1 flex items-center text-xs text-gray-400">{agent.role}</div>
-                <div className="col-span-4 flex items-center text-xs text-gray-400 truncate">{agent.goal}</div>
-                <div className="col-span-1 flex items-center text-xs font-mono text-cyan-400">{agent.pid || '--'}</div>
+                <div className="col-span-1 flex items-center text-xs text-gray-400">
+                  {agent.role}
+                </div>
+                <div className="col-span-4 flex items-center text-xs text-gray-400 truncate">
+                  {agent.goal}
+                </div>
+                <div className="col-span-1 flex items-center text-xs font-mono text-cyan-400">
+                  {agent.pid || '--'}
+                </div>
                 <div className="col-span-1 flex items-center">
-                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase ${getStatusStyles(agent.status)}`}>
+                  <span
+                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase ${getStatusStyles(agent.status)}`}
+                  >
                     {agent.phase || agent.status}
                   </span>
                 </div>
-                <div className="col-span-1 flex items-center text-xs font-mono text-gray-400">{agent.progress}</div>
+                <div className="col-span-1 flex items-center text-xs font-mono text-gray-400">
+                  {agent.progress}
+                </div>
                 <div className="col-span-1 flex items-center gap-1">
                   <button
                     onClick={(e) => handleDetach(e, agent.id)}
@@ -606,7 +827,10 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
                     <ExternalLink size={12} />
                   </button>
                   <button
-                    onClick={(e) => { e.stopPropagation(); onStopAgent(agent.id); }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onStopAgent(agent.id);
+                    }}
                     className="p-1 rounded hover:bg-red-500/20 text-gray-500 hover:text-red-400 transition-colors"
                     title="Stop"
                   >
@@ -626,7 +850,9 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
             <h2 className="text-lg font-light text-white mb-4 flex items-center gap-2">
               <History size={18} className="text-gray-400" />
               Agent History
-              <span className="text-xs text-gray-500 ml-2">{historyProcesses.length} past agents</span>
+              <span className="text-xs text-gray-500 ml-2">
+                {historyProcesses.length} past agents
+              </span>
             </h2>
 
             {selectedHistoryPid !== null ? (
@@ -656,17 +882,21 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
               </div>
             ) : (
               <div className="space-y-2 max-h-[400px] overflow-y-auto">
-                {historyProcesses.map(proc => (
+                {historyProcesses.map((proc) => (
                   <div
                     key={proc.pid}
                     onClick={() => setSelectedHistoryPid(proc.pid)}
                     className="flex items-center gap-4 p-3 rounded-xl border border-white/5 bg-white/[0.02] hover:bg-white/[0.05] cursor-pointer transition-all"
                   >
-                    <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${
-                      proc.agentPhase === 'completed' ? 'bg-emerald-500' :
-                      proc.agentPhase === 'failed' ? 'bg-red-500' :
-                      'bg-gray-500'
-                    }`} />
+                    <div
+                      className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                        proc.agentPhase === 'completed'
+                          ? 'bg-emerald-500'
+                          : proc.agentPhase === 'failed'
+                            ? 'bg-red-500'
+                            : 'bg-gray-500'
+                      }`}
+                    />
                     <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-indigo-500/50 to-purple-500/50 flex items-center justify-center text-white text-[9px] font-bold shrink-0">
                       {proc.role.substring(0, 2).toUpperCase()}
                     </div>
@@ -674,16 +904,26 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
                       <div className="text-sm text-white font-medium truncate">{proc.name}</div>
                       <div className="text-[10px] text-gray-500 truncate">{proc.goal}</div>
                     </div>
-                    <div className="text-[10px] font-mono text-cyan-400/60 shrink-0">PID {proc.pid}</div>
-                    <div className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase shrink-0 ${
-                      proc.agentPhase === 'completed' ? 'bg-emerald-500/20 text-emerald-400' :
-                      proc.agentPhase === 'failed' ? 'bg-red-500/20 text-red-400' :
-                      'bg-gray-500/20 text-gray-400'
-                    }`}>
+                    <div className="text-[10px] font-mono text-cyan-400/60 shrink-0">
+                      PID {proc.pid}
+                    </div>
+                    <div
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase shrink-0 ${
+                        proc.agentPhase === 'completed'
+                          ? 'bg-emerald-500/20 text-emerald-400'
+                          : proc.agentPhase === 'failed'
+                            ? 'bg-red-500/20 text-red-400'
+                            : 'bg-gray-500/20 text-gray-400'
+                      }`}
+                    >
                       {proc.agentPhase || proc.state}
                     </div>
                     <div className="text-[10px] text-gray-600 shrink-0">
-                      {new Date(proc.createdAt).toLocaleDateString()} {new Date(proc.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      {new Date(proc.createdAt).toLocaleDateString()}{' '}
+                      {new Date(proc.createdAt).toLocaleTimeString([], {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
                     </div>
                     <Eye size={14} className="text-gray-600 hover:text-white shrink-0" />
                   </div>
@@ -697,27 +937,38 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
       {/* New Agent Modal — Template-First UI */}
       {showNewAgentModal && (
         <div className="absolute inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className={`bg-[#1a1d26] border border-white/10 rounded-2xl shadow-2xl animate-scale-in ${modalView === 'templates' ? 'w-full max-w-2xl' : 'w-full max-w-md'}`}>
-
+          <div
+            className={`bg-[#1a1d26] border border-white/10 rounded-2xl shadow-2xl animate-scale-in ${modalView === 'templates' ? 'w-full max-w-2xl' : 'w-full max-w-md'}`}
+          >
             {/* Template Selection View */}
             {modalView === 'templates' && (
               <div className="p-6">
                 <h2 className="text-xl font-light text-white mb-1">Deploy New Agent</h2>
-                <p className="text-xs text-gray-500 mb-6">Choose a template or start from scratch</p>
+                <p className="text-xs text-gray-500 mb-6">
+                  Choose a template or start from scratch
+                </p>
 
                 <div className="grid grid-cols-3 gap-3 mb-4">
-                  {templates.map(template => (
+                  {templates.map((template) => (
                     <button
                       key={template.id}
                       onClick={() => handleSelectTemplate(template)}
                       className="p-4 rounded-xl border border-white/5 bg-black/20 hover:bg-white/5 hover:border-indigo-500/30 transition-all text-left group"
                     >
-                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-3 border ${categoryColors[template.category] || 'text-gray-400 bg-gray-500/10 border-gray-500/20'}`}>
+                      <div
+                        className={`w-10 h-10 rounded-xl flex items-center justify-center mb-3 border ${categoryColors[template.category] || 'text-gray-400 bg-gray-500/10 border-gray-500/20'}`}
+                      >
                         {templateIcons[template.icon] || <Bot size={20} />}
                       </div>
-                      <div className="text-sm font-medium text-white group-hover:text-indigo-300 transition-colors">{template.name}</div>
-                      <div className="text-[10px] text-gray-500 mt-1 line-clamp-2">{template.description}</div>
-                      <div className="text-[9px] text-gray-600 mt-2 uppercase tracking-wide">{template.category}</div>
+                      <div className="text-sm font-medium text-white group-hover:text-indigo-300 transition-colors">
+                        {template.name}
+                      </div>
+                      <div className="text-[10px] text-gray-500 mt-1 line-clamp-2">
+                        {template.description}
+                      </div>
+                      <div className="text-[9px] text-gray-600 mt-2 uppercase tracking-wide">
+                        {template.category}
+                      </div>
                     </button>
                   ))}
 
@@ -729,14 +980,23 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
                     <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3 border border-white/10 bg-white/5 text-gray-400">
                       <Wrench size={20} />
                     </div>
-                    <div className="text-sm font-medium text-white group-hover:text-indigo-300 transition-colors">Custom Agent</div>
-                    <div className="text-[10px] text-gray-500 mt-1">Configure role, tools, and goal manually</div>
-                    <div className="text-[9px] text-gray-600 mt-2 uppercase tracking-wide">manual</div>
+                    <div className="text-sm font-medium text-white group-hover:text-indigo-300 transition-colors">
+                      Custom Agent
+                    </div>
+                    <div className="text-[10px] text-gray-500 mt-1">
+                      Configure role, tools, and goal manually
+                    </div>
+                    <div className="text-[9px] text-gray-600 mt-2 uppercase tracking-wide">
+                      manual
+                    </div>
                   </button>
                 </div>
 
                 <div className="flex justify-end">
-                  <button onClick={handleCloseModal} className="px-4 py-2 text-sm text-gray-400 hover:text-white transition-colors">
+                  <button
+                    onClick={handleCloseModal}
+                    className="px-4 py-2 text-sm text-gray-400 hover:text-white transition-colors"
+                  >
                     Cancel
                   </button>
                 </div>
@@ -747,12 +1007,17 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
             {modalView === 'configure' && (
               <div className="p-6">
                 <div className="flex items-center gap-3 mb-6">
-                  <button onClick={() => setModalView('templates')} className="text-gray-400 hover:text-white p-1 rounded transition-colors">
+                  <button
+                    onClick={() => setModalView('templates')}
+                    className="text-gray-400 hover:text-white p-1 rounded transition-colors"
+                  >
                     <ArrowLeft size={16} />
                   </button>
                   {selectedTemplate ? (
                     <div className="flex items-center gap-3">
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center border ${categoryColors[selectedTemplate.category] || 'text-gray-400 bg-gray-500/10 border-gray-500/20'}`}>
+                      <div
+                        className={`w-8 h-8 rounded-lg flex items-center justify-center border ${categoryColors[selectedTemplate.category] || 'text-gray-400 bg-gray-500/10 border-gray-500/20'}`}
+                      >
                         {templateIcons[selectedTemplate.icon] || <Bot size={16} />}
                       </div>
                       <div>
@@ -769,9 +1034,19 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
                   {/* Role selector (only for custom) */}
                   {!selectedTemplate && (
                     <div>
-                      <label className="block text-xs font-bold text-gray-400 mb-2 uppercase tracking-wider">Role</label>
+                      <label className="block text-xs font-bold text-gray-400 mb-2 uppercase tracking-wider">
+                        Role
+                      </label>
                       <div className="grid grid-cols-2 gap-2">
-                        {['Researcher', 'Coder', 'Analyst', 'Assistant', 'DevOps', 'Designer', 'Tester'].map(role => (
+                        {[
+                          'Researcher',
+                          'Coder',
+                          'Analyst',
+                          'Assistant',
+                          'DevOps',
+                          'Designer',
+                          'Tester',
+                        ].map((role) => (
                           <button
                             key={role}
                             onClick={() => setNewRole(role)}
@@ -786,7 +1061,9 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
 
                   {/* Goal input with suggested goals */}
                   <div>
-                    <label className="block text-xs font-bold text-gray-400 mb-2 uppercase tracking-wider">Primary Directive</label>
+                    <label className="block text-xs font-bold text-gray-400 mb-2 uppercase tracking-wider">
+                      Primary Directive
+                    </label>
                     <textarea
                       value={newGoal}
                       onChange={(e) => setNewGoal(e.target.value)}
@@ -795,7 +1072,9 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
                     />
                     {selectedTemplate && selectedTemplate.suggestedGoals.length > 0 && (
                       <div className="mt-2 space-y-1">
-                        <span className="text-[10px] text-gray-600 uppercase tracking-wider">Suggested:</span>
+                        <span className="text-[10px] text-gray-600 uppercase tracking-wider">
+                          Suggested:
+                        </span>
                         {selectedTemplate.suggestedGoals.map((goal, idx) => (
                           <button
                             key={idx}
@@ -811,17 +1090,26 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
 
                   {/* Model selector */}
                   <div>
-                    <label className="block text-xs font-bold text-gray-400 mb-2 uppercase tracking-wider">LLM Model</label>
+                    <label className="block text-xs font-bold text-gray-400 mb-2 uppercase tracking-wider">
+                      LLM Model
+                    </label>
                     <select
                       value={newModel}
                       onChange={(e) => setNewModel(e.target.value)}
                       className="w-full bg-black/20 border border-white/10 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-indigo-500/50 appearance-none cursor-pointer"
                     >
                       <option value="">Auto-detect (first available)</option>
-                      {llmProviders.map(provider => (
-                        <optgroup key={provider.name} label={`${provider.name.toUpperCase()} ${provider.available ? '(available)' : '(not configured)'}`}>
-                          {provider.models.map(model => (
-                            <option key={`${provider.name}:${model}`} value={`${provider.name}:${model}`} disabled={!provider.available}>
+                      {llmProviders.map((provider) => (
+                        <optgroup
+                          key={provider.name}
+                          label={`${provider.name.toUpperCase()} ${provider.available ? '(available)' : '(not configured)'}`}
+                        >
+                          {provider.models.map((model) => (
+                            <option
+                              key={`${provider.name}:${model}`}
+                              value={`${provider.name}:${model}`}
+                              disabled={!provider.available}
+                            >
                               {provider.name}:{model}
                             </option>
                           ))}
@@ -832,23 +1120,39 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
 
                   {/* Hardware Options */}
                   <div>
-                    <label className="block text-xs font-bold text-gray-400 mb-2 uppercase tracking-wider">Hardware</label>
+                    <label className="block text-xs font-bold text-gray-400 mb-2 uppercase tracking-wider">
+                      Hardware
+                    </label>
                     <div className="space-y-2">
                       {gpuInfo.available && (
                         <label className="flex items-center gap-3 p-3 rounded-xl border border-white/5 bg-black/20 cursor-pointer hover:bg-white/5 transition-all">
-                          <input type="checkbox" checked={newGpuEnabled} onChange={(e) => setNewGpuEnabled(e.target.checked)} className="accent-yellow-500 w-4 h-4" />
+                          <input
+                            type="checkbox"
+                            checked={newGpuEnabled}
+                            onChange={(e) => setNewGpuEnabled(e.target.checked)}
+                            className="accent-yellow-500 w-4 h-4"
+                          />
                           <div className="flex-1">
                             <div className="text-sm text-white font-medium">GPU Enabled</div>
-                            <div className="text-[10px] text-gray-500">{gpuInfo.count} GPU(s) available</div>
+                            <div className="text-[10px] text-gray-500">
+                              {gpuInfo.count} GPU(s) available
+                            </div>
                           </div>
                           <Monitor size={16} className="text-yellow-400" />
                         </label>
                       )}
                       <label className="flex items-center gap-3 p-3 rounded-xl border border-white/5 bg-black/20 cursor-pointer hover:bg-white/5 transition-all">
-                        <input type="checkbox" checked={newGraphicalEnabled} onChange={(e) => setNewGraphicalEnabled(e.target.checked)} className="accent-indigo-500 w-4 h-4" />
+                        <input
+                          type="checkbox"
+                          checked={newGraphicalEnabled}
+                          onChange={(e) => setNewGraphicalEnabled(e.target.checked)}
+                          className="accent-indigo-500 w-4 h-4"
+                        />
                         <div className="flex-1">
                           <div className="text-sm text-white font-medium">Graphical Desktop</div>
-                          <div className="text-[10px] text-gray-500">Xvfb + VNC for graphical apps</div>
+                          <div className="text-[10px] text-gray-500">
+                            Xvfb + VNC for graphical apps
+                          </div>
                         </div>
                         <Monitor size={16} className="text-indigo-400" />
                       </label>
@@ -857,7 +1161,12 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
                 </div>
 
                 <div className="flex justify-end gap-3 mt-8">
-                  <button onClick={handleCloseModal} className="px-4 py-2 text-sm text-gray-400 hover:text-white transition-colors">Cancel</button>
+                  <button
+                    onClick={handleCloseModal}
+                    className="px-4 py-2 text-sm text-gray-400 hover:text-white transition-colors"
+                  >
+                    Cancel
+                  </button>
                   <button
                     onClick={handleCreate}
                     disabled={!newGoal.trim()}
@@ -868,7 +1177,6 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({ agents, onLaunch
                 </div>
               </div>
             )}
-
           </div>
         </div>
       )}

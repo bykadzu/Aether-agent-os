@@ -514,7 +514,7 @@ export class KernelClient {
     gpus: GPUInfo[];
     allocations: Array<{ pid: number; gpuIds: number[] }>;
   }> {
-    const res = await fetch('http://localhost:3001/api/gpu');
+    const res = await fetch(`${this.getBaseUrl()}/api/gpu`, { headers: this.getRestHeaders() });
     if (!res.ok) throw new Error(`Failed to fetch GPUs: ${res.statusText}`);
     return res.json();
   }
@@ -523,7 +523,9 @@ export class KernelClient {
    * Get real-time GPU stats.
    */
   async getGPUStats(): Promise<GPUStats[]> {
-    const res = await fetch('http://localhost:3001/api/gpu/stats');
+    const res = await fetch(`${this.getBaseUrl()}/api/gpu/stats`, {
+      headers: this.getRestHeaders(),
+    });
     if (!res.ok) throw new Error(`Failed to fetch GPU stats: ${res.statusText}`);
     return res.json();
   }

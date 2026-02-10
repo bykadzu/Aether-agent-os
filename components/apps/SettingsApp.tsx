@@ -221,7 +221,10 @@ export const SettingsApp: React.FC = () => {
     }
 
     // Fetch LLM providers
-    fetch('http://localhost:3001/api/llm/providers')
+    const token = localStorage.getItem('aether_token');
+    const authHeaders: Record<string, string> = {};
+    if (token) authHeaders['Authorization'] = `Bearer ${token}`;
+    fetch('http://localhost:3001/api/llm/providers', { headers: authHeaders })
       .then((res) => (res.ok ? res.json() : []))
       .then((data) => setLlmProviders(data))
       .catch(() => setLlmProviders([]));

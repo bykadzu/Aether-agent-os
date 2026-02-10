@@ -52,8 +52,10 @@ export class ProcessManager {
    */
   private allocatePid(): PID {
     // Find next unused PID (skip over zombies)
-    while (this.processes.has(this.nextPid) &&
-           this.processes.get(this.nextPid)!.info.state !== 'dead') {
+    while (
+      this.processes.has(this.nextPid) &&
+      this.processes.get(this.nextPid)!.info.state !== 'dead'
+    ) {
       this.nextPid++;
       if (this.nextPid > MAX_PROCESSES * 2) {
         this.nextPid = 1; // Wrap around
@@ -68,7 +70,7 @@ export class ProcessManager {
    * The runtime is responsible for actually starting execution.
    */
   spawn(config: AgentConfig, ppid: PID = 0, ownerUid?: string): ManagedProcess {
-    if (this.getAll().filter(p => p.info.state !== 'dead').length >= MAX_PROCESSES) {
+    if (this.getAll().filter((p) => p.info.state !== 'dead').length >= MAX_PROCESSES) {
       throw new Error('Process table full');
     }
 
@@ -85,11 +87,11 @@ export class ProcessManager {
       command: `aether-agent --role="${config.role}" --goal="${config.goal}"`,
       state: 'created',
       agentPhase: 'booting',
-      cwd: `/home/${uid}`,
+      cwd: process.platform === 'win32' ? `C:\\temp\\aether\\home\\${uid}` : `/home/${uid}`,
       env: {
-        HOME: `/home/${uid}`,
+        HOME: process.platform === 'win32' ? `C:\\temp\\aether\\home\\${uid}` : `/home/${uid}`,
         USER: uid,
-        SHELL: '/bin/bash',
+        SHELL: process.platform === 'win32' ? process.env.COMSPEC || 'cmd.exe' : '/bin/bash',
         TERM: 'xterm-256color',
         AETHER_ROLE: config.role,
         AETHER_GOAL: config.goal,
@@ -215,10 +217,10 @@ export class ProcessManager {
   getAll(filter?: { state?: ProcessState; uid?: string }): ManagedProcess[] {
     let results = Array.from(this.processes.values());
     if (filter?.state) {
-      results = results.filter(p => p.info.state === filter.state);
+      results = results.filter((p) => p.info.state === filter.state);
     }
     if (filter?.uid) {
-      results = results.filter(p => p.info.uid === filter.uid);
+      results = results.filter((p) => p.info.uid === filter.uid);
     }
     return results;
   }
@@ -227,7 +229,7 @@ export class ProcessManager {
    * Get all active (non-dead) processes.
    */
   getActive(): ManagedProcess[] {
-    return this.getAll().filter(p => p.info.state !== 'dead');
+    return this.getAll().filter((p) => p.info.state !== 'dead');
   }
 
   /**
@@ -237,7 +239,7 @@ export class ProcessManager {
   getActiveByOwner(ownerUid?: string, isAdmin = false): ManagedProcess[] {
     const active = this.getActive();
     if (!ownerUid || isAdmin) return active;
-    return active.filter(p => p.info.ownerUid === ownerUid);
+    return active.filter((p) => p.info.ownerUid === ownerUid);
   }
 
   /**
@@ -255,7 +257,12 @@ export class ProcessManager {
    */
   getCounts(): Record<ProcessState, number> {
     const counts: Record<string, number> = {
-      created: 0, running: 0, sleeping: 0, stopped: 0, zombie: 0, dead: 0,
+      created: 0,
+      running: 0,
+      sleeping: 0,
+      stopped: 0,
+      zombie: 0,
+      dead: 0,
     };
     for (const proc of this.processes.values()) {
       counts[proc.info.state] = (counts[proc.info.state] || 0) + 1;
@@ -340,10 +347,17 @@ export class ProcessManager {
   /**
    * List all active running agents (for /proc discovery).
    */
-  listRunningAgents(): Array<{ pid: PID; uid: string; name: string; role: string; state: ProcessState; agentPhase?: AgentPhase }> {
+  listRunningAgents(): Array<{
+    pid: PID;
+    uid: string;
+    name: string;
+    role: string;
+    state: ProcessState;
+    agentPhase?: AgentPhase;
+  }> {
     return this.getActive()
-      .filter(p => p.info.state === 'running' || p.info.state === 'sleeping')
-      .map(p => ({
+      .filter((p) => p.info.state === 'running' || p.info.state === 'sleeping')
+      .map((p) => ({
         pid: p.info.pid,
         uid: p.info.uid,
         name: p.info.name,
@@ -362,7 +376,7 @@ export class ProcessManager {
       this.signal(proc.info.pid, 'SIGTERM');
     }
     // Wait a bit, then force kill remaining
-    await new Promise(r => setTimeout(r, 2000));
+    await new Promise((r) => setTimeout(r, 2000));
     for (const proc of this.getActive()) {
       this.signal(proc.info.pid, 'SIGKILL');
     }
