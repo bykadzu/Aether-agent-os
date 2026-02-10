@@ -390,6 +390,33 @@ const App: React.FC = () => {
     focusWindow(visible[nextIdx].id);
   }, [windows, activeWindowId]);
 
+  // ── Workspace Management ──────────────────────────────────────────────
+  const switchWorkspace = useCallback(
+    (targetIdx: number, direction?: 'left' | 'right') => {
+      if (targetIdx < 0 || targetIdx >= totalWorkspaces || targetIdx === currentWorkspace) return;
+      const dir = direction || (targetIdx > currentWorkspace ? 'right' : 'left');
+      setWorkspaceTransitionDir(dir);
+      setActiveWindowId(null);
+      setTimeout(() => {
+        setCurrentWorkspace(targetIdx);
+        setTimeout(() => setWorkspaceTransitionDir(null), 200);
+      }, 10);
+    },
+    [currentWorkspace, totalWorkspaces],
+  );
+
+  const moveWindowToWorkspace = useCallback(
+    (windowId: string, targetWorkspace: number) => {
+      if (targetWorkspace < 0 || targetWorkspace >= totalWorkspaces) return;
+      setWindows((prev) =>
+        prev.map((w) =>
+          w.id === windowId ? { ...w, workspaceId: targetWorkspace, stickyWorkspace: false } : w,
+        ),
+      );
+    },
+    [totalWorkspaces],
+  );
+
   // Register all global shortcuts
   useEffect(() => {
     const mgr = getShortcutManager();
@@ -902,33 +929,6 @@ const App: React.FC = () => {
       }),
     );
   };
-
-  // ── Workspace Management ──────────────────────────────────────────────
-  const switchWorkspace = useCallback(
-    (targetIdx: number, direction?: 'left' | 'right') => {
-      if (targetIdx < 0 || targetIdx >= totalWorkspaces || targetIdx === currentWorkspace) return;
-      const dir = direction || (targetIdx > currentWorkspace ? 'right' : 'left');
-      setWorkspaceTransitionDir(dir);
-      setActiveWindowId(null);
-      setTimeout(() => {
-        setCurrentWorkspace(targetIdx);
-        setTimeout(() => setWorkspaceTransitionDir(null), 200);
-      }, 10);
-    },
-    [currentWorkspace, totalWorkspaces],
-  );
-
-  const moveWindowToWorkspace = useCallback(
-    (windowId: string, targetWorkspace: number) => {
-      if (targetWorkspace < 0 || targetWorkspace >= totalWorkspaces) return;
-      setWindows((prev) =>
-        prev.map((w) =>
-          w.id === windowId ? { ...w, workspaceId: targetWorkspace, stickyWorkspace: false } : w,
-        ),
-      );
-    },
-    [totalWorkspaces],
-  );
 
   // Compute visible windows for current workspace
   const visibleWindows = useMemo(() => {

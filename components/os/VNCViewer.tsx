@@ -29,7 +29,9 @@ export const VNCViewer: React.FC<VNCViewerProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const rfbRef = useRef<any>(null);
-  const [status, setStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'error'>('connecting');
+  const [status, setStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'error'>(
+    'connecting',
+  );
   const [errorMsg, setErrorMsg] = useState('');
 
   useEffect(() => {
@@ -45,7 +47,7 @@ export const VNCViewer: React.FC<VNCViewerProps> = ({
       try {
         // Attempt to load noVNC's RFB class
         // @ts-ignore - dynamic import of noVNC
-        const noVNC = await import('@novnc/novnc/core/rfb.js').catch(() => null);
+        const noVNC = await import('@novnc/novnc/lib/rfb.js').catch(() => null);
 
         if (destroyed) return;
 
@@ -102,7 +104,9 @@ export const VNCViewer: React.FC<VNCViewerProps> = ({
     return () => {
       destroyed = true;
       if (rfb) {
-        try { rfb.disconnect(); } catch {}
+        try {
+          rfb.disconnect();
+        } catch {}
       }
       rfbRef.current = null;
     };

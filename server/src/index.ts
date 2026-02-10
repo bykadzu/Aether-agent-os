@@ -957,8 +957,8 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
 // ---------------------------------------------------------------------------
 
 const wss = new WebSocketServer({
-  server: httpServer,
-  path: DEFAULT_WS_PATH,
+  noServer: true,
+  perMessageDeflate: false,
 });
 
 /** Track connected UI clients with their authenticated user */
@@ -1065,9 +1065,11 @@ wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
     }
   });
 
-  ws.on('close', () => {
+  ws.on('close', (code, reason) => {
     clients.delete(ws);
-    console.log(`[Server] Client disconnected (${clients.size} total)`);
+    console.log(
+      `[Server] Client disconnected (${clients.size} total) code=${code} reason=${reason?.toString() || ''}`,
+    );
   });
 
   ws.on('error', (err) => {
@@ -1081,8 +1083,8 @@ wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
 // ---------------------------------------------------------------------------
 
 const clusterWss = new WebSocketServer({
-  server: httpServer,
-  path: '/cluster',
+  noServer: true,
+  perMessageDeflate: false,
 });
 
 clusterWss.on('connection', (ws: WebSocket) => {
@@ -1227,7 +1229,7 @@ for (const eventType of BROADCAST_EVENTS) {
 
 function sendEvent(ws: WebSocket, event: KernelEvent): void {
   if (ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(event));
+    ws.send(JSON.stringify(event), { compress: false });
   }
 }
 
@@ -1235,7 +1237,7 @@ function broadcast(event: KernelEvent): void {
   const msg = JSON.stringify(event);
   for (const [, client] of clients) {
     if (client.ws.readyState === WebSocket.OPEN) {
-      client.ws.send(msg);
+      client.ws.send(msg, { compress: false });
     }
   }
 }
@@ -1307,6 +1309,23 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 // ---------------------------------------------------------------------------
 // Start
 // ---------------------------------------------------------------------------
+
+// Route WebSocket upgrades manually to avoid dual-WSS frame corruption (ws v8 bug)
+httpServer.on('upgrade', (request, socket, head) => {
+  const pathname = new URL(request.url || '/', `http://localhost:${PORT}`).pathname;
+
+  if (pathname === DEFAULT_WS_PATH) {
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      wss.emit('connection', ws, request);
+    });
+  } else if (pathname === '/cluster') {
+    clusterWss.handleUpgrade(request, socket, head, (ws) => {
+      clusterWss.emit('connection', ws, request);
+    });
+  } else {
+    socket.destroy();
+  }
+});
 
 httpServer.listen(PORT, '0.0.0.0', () => {
   const clusterRole = kernel.cluster.getRole();
