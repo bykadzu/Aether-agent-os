@@ -17,14 +17,14 @@ Real processes. Real filesystems. Real terminals. Beautiful UI.
 
 Aether OS is a from-scratch operating system designed for AI agents to live and work in. Each agent runs as a real process with its own sandboxed filesystem, terminal session, and execution environment. Agents remember across sessions, plan hierarchically, reflect on their work, collaborate with each other, and see through vision-capable LLMs. Humans observe and interact through a Mission Control interface inspired by macOS.
 
-Unlike approaches that drop an AI into an existing Linux VM, Aether OS is built from the ground up with AI agents as first-class citizens. The kernel (15 subsystems), agent runtime (28+ tools, 4 LLM providers), and UI (20+ apps) are all designed around the agent lifecycle: think, act, observe, remember, plan, reflect.
+Unlike approaches that drop an AI into an existing Linux VM, Aether OS is built from the ground up with AI agents as first-class citizens. The kernel (20 subsystems), agent runtime (28+ tools, 4 LLM providers), and UI (23 apps) are all designed around the agent lifecycle: think, act, observe, remember, plan, reflect. The platform includes a full REST API (53 endpoints), TypeScript SDK, CLI tool, plugin marketplace, 4 external integrations (GitHub, Slack, S3, Discord), RBAC with organizations/teams, and an embeddable widget for external websites.
 
 ## What It Does
 
 - **Spawns AI agents as real OS processes** with PIDs, signals, and lifecycle management
 - **Gives each agent a sandboxed environment** with its own home directory, shell, and filesystem
 - **Runs agents through a think-act-observe loop** powered by multiple LLM providers (Gemini, OpenAI, Anthropic, Ollama) with automatic fallback
-- **Deploys from pre-built agent templates** (Researcher, Coder, Reviewer, Analyst, SysAdmin, Writer, Tester) with curated tool sets and goals
+- **Deploys from pre-built agent templates** (16 presets across development, research, data, creative, ops) with curated tool sets and goals
 - **Displays each agent's virtual desktop** in a Mission Control grid, like monitoring multiple workstations
 - **Streams graphical desktops via VNC/noVNC** for agents running browsers, IDEs, or other GUI apps inside containers
 - **Provides real terminal sessions** with xterm.js rendering ANSI output from actual shell processes
@@ -36,6 +36,11 @@ Unlike approaches that drop an AI into an existing Linux VM, Aether OS is built 
 - **Snapshots and restores agents** like VM checkpoints — capturing process state, filesystem, and logs
 - **Extends agents with plugins** discovered automatically from each agent's home directory
 - **Enables agent-to-agent communication** through a kernel-managed IPC message queue
+- **Exposes a full REST API** with 53 endpoints, OpenAPI 3.0 spec, and TypeScript SDK
+- **Integrates with external services** — GitHub, Slack, S3, Discord via pluggable integration framework
+- **Manages access with RBAC** — organizations, teams, 5-tier role hierarchy, 25+ permissions
+- **Embeds anywhere** via `<aether-agent>` Web Component that drops into any website
+- **Controls headlessly** via the `aether` CLI tool with 20+ commands
 
 ## Getting Started
 
@@ -122,17 +127,24 @@ If Docker is available on the host, agent processes will automatically run insid
 │  ├──────────────┤ ├──────────┤ ├──────────┤ ├─────────────┤  │
 │  │ VNC Manager  │ │ Snapshot │ │ Auth     │ │ Cluster     │  │
 │  │ (noVNC       │ │ Manager  │ │ Manager  │ │ Manager     │  │
-│  │  proxy)      │ │ (ckpts)  │ │ (JWT)    │ │ (hub/spoke) │  │
+│  │  proxy)      │ │ (ckpts)  │ │ (JWT+    │ │ (hub/spoke) │  │
+│  │              │ │          │ │  RBAC)   │ │             │  │
 │  ├──────────────┤ ├──────────┤ ├──────────┤ ├─────────────┤  │
 │  │ Plugin       │ │ State    │ │ Event    │ │ Browser     │  │
 │  │ Manager      │ │ Store    │ │ Bus      │ │ Manager     │  │
 │  │              │ │ (SQLite) │ │ (pub/sub)│ │ (Playwright)│  │
-│  ├──────────────┤ ├──────────┤ └──────────┘ └─────────────┘  │
-│  │ Memory       │ │ Cron     │                               │  │
-│  │ Manager      │ │ Manager  │                               │  │
-│  │ (FTS5,       │ │ (sched,  │                               │  │
-│  │  4-layer)    │ │  events) │                               │  │
-│  └──────────────┘ └──────────┘                               │  │
+│  ├──────────────┤ ├──────────┤ ├──────────┤ ├─────────────┤  │
+│  │ Memory       │ │ Cron     │ │ Webhook  │ │ App         │  │
+│  │ Manager      │ │ Manager  │ │ Manager  │ │ Manager     │  │
+│  │ (FTS5,       │ │ (sched,  │ │ (in/out) │ │ (store)     │  │
+│  │  4-layer)    │ │  events) │ │          │ │             │  │
+│  ├──────────────┤ ├──────────┤ ├──────────┤ ├─────────────┤  │
+│  │ Integration  │ │ Plugin   │ │ Template │ │             │  │
+│  │ Manager      │ │ Registry │ │ Mktplace │ │             │  │
+│  │ (GitHub,     │ │ (catalog,│ │ (16      │ │             │  │
+│  │  Slack, S3,  │ │  ratings)│ │  presets) │ │             │  │
+│  │  Discord)    │ │          │ │          │ │             │  │
+│  └──────────────┘ └──────────┘ └──────────┘ └─────────────┘  │
 ├────────────────────────────────────────────────────────────────┤
 │                       Agent Runtime                            │
 │                                                                │
@@ -143,10 +155,19 @@ If Docker is available on the host, agent processes will automatically run insid
 │  │  memory-aware)│ │  plan, collab│ │  (+ vision support)  │  │
 │  ├───────────────┤ ├──────────────┤ └──────────────────────┘  │
 │  │ Templates     │ │ Intelligence │                           │  │
-│  │ (8 presets)   │ │ reflection,  │                           │  │
+│  │ (16 presets)  │ │ reflection,  │                           │  │
 │  └───────────────┘ │ planner,     │                           │  │
 │                    │ collaboration│                           │  │
 │                    └──────────────┘                           │  │
+├────────────────────────────────────────────────────────────────┤
+│                    REST API v1 (53 endpoints)                  │
+│                                                                │
+│  ┌───────────────┐ ┌──────────────┐ ┌──────────────────────┐  │
+│  │ @aether/sdk   │ │  @aether/cli │ │  @aether/embed       │  │
+│  │ TS client     │ │  20+ cmds    │ │  <aether-agent>      │  │
+│  │ (12 namespaces│ │  headless    │ │  web component       │  │
+│  │  + SSE)       │ │  management  │ │  (shadow DOM)        │  │
+│  └───────────────┘ └──────────────┘ └──────────────────────┘  │
 └────────────────────────────────────────────────────────────────┘
 ```
 
@@ -155,10 +176,13 @@ If Docker is available on the host, agent processes will automatically run insid
 | Layer | Directory | Purpose |
 |-------|-----------|---------|
 | **Shared** | `shared/` | Typed protocol between UI and kernel. Every WebSocket message is a discriminated union. |
-| **Kernel** | `kernel/` | The OS core. Manages processes, filesystem, terminals, containers, persistence. |
+| **Kernel** | `kernel/` | The OS core. 20 subsystems — processes, filesystem, terminals, containers, memory, integrations, RBAC. |
 | **Runtime** | `runtime/` | Agent execution. Think-act-observe loop with tool use and LLM integration. |
-| **Server** | `server/` | HTTP + WebSocket transport. Bridges the kernel to the UI. |
-| **UI** | Root (`App.tsx`, `components/`, `services/`) | React frontend. Window manager, desktop environment, Mission Control. |
+| **Server** | `server/` | HTTP + WebSocket transport. REST API v1 (53 endpoints), OpenAPI spec, SSE events. |
+| **SDK** | `sdk/` | TypeScript client library. 12 namespaced API groups with SSE subscription. |
+| **CLI** | `cli/` | Headless command-line tool. 10 command modules, 20+ commands, ANSI output, `--json` flag. |
+| **Embed** | `embed/` | Embeddable `<aether-agent>` Web Component. Shadow DOM, dark/light themes, auto-spawn. |
+| **UI** | Root (`App.tsx`, `components/`, `services/`) | React frontend. Window manager, desktop environment, 23 apps. |
 
 ## How It Works
 
@@ -365,7 +389,7 @@ The host OS itself is a full desktop environment:
 │   └── geminiService.ts         # Gemini API integration (UI-side mock mode)
 ├── kernel/
 │   └── src/
-│       ├── Kernel.ts            # Core kernel orchestrator (15 subsystems)
+│       ├── Kernel.ts            # Core kernel orchestrator (20 subsystems)
 │       ├── ProcessManager.ts    # PID allocation, signals, lifecycle
 │       ├── VirtualFS.ts         # Real filesystem at /tmp/aether
 │       ├── PTYManager.ts        # Terminal sessions (node-pty or docker exec)
@@ -375,19 +399,32 @@ The host OS itself is a full desktop environment:
 │       ├── MemoryManager.ts     # 4-layer agent memory with FTS5 + profiles
 │       ├── CronManager.ts       # Cron scheduling + event triggers
 │       ├── SnapshotManager.ts   # VM-checkpoint-style agent snapshots
-│       ├── AuthManager.ts       # User auth, JWT tokens, password hashing
+│       ├── AuthManager.ts       # Auth, JWT, RBAC (orgs, teams, 25+ permissions)
 │       ├── ClusterManager.ts    # Hub-and-spoke distributed kernel
 │       ├── PluginManager.ts     # Agent plugin loading and management
+│       ├── AppManager.ts        # App Store manifest + lifecycle
+│       ├── WebhookManager.ts    # Inbound/outbound webhooks with retry
+│       ├── PluginRegistryManager.ts  # Plugin marketplace (catalog, ratings, settings)
+│       ├── IntegrationManager.ts     # External service integration framework
+│       ├── TemplateManager.ts   # Agent template marketplace (publish, rate, fork)
+│       ├── integrations/        # IIntegration implementations
+│       │   ├── IIntegration.ts  # Integration interface contract
+│       │   ├── GitHubIntegration.ts   # 10 GitHub API actions
+│       │   ├── SlackIntegration.ts    # 8 Slack API actions + signature verification
+│       │   ├── S3Integration.ts       # 7 S3 actions with AWS Sig V4
+│       │   └── DiscordIntegration.ts  # 6 Discord API actions
+│       ├── seedTemplates.ts     # 16 pre-built agent templates
+│       ├── seedPlugins.ts       # 3 reference plugin manifests
 │       ├── plugins/             # Sample plugins
 │       │   └── sample-weather/  # Template plugin with weather tool
-│       ├── StateStore.ts        # SQLite persistence (processes, users, metrics, memories, plans, feedback, profiles)
+│       ├── StateStore.ts        # SQLite persistence (processes, users, metrics, memories, plans, feedback, profiles, integrations, webhooks, orgs, teams)
 │       ├── EventBus.ts          # Typed pub/sub IPC
 │       └── __tests__/           # Kernel unit tests (Vitest)
 ├── runtime/
 │   └── src/
 │       ├── AgentLoop.ts         # Think-act-observe cycle (memory-aware)
 │       ├── tools.ts             # 28+ agent tools (fs, shell, web, memory, plan, collab, vision)
-│       ├── templates.ts         # Pre-built agent templates (8 presets)
+│       ├── templates.ts         # Pre-built agent templates (16 presets)
 │       ├── reflection.ts        # Post-task self-reflection engine
 │       ├── planner.ts           # Goal decomposition & hierarchical planning
 │       ├── collaboration.ts     # Structured multi-agent protocols
@@ -402,7 +439,20 @@ The host OS itself is a full desktop environment:
 ├── server/
 │   └── src/
 │       ├── index.ts             # HTTP + WebSocket server
+│       ├── routes/
+│       │   └── v1.ts            # REST API v1 (53 endpoints, 11 tags)
+│       ├── openapi.ts           # OpenAPI 3.0.0 spec generator
 │       └── __tests__/           # Integration tests
+├── sdk/
+│   └── src/
+│       └── client.ts            # AetherClient — 12 namespaced API groups, SSE
+├── cli/
+│   └── src/
+│       ├── cli.ts               # Entry point, hand-rolled arg parser
+│       └── commands/            # Command modules (agents, fs, system, cron, webhooks, templates, integrations)
+├── embed/
+│   └── src/
+│       └── aether-agent.ts      # <aether-agent> Web Component (shadow DOM, SSE polling)
 └── shared/
     └── src/
         ├── protocol.ts          # Typed kernel protocol (commands + events)
@@ -427,6 +477,9 @@ The host OS itself is a full desktop environment:
 | GPU | NVIDIA via `nvidia-container-toolkit` (optional) |
 | Testing | Vitest, v8 coverage |
 | CI | GitHub Actions (lint + test on push/PR) |
+| SDK | TypeScript (`@aether/sdk`), SSE subscriptions |
+| CLI | Node.js hand-rolled arg parser, ANSI colors, `--json` output |
+| Embed | Web Component (`<aether-agent>`), shadow DOM |
 | Font | Inter (Google Fonts) |
 
 ## Roadmap
@@ -475,15 +528,26 @@ The host OS itself is a full desktop environment:
 - [x] Plan Viewer and Feedback UI in Agent VM
 - [x] Automation Manager in Settings for cron jobs and triggers
 
-### Up Next (v0.4 — Ecosystem)
+**v0.4 — Ecosystem & Integrations:**
+- [x] REST API v1 with 53 endpoints, WebhookManager, AppManager, App Store UI
+- [x] Plugin Marketplace with searchable catalog, ratings, and settings
+- [x] External integrations — GitHub (10 actions), Slack (8 actions + bidirectional events), S3 (7 actions, AWS Sig V4), Discord (6 actions)
+- [x] TypeScript SDK (`@aether/sdk`) with 12 namespaced API groups and SSE
+- [x] CLI tool (`@aether/cli`) with 20+ commands, `--json` flag, ANSI output
+- [x] Agent template marketplace with publish, rate, fork, and 16 pre-built templates
+- [x] RBAC with organizations, teams, 5-tier role hierarchy, 25+ permissions
+- [x] Embeddable `<aether-agent>` Web Component with shadow DOM and dark/light themes
+- [x] OpenAPI 3.0 spec served at `/api/v1/openapi.json`
 
-- [ ] App Store framework (manifest, sandbox, permissions, SDK)
-- [ ] Plugin Marketplace with searchable catalog
-- [ ] External integrations (GitHub, Slack, Discord — bidirectional)
-- [ ] REST API & SDKs (TypeScript, Python, CLI)
-- [ ] Agent template marketplace with ratings
-- [ ] Webhook & event system (inbound/outbound)
-- [ ] Lightweight skill format (simpler than full React apps)
+### Up Next (v0.5 — Production & Scale)
+
+- [ ] Deployment & packaging (Docker, Compose, Helm, Electron, cloud templates)
+- [ ] Database evolution (PostgreSQL migration, event sourcing)
+- [ ] Scaling (stateless kernel, load balancer, auto-scaling)
+- [ ] Security hardening (TLS, MFA, capability-based permissions)
+- [ ] Observability (Prometheus, Grafana, OpenTelemetry)
+- [ ] Mobile (PWA, responsive UI, push notifications)
+- [ ] Accessibility (WCAG 2.1 AA, screen reader, keyboard nav)
 
 ## Snapshots (Agent Checkpoints)
 
