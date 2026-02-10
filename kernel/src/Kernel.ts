@@ -37,6 +37,8 @@ import { AppManager } from './AppManager.js';
 import { PluginRegistryManager } from './PluginRegistryManager.js';
 import { IntegrationManager } from './IntegrationManager.js';
 import { TemplateManager } from './TemplateManager.js';
+import { SkillManager } from './SkillManager.js';
+import { RemoteAccessManager } from './RemoteAccessManager.js';
 import {
   KernelCommand,
   KernelEvent,
@@ -68,6 +70,8 @@ export class Kernel {
   readonly pluginRegistry: PluginRegistryManager;
   readonly integrations: IntegrationManager;
   readonly templateMarketplace: TemplateManager;
+  readonly skills: SkillManager;
+  readonly remoteAccess: RemoteAccessManager;
 
   private startTime: number;
   private running = false;
@@ -92,6 +96,8 @@ export class Kernel {
     this.pluginRegistry = new PluginRegistryManager(this.bus, this.state);
     this.integrations = new IntegrationManager(this.bus, this.state);
     this.templateMarketplace = new TemplateManager(this.bus, this.state);
+    this.skills = new SkillManager(this.bus, this.state);
+    this.remoteAccess = new RemoteAccessManager(this.bus, this.state);
     this.startTime = Date.now();
   }
 
@@ -194,6 +200,14 @@ export class Kernel {
     // Initialize template marketplace
     await this.templateMarketplace.init();
     console.log('[Kernel] Template marketplace initialized');
+
+    // Initialize skill manager
+    await this.skills.init();
+    console.log('[Kernel] Skill manager initialized');
+
+    // Initialize remote access manager
+    await this.remoteAccess.init();
+    console.log('[Kernel] Remote access manager initialized');
 
     this.running = true;
     this.startTime = Date.now();
@@ -1681,6 +1695,130 @@ export class Kernel {
           break;
         }
 
+        // ----- Skill Commands -----
+        case 'skill.list': {
+          const category = (cmd as any).category;
+          const skills = this.skills.list(category);
+          events.push({ type: 'response.ok', id: cmd.id, data: skills });
+          break;
+        }
+        case 'skill.get': {
+          const skill = this.skills.get((cmd as any).skillId);
+          if (skill) {
+            events.push({ type: 'response.ok', id: cmd.id, data: skill });
+          } else {
+            events.push({ type: 'response.error', id: cmd.id, error: 'Skill not found' });
+          }
+          break;
+        }
+        case 'skill.register': {
+          try {
+            const registered = this.skills.register((cmd as any).definition);
+            events.push({ type: 'response.ok', id: cmd.id, data: registered });
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+        case 'skill.unregister': {
+          const removed = this.skills.unregister((cmd as any).skillId);
+          events.push({ type: 'response.ok', id: cmd.id, data: { removed } });
+          break;
+        }
+        case 'skill.execute': {
+          try {
+            const result = await this.skills.execute(
+              (cmd as any).skillId,
+              (cmd as any).inputs || {},
+              (cmd as any).context || { agentUid: 'system', pid: 0, fsRoot: this.fs.getRealRoot() },
+            );
+            events.push({ type: 'response.ok', id: cmd.id, data: result });
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        // ----- Remote Access Commands -----
+        case 'remote.tunnel.list': {
+          const tunnels = this.remoteAccess.listTunnels();
+          events.push({ type: 'response.ok', id: cmd.id, data: tunnels });
+          break;
+        }
+        case 'remote.tunnel.create': {
+          try {
+            const tunnel = this.remoteAccess.createTunnel((cmd as any).config);
+            events.push({ type: 'response.ok', id: cmd.id, data: tunnel });
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+        case 'remote.tunnel.destroy': {
+          const destroyed = this.remoteAccess.destroyTunnel((cmd as any).tunnelId);
+          events.push({ type: 'response.ok', id: cmd.id, data: { destroyed } });
+          break;
+        }
+        case 'remote.tailscale.status': {
+          const status = this.remoteAccess.tailscaleStatus();
+          events.push({ type: 'response.ok', id: cmd.id, data: status });
+          break;
+        }
+        case 'remote.tailscale.up': {
+          try {
+            const result = await this.remoteAccess.tailscaleUp((cmd as any).config);
+            events.push({ type: 'response.ok', id: cmd.id, data: result });
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+        case 'remote.tailscale.down': {
+          try {
+            const result = await this.remoteAccess.tailscaleDown();
+            events.push({ type: 'response.ok', id: cmd.id, data: result });
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+        case 'remote.tailscale.devices': {
+          const devices = this.remoteAccess.tailscaleDevices();
+          events.push({ type: 'response.ok', id: cmd.id, data: devices });
+          break;
+        }
+        case 'remote.tailscale.serve': {
+          try {
+            const result = await this.remoteAccess.tailscaleServe(
+              (cmd as any).port,
+              (cmd as any).options,
+            );
+            events.push({ type: 'response.ok', id: cmd.id, data: result });
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+        case 'remote.keys.list': {
+          const keys = this.remoteAccess.listAuthorizedKeys();
+          events.push({ type: 'response.ok', id: cmd.id, data: keys });
+          break;
+        }
+        case 'remote.keys.add': {
+          try {
+            const key = this.remoteAccess.addAuthorizedKey((cmd as any).key, (cmd as any).label);
+            events.push({ type: 'response.ok', id: cmd.id, data: key });
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+        case 'remote.keys.remove': {
+          const removed = this.remoteAccess.removeAuthorizedKey((cmd as any).keyId);
+          events.push({ type: 'response.ok', id: cmd.id, data: { removed } });
+          break;
+        }
+
         default:
           events.push({
             type: 'response.error',
@@ -1749,6 +1887,8 @@ export class Kernel {
       ['PluginRegistry', true],
       ['IntegrationMgr', true],
       ['TemplateMktplace', true],
+      ['SkillManager', true],
+      ['RemoteAccessMgr', true],
     ];
 
     const port = process.env.AETHER_PORT || String(DEFAULT_PORT);
@@ -1810,6 +1950,8 @@ export class Kernel {
       /* ignore metric errors during shutdown */
     }
 
+    await this.remoteAccess.shutdown();
+    this.skills.shutdown();
     this.webhooks.shutdown();
     this.apps.shutdown();
     this.pluginRegistry.shutdown();

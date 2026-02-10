@@ -1,0 +1,39 @@
+# Skill: Code Review
+# Reads a source file and produces an LLM-powered code review.
+
+name: code-review
+version: 1.0.0
+description: Read a source file and produce a structured code review with suggestions
+author: Aether OS Team
+category: development
+tags:
+  - code-review
+  - quality
+  - development
+
+inputs:
+  file_path:
+    type: string
+    description: Path to the source file to review
+    required: true
+  focus:
+    type: string
+    description: Review focus area (security, performance, readability, all)
+    default: all
+
+steps:
+  - id: read_source
+    action: fs.read
+    params:
+      path: "{{inputs.file_path}}"
+  - id: review
+    action: llm.complete
+    params:
+      prompt: "You are a senior software engineer. Review the following code with a focus on {{inputs.focus}}. Provide:\n1. A brief summary of what the code does\n2. Issues found (bugs, security, performance)\n3. Suggestions for improvement\n4. An overall quality rating (1-10)\n\nFile: {{inputs.file_path}}\n\n```\n{{steps.read_source.content}}\n```"
+  - id: format
+    action: transform.text
+    params:
+      input: "{{steps.review.text}}"
+      operation: trim
+
+output: "{{steps.format}}"

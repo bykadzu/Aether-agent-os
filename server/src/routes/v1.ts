@@ -1275,6 +1275,220 @@ export function createV1Router(
     return false;
   }
 
+  // ----- Skills -----
+
+  async function handleSkills(
+    req: IncomingMessage,
+    res: ServerResponse,
+    url: URL,
+    _user: UserInfo,
+  ): Promise<boolean> {
+    const method = req.method || 'GET';
+    const pathname = url.pathname;
+
+    // GET /api/v1/skills — List skills
+    if (pathname === '/api/v1/skills' && method === 'GET') {
+      const category = url.searchParams.get('category') || undefined;
+      const skills = kernel.skills.list(category);
+      jsonOk(res, skills);
+      return true;
+    }
+
+    // POST /api/v1/skills — Register skill
+    if (pathname === '/api/v1/skills' && method === 'POST') {
+      try {
+        const body = await readBody(req);
+        const definition = JSON.parse(body);
+        const skill = kernel.skills.register(definition);
+        jsonOk(res, skill, 201);
+      } catch (err: any) {
+        jsonError(res, 400, 'INVALID_INPUT', err.message);
+      }
+      return true;
+    }
+
+    // GET /api/v1/skills/:id — Get skill
+    let params = matchRoute(pathname, method, 'GET', '/api/v1/skills/:id');
+    if (params) {
+      const skill = kernel.skills.get(params.id);
+      if (skill) {
+        jsonOk(res, skill);
+      } else {
+        jsonError(res, 404, 'NOT_FOUND', `Skill ${params.id} not found`);
+      }
+      return true;
+    }
+
+    // DELETE /api/v1/skills/:id — Unregister skill
+    params = matchRoute(pathname, method, 'DELETE', '/api/v1/skills/:id');
+    if (params) {
+      const removed = kernel.skills.unregister(params.id);
+      if (removed) {
+        jsonOk(res, { deleted: true });
+      } else {
+        jsonError(res, 404, 'NOT_FOUND', `Skill ${params.id} not found`);
+      }
+      return true;
+    }
+
+    // POST /api/v1/skills/:id/execute — Execute skill
+    params = matchRoute(pathname, method, 'POST', '/api/v1/skills/:id/execute');
+    if (params) {
+      try {
+        const body = await readBody(req);
+        const { inputs, context } = JSON.parse(body);
+        const result = await kernel.skills.execute(
+          params.id,
+          inputs || {},
+          context || { agentUid: 'api', pid: 0, fsRoot: kernel.fs.getRealRoot() },
+        );
+        jsonOk(res, result);
+      } catch (err: any) {
+        jsonError(res, 400, 'EXECUTION_ERROR', err.message);
+      }
+      return true;
+    }
+
+    return false;
+  }
+
+  // ----- Remote Access -----
+
+  async function handleRemoteAccess(
+    req: IncomingMessage,
+    res: ServerResponse,
+    url: URL,
+    _user: UserInfo,
+  ): Promise<boolean> {
+    const method = req.method || 'GET';
+    const pathname = url.pathname;
+
+    // GET /api/v1/remote/tunnels — List tunnels
+    if (pathname === '/api/v1/remote/tunnels' && method === 'GET') {
+      const tunnels = kernel.remoteAccess.listTunnels();
+      jsonOk(res, tunnels);
+      return true;
+    }
+
+    // POST /api/v1/remote/tunnels — Create tunnel
+    if (pathname === '/api/v1/remote/tunnels' && method === 'POST') {
+      try {
+        const body = await readBody(req);
+        const config = JSON.parse(body);
+        const tunnel = kernel.remoteAccess.createTunnel(config);
+        jsonOk(res, tunnel, 201);
+      } catch (err: any) {
+        jsonError(res, 400, 'INVALID_INPUT', err.message);
+      }
+      return true;
+    }
+
+    // DELETE /api/v1/remote/tunnels/:id — Destroy tunnel
+    let params = matchRoute(pathname, method, 'DELETE', '/api/v1/remote/tunnels/:id');
+    if (params) {
+      const destroyed = kernel.remoteAccess.destroyTunnel(params.id);
+      if (destroyed) {
+        jsonOk(res, { deleted: true });
+      } else {
+        jsonError(res, 404, 'NOT_FOUND', `Tunnel ${params.id} not found`);
+      }
+      return true;
+    }
+
+    // GET /api/v1/remote/tailscale/status — Tailscale status
+    if (pathname === '/api/v1/remote/tailscale/status' && method === 'GET') {
+      const status = kernel.remoteAccess.tailscaleStatus();
+      jsonOk(res, status);
+      return true;
+    }
+
+    // POST /api/v1/remote/tailscale/up — Tailscale up
+    if (pathname === '/api/v1/remote/tailscale/up' && method === 'POST') {
+      try {
+        const body = await readBody(req);
+        const config = body ? JSON.parse(body) : undefined;
+        const result = await kernel.remoteAccess.tailscaleUp(config);
+        jsonOk(res, result);
+      } catch (err: any) {
+        jsonError(res, 400, 'EXECUTION_ERROR', err.message);
+      }
+      return true;
+    }
+
+    // POST /api/v1/remote/tailscale/down — Tailscale down
+    if (pathname === '/api/v1/remote/tailscale/down' && method === 'POST') {
+      try {
+        const result = await kernel.remoteAccess.tailscaleDown();
+        jsonOk(res, result);
+      } catch (err: any) {
+        jsonError(res, 400, 'EXECUTION_ERROR', err.message);
+      }
+      return true;
+    }
+
+    // GET /api/v1/remote/tailscale/devices — List tailnet devices
+    if (pathname === '/api/v1/remote/tailscale/devices' && method === 'GET') {
+      const devices = kernel.remoteAccess.tailscaleDevices();
+      jsonOk(res, devices);
+      return true;
+    }
+
+    // POST /api/v1/remote/tailscale/serve — Expose port via Tailscale Serve
+    if (pathname === '/api/v1/remote/tailscale/serve' && method === 'POST') {
+      try {
+        const body = await readBody(req);
+        const { port, ...opts } = JSON.parse(body);
+        if (!port) {
+          jsonError(res, 400, 'INVALID_INPUT', 'port is required');
+          return true;
+        }
+        const result = await kernel.remoteAccess.tailscaleServe(port, opts);
+        jsonOk(res, result);
+      } catch (err: any) {
+        jsonError(res, 400, 'EXECUTION_ERROR', err.message);
+      }
+      return true;
+    }
+
+    // GET /api/v1/remote/keys — List authorized keys
+    if (pathname === '/api/v1/remote/keys' && method === 'GET') {
+      const keys = kernel.remoteAccess.listAuthorizedKeys();
+      jsonOk(res, keys);
+      return true;
+    }
+
+    // POST /api/v1/remote/keys — Add authorized key
+    if (pathname === '/api/v1/remote/keys' && method === 'POST') {
+      try {
+        const body = await readBody(req);
+        const { key, label } = JSON.parse(body);
+        if (!key || !label) {
+          jsonError(res, 400, 'INVALID_INPUT', 'key and label are required');
+          return true;
+        }
+        const added = kernel.remoteAccess.addAuthorizedKey(key, label);
+        jsonOk(res, added, 201);
+      } catch (err: any) {
+        jsonError(res, 400, 'INVALID_INPUT', err.message);
+      }
+      return true;
+    }
+
+    // DELETE /api/v1/remote/keys/:id — Remove authorized key
+    params = matchRoute(pathname, method, 'DELETE', '/api/v1/remote/keys/:id');
+    if (params) {
+      const removed = kernel.remoteAccess.removeAuthorizedKey(params.id);
+      if (removed) {
+        jsonOk(res, { deleted: true });
+      } else {
+        jsonError(res, 404, 'NOT_FOUND', `Key ${params.id} not found`);
+      }
+      return true;
+    }
+
+    return false;
+  }
+
   // ----- Main handler -----
 
   return async function v1Handler(
@@ -1301,6 +1515,8 @@ export function createV1Router(
     if (await handleSlackWebhooks(req, res, url, user)) return true;
     if (await handleMarketplace(req, res, url, user)) return true;
     if (await handleOrgs(req, res, url, user)) return true;
+    if (await handleSkills(req, res, url, user)) return true;
+    if (await handleRemoteAccess(req, res, url, user)) return true;
 
     return false;
   };
