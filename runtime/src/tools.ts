@@ -11,8 +11,12 @@
  * - Tools operate within the agent's sandbox
  */
 
+import { exec as execCb } from 'node:child_process';
+import { promisify } from 'node:util';
 import { Kernel, PluginManager } from '@aether/kernel';
 import { PID, PlanNode } from '@aether/shared';
+
+const execAsync = promisify(execCb);
 import {
   createPlan,
   getActivePlan,
@@ -219,16 +223,25 @@ export function createToolSet(): ToolDefinition[] {
             }
           }
 
-          // Fallback to PTY execution
-          const ttys = ctx.kernel.pty.getByPid(ctx.pid);
-          if (ttys.length === 0) {
-            return { success: false, output: 'No terminal session available' };
-          }
-          const tty = ttys[0];
-          const output = await ctx.kernel.pty.exec(tty.id, args.command);
-          return { success: true, output };
+          // Use child_process.exec for reliable output capture
+          const proc = ctx.kernel.processes.get(ctx.pid);
+          const cwd = proc?.info.cwd || (process.platform === 'win32' ? process.env.TEMP : '/tmp');
+          const shell = process.platform === 'win32' ? true : '/bin/bash';
+
+          const { stdout, stderr } = await execAsync(args.command, {
+            cwd,
+            shell,
+            timeout: 30_000,
+            maxBuffer: 1024 * 1024,
+            env: { ...process.env, ...(proc?.info.env || {}) },
+          });
+
+          const output = (stdout + (stderr ? `\n${stderr}` : '')).trim();
+          return { success: true, output: output || '(no output)' };
         } catch (err: any) {
-          return { success: false, output: `Error: ${err.message}` };
+          // exec errors include stdout/stderr from failed commands
+          const output = err.stdout || err.stderr || err.message;
+          return { success: false, output: `Error: ${output}` };
         }
       },
     },
