@@ -213,6 +213,12 @@ export function createToolSet(): ToolDefinition[] {
         'Execute a shell command in the agent terminal (runs inside container if sandboxed)',
       requiresApproval: false,
       execute: async (args, ctx) => {
+        if (!args.command || typeof args.command !== 'string') {
+          return {
+            success: false,
+            output: 'Error: "command" argument is required (e.g. run_command({"command":"dir"}))',
+          };
+        }
         try {
           // Try container execution first via ContainerManager
           if (ctx.kernel.containers?.isDockerAvailable()) {
@@ -225,7 +231,9 @@ export function createToolSet(): ToolDefinition[] {
 
           // Use child_process.exec for reliable output capture
           const proc = ctx.kernel.processes.get(ctx.pid);
-          const cwd = proc?.info.cwd || (process.platform === 'win32' ? process.env.TEMP : '/tmp');
+          // proc.info.cwd is a virtual path — resolve to real path via FS root
+          const virtualCwd = proc?.info.cwd || '/tmp';
+          const cwd = ctx.kernel.fs.getRealRoot() + virtualCwd;
           const shell = process.platform === 'win32' ? true : '/bin/bash';
 
           const { stdout, stderr } = await execAsync(args.command, {
@@ -1003,10 +1011,20 @@ export function getToolsForAgent(pid: PID, pluginManager?: PluginManager): ToolD
 // ---------------------------------------------------------------------------
 
 function resolveCwd(cwd: string, relativePath: string): string {
-  if (relativePath.startsWith('/')) return relativePath;
+  // Normalize backslashes to forward slashes
+  const normalized = relativePath.replace(/\\/g, '/');
+
+  // Handle absolute paths (POSIX or Windows drive letter)
+  if (normalized.startsWith('/')) return normalized;
+  if (/^[a-zA-Z]:\//.test(normalized)) {
+    // Windows absolute path — treat as relative to virtual root
+    // e.g. C:/temp/aether/home/agent_1/file.py → /home/agent_1/file.py
+    return normalized;
+  }
+
   // Simple path join (posix-style)
   const parts = cwd.split('/').filter(Boolean);
-  for (const part of relativePath.split('/')) {
+  for (const part of normalized.split('/')) {
     if (part === '..') parts.pop();
     else if (part !== '.') parts.push(part);
   }

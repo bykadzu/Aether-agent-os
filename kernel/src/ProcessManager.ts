@@ -87,9 +87,9 @@ export class ProcessManager {
       command: `aether-agent --role="${config.role}" --goal="${config.goal}"`,
       state: 'created',
       agentPhase: 'booting',
-      cwd: process.platform === 'win32' ? `C:\\temp\\aether\\home\\${uid}` : `/home/${uid}`,
+      cwd: `/home/${uid}`,
       env: {
-        HOME: process.platform === 'win32' ? `C:\\temp\\aether\\home\\${uid}` : `/home/${uid}`,
+        HOME: `/home/${uid}`,
         USER: uid,
         SHELL: process.platform === 'win32' ? process.env.COMSPEC || 'cmd.exe' : '/bin/bash',
         TERM: 'xterm-256color',
