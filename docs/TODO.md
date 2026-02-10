@@ -2,7 +2,7 @@
 
 Consolidated checklist of all outstanding work, derived from NEXT_STEPS.md, FEATURES.md, all roadmaps, and the research documents. Organized by urgency and version target.
 
-**Last updated:** 2026-02-08 (post-v0.4 Wave 4 completion)
+**Last updated:** 2026-02-10 (v0.4 complete — all remaining items shipped)
 
 ---
 
@@ -157,10 +157,10 @@ Full details in [ROADMAP-v0.4.md](./ROADMAP-v0.4.md).
 - [x] **SDK Extensions** — Added integrations, webhooks, plugins namespaces to AetherClient
 - [x] **CLI Integrations Command** — `aether integrations list|test|exec` commands
 
-### Remaining
-- [ ] Python SDK
-- [ ] Lightweight skill format (simpler than full React apps — gap identified in research)
-- [ ] Remote access (Tailscale/SSH — not in any roadmap yet, identified as gap)
+### Wave 5 — Final Items (Complete)
+- [x] **Python SDK** — `aether-os-sdk` Python package (sdk-python/), httpx-based sync+async clients, full namespace coverage mirroring TypeScript SDK, SSE event streaming, pytest test suite
+- [x] **Lightweight Skill Format** — SkillManager kernel subsystem, YAML-based declarative skills with step pipelines, 8 built-in actions (http.get/post, llm.complete, fs.read/write, shell.exec, transform.json/text), template interpolation, 5 bundled example skills, REST API routes, kernel commands
+- [x] **Remote Access (SSH + Tailscale)** — RemoteAccessManager kernel subsystem, SSH tunnel management (local/remote/dynamic), Tailscale VPN integration (status/up/down/devices/serve), authorized key management, auto-reconnect with exponential backoff, REST API routes, kernel commands
 
 ---
 
@@ -191,9 +191,9 @@ These items appear across multiple docs or were identified as gaps:
 | Screenshots in README | NEXT_STEPS.md | High impact, low effort |
 | ~~File-based memory MVP~~ | RESEARCH-openclaw-ideas.md | ✅ Done — full MemoryManager with FTS5 in v0.3 |
 | ~~Cron/scheduling detail~~ | RESEARCH-openclaw-ideas.md | ✅ Done — CronManager with cron parser + event triggers in v0.3 |
-| Remote access | RESEARCH-future-plans-summary.md | Tailscale/SSH not planned in any roadmap |
+| ~~Remote access~~ | RESEARCH-future-plans-summary.md | ✅ Done — RemoteAccessManager with SSH tunnels + Tailscale in v0.4 |
 | Context compaction | RESEARCH-future-plans-summary.md | Important for long-running agents |
-| Lightweight skills | RESEARCH-openclaw-ideas.md | Simpler than full React apps for v0.4 |
+| ~~Lightweight skills~~ | RESEARCH-openclaw-ideas.md | ✅ Done — SkillManager with YAML skills + step pipelines in v0.4 |
 
 ---
 

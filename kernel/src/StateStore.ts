@@ -203,6 +203,10 @@ export class StateStore {
     getTeamMember: Database.Statement;
     getTeamMembers: Database.Statement;
     deleteTeamMember: Database.Statement;
+    // Generic KV store (v0.4 Remote Access)
+    getKV: Database.Statement;
+    setKV: Database.Statement;
+    deleteKV: Database.Statement;
   };
 
   private _persistenceDisabled = false;
@@ -657,6 +661,13 @@ export class StateStore {
       CREATE INDEX IF NOT EXISTS idx_team_members_user ON team_members(user_id);
 
       -- Agent profiles table (v0.3 Wave 4)
+      -- Generic key-value store (v0.4 Remote Access)
+      CREATE TABLE IF NOT EXISTS kv_store (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
       CREATE TABLE IF NOT EXISTS agent_profiles (
         agent_uid TEXT PRIMARY KEY,
         display_name TEXT NOT NULL DEFAULT '',
@@ -1221,6 +1232,12 @@ export class StateStore {
       deleteTeamMember: this.db.prepare(`
         DELETE FROM team_members WHERE team_id = ? AND user_id = ?
       `),
+      // Generic KV store (v0.4 Remote Access)
+      getKV: this.db.prepare(`SELECT value FROM kv_store WHERE key = ?`),
+      setKV: this.db.prepare(`
+        INSERT OR REPLACE INTO kv_store (key, value, updated_at) VALUES (?, ?, ?)
+      `),
+      deleteKV: this.db.prepare(`DELETE FROM kv_store WHERE key = ?`),
     };
   }
 
@@ -2374,9 +2391,98 @@ export class StateStore {
     this.stmts.deleteTeamMember.run(teamId, userId);
   }
 
+  // ---------------------------------------------------------------------------
+  // Skills (v0.4 — Lightweight Skill Format)
+  // ---------------------------------------------------------------------------
+
+  private _skillStmts?: {
+    upsertSkill: Database.Statement;
+    getSkill: Database.Statement;
+    getAllSkills: Database.Statement;
+    deleteSkill: Database.Statement;
+  };
+
+  /**
+   * Create the skills table if it doesn't exist. Called by SkillManager.init().
+   */
+  ensureSkillsTable(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS skills (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        version TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        author TEXT DEFAULT '',
+        category TEXT DEFAULT '',
+        tags TEXT DEFAULT '[]',
+        definition TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_skills_category ON skills(category);
+    `);
+    this._skillStmts = {
+      upsertSkill: this.db.prepare(`
+        INSERT OR REPLACE INTO skills (id, name, version, description, author, category, tags, definition, created_at)
+        VALUES (@id, @name, @version, @description, @author, @category, @tags, @definition, @created_at)
+      `),
+      getSkill: this.db.prepare(`
+        SELECT id, name, version, description, author, category, tags, definition, created_at
+        FROM skills WHERE id = ?
+      `),
+      getAllSkills: this.db.prepare(`
+        SELECT id, name, version, description, author, category, tags, definition, created_at
+        FROM skills ORDER BY created_at ASC
+      `),
+      deleteSkill: this.db.prepare(`DELETE FROM skills WHERE id = ?`),
+    };
+  }
+
+  upsertSkill(record: {
+    id: string;
+    name: string;
+    version: string;
+    description: string;
+    author: string;
+    category: string;
+    tags: string;
+    definition: string;
+    created_at: number;
+  }): void {
+    this._skillStmts!.upsertSkill.run(record);
+  }
+
+  getSkill(id: string): any {
+    return this._skillStmts!.getSkill.get(id);
+  }
+
+  getAllSkills(): any[] {
+    return this._skillStmts!.getAllSkills.all() as any[];
+  }
+
+  deleteSkill(id: string): void {
+    this._skillStmts!.deleteSkill.run(id);
+  }
+
   /** Expose the underlying database for direct queries (used by MemoryManager for FTS5) */
   getDatabase(): Database.Database {
     return this.db;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Generic KV Store
+  // ---------------------------------------------------------------------------
+
+  getKV(key: string): string | null {
+    const row = this.stmts.getKV.get(key) as { value: string } | undefined;
+    return row?.value ?? null;
+  }
+
+  setKV(key: string, value: string): void {
+    this.stmts.setKV.run(key, value, Date.now());
+  }
+
+  deleteKV(key: string): void {
+    this.stmts.deleteKV.run(key);
   }
 
   // ---------------------------------------------------------------------------

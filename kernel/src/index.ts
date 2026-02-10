@@ -18,6 +18,8 @@ export { WebhookManager } from './WebhookManager.js';
 export { PluginRegistryManager } from './PluginRegistryManager.js';
 export { IntegrationManager } from './IntegrationManager.js';
 export { TemplateManager } from './TemplateManager.js';
+export { SkillManager } from './SkillManager.js';
+export { RemoteAccessManager } from './RemoteAccessManager.js';
 export {
   SlackIntegration,
   verifySlackSignature,

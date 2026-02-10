@@ -1,0 +1,66 @@
+# Skill: Data Transform
+# Reads a JSON file, applies a transformation, and writes the result.
+
+name: data-transform
+version: 1.0.0
+description: Read a JSON data file, apply a transformation pipeline, and write the result
+author: Aether OS Team
+category: data
+tags:
+  - json
+  - transform
+  - data
+  - etl
+
+inputs:
+  input_path:
+    type: string
+    description: Path to the input JSON file
+    required: true
+  output_path:
+    type: string
+    description: Path to write the transformed output
+    required: true
+  operation:
+    type: string
+    description: Transformation operation (pick, pluck, filter, flatten, count)
+    default: identity
+  field:
+    type: string
+    description: Field name for pluck/filter operations
+    default: ""
+  value:
+    type: string
+    description: Value for filter operations
+    default: ""
+
+steps:
+  - id: read_input
+    action: fs.read
+    params:
+      path: "{{inputs.input_path}}"
+  - id: parse
+    action: transform.json
+    params:
+      input: "{{steps.read_input.content}}"
+      operation: parse
+  - id: transform
+    action: transform.json
+    params:
+      input: "{{steps.parse}}"
+      operation: "{{inputs.operation}}"
+      field: "{{inputs.field}}"
+      value: "{{inputs.value}}"
+  - id: stringify
+    action: transform.json
+    params:
+      input: "{{steps.transform}}"
+      operation: stringify
+      indent: 2
+  - id: write_output
+    action: fs.write
+    params:
+      path: "{{inputs.output_path}}"
+      content: "{{steps.stringify}}"
+
+output: "{{steps.write_output}}"

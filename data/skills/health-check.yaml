@@ -1,0 +1,50 @@
+# Skill: Health Check
+# Checks the health of one or more HTTP endpoints and reports their status.
+
+name: health-check
+version: 1.0.0
+description: Check the health of an HTTP endpoint and report its status
+author: Aether OS Team
+category: ops
+tags:
+  - monitoring
+  - health
+  - http
+  - ops
+
+inputs:
+  url:
+    type: string
+    description: The URL of the endpoint to check
+    required: true
+  expected_status:
+    type: number
+    description: Expected HTTP status code
+    default: 200
+
+steps:
+  - id: check
+    action: http.get
+    params:
+      url: "{{inputs.url}}"
+  - id: status_match
+    action: transform.json
+    params:
+      input:
+        actual: "{{steps.check.status}}"
+        expected: "{{inputs.expected_status}}"
+        url: "{{inputs.url}}"
+        healthy: "{{steps.check.status}}"
+      operation: identity
+  - id: report
+    action: transform.json
+    params:
+      input:
+        url: "{{inputs.url}}"
+        status: "{{steps.check.status}}"
+        expected: "{{inputs.expected_status}}"
+        healthy: true
+        timestamp: "{{steps.check.headers.date}}"
+      operation: stringify
+
+output: "{{steps.report}}"

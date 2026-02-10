@@ -1,0 +1,43 @@
+# Skill: Git Changelog
+# Generates a changelog from recent git commits in a repository directory.
+
+name: git-changelog
+version: 1.0.0
+description: Generate a formatted changelog from recent git commits
+author: Aether OS Team
+category: development
+tags:
+  - git
+  - changelog
+  - development
+  - release
+
+inputs:
+  repo_path:
+    type: string
+    description: Path to the git repository
+    required: true
+  count:
+    type: number
+    description: Number of recent commits to include
+    default: 20
+  format:
+    type: string
+    description: Output format (text, markdown)
+    default: markdown
+
+steps:
+  - id: git_log
+    action: shell.exec
+    params:
+      command: "cd {{inputs.repo_path}} && git log --oneline --no-decorate -n {{inputs.count}}"
+  - id: git_tags
+    action: shell.exec
+    params:
+      command: "cd {{inputs.repo_path}} && git tag --sort=-creatordate | head -5"
+  - id: format_changelog
+    action: llm.complete
+    params:
+      prompt: "Generate a {{inputs.format}} changelog from these git commits. Group them by type (Features, Fixes, Refactoring, Docs, Other). Include the latest tags for context.\n\nRecent commits:\n{{steps.git_log.stdout}}\n\nLatest tags:\n{{steps.git_tags.stdout}}"
+
+output: "{{steps.format_changelog.text}}"

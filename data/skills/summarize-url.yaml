@@ -1,0 +1,34 @@
+# Skill: Summarize URL
+# Fetches a web page and returns an LLM-generated summary.
+
+name: summarize-url
+version: 1.0.0
+description: Fetch a URL and return a concise summary of its content
+author: Aether OS Team
+category: research
+tags:
+  - web
+  - summarization
+  - research
+
+inputs:
+  url:
+    type: string
+    description: The URL to fetch and summarize
+    required: true
+  max_length:
+    type: number
+    description: Maximum summary length in words
+    default: 200
+
+steps:
+  - id: fetch
+    action: http.get
+    params:
+      url: "{{inputs.url}}"
+  - id: summarize
+    action: llm.complete
+    params:
+      prompt: "Summarize the following web page content in no more than {{inputs.max_length}} words. Be concise and capture the key points:\n\n{{steps.fetch.body}}"
+
+output: "{{steps.summarize.text}}"
