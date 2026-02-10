@@ -155,7 +155,7 @@ export function useKernel(wsUrl?: string) {
     });
 
     // Agent-specific events
-    // Helper: append log only if it's not a duplicate of the last entry
+    // Helper: append log only if it's not a duplicate of a recent entry of the same type
     const appendLog = (
       proc: AgentProcess,
       entry: {
@@ -164,8 +164,11 @@ export function useKernel(wsUrl?: string) {
         message: string;
       },
     ): AgentProcess => {
-      const last = proc.logs[proc.logs.length - 1];
-      if (last && last.type === entry.type && last.message === entry.message) return proc;
+      // Check the last few entries of the SAME type (handles interleaved duplicates)
+      for (let i = proc.logs.length - 1; i >= Math.max(0, proc.logs.length - 6); i--) {
+        const prev = proc.logs[i];
+        if (prev.type === entry.type && prev.message === entry.message) return proc;
+      }
       return { ...proc, logs: [...proc.logs, entry] };
     };
 
@@ -226,16 +229,12 @@ export function useKernel(wsUrl?: string) {
         processes: prev.processes.map((p) =>
           p.pid === data.pid
             ? {
-                ...p,
+                ...appendLog(p, {
+                  timestamp: Date.now(),
+                  type: 'action',
+                  message: `Created file: ${data.path}`,
+                }),
                 currentCode: data.content,
-                logs: [
-                  ...p.logs,
-                  {
-                    timestamp: Date.now(),
-                    type: 'action' as const,
-                    message: `Created file: ${data.path}`,
-                  },
-                ],
               }
             : p,
         ),

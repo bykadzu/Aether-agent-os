@@ -2,7 +2,7 @@
 
 Consolidated checklist of all outstanding work, derived from NEXT_STEPS.md, FEATURES.md, all roadmaps, and the research documents. Organized by urgency and version target.
 
-**Last updated:** 2026-02-10 (v0.4 complete — all remaining items shipped)
+**Last updated:** 2026-02-11 (v0.4 complete, v0.4.1 hotfix sprint — agent execution working on Windows)
 
 ---
 
@@ -161,6 +161,43 @@ Full details in [ROADMAP-v0.4.md](./ROADMAP-v0.4.md).
 - [x] **Python SDK** — `aether-os-sdk` Python package (sdk-python/), httpx-based sync+async clients, full namespace coverage mirroring TypeScript SDK, SSE event streaming, pytest test suite
 - [x] **Lightweight Skill Format** — SkillManager kernel subsystem, YAML-based declarative skills with step pipelines, 8 built-in actions (http.get/post, llm.complete, fs.read/write, shell.exec, transform.json/text), template interpolation, 5 bundled example skills, REST API routes, kernel commands
 - [x] **Remote Access (SSH + Tailscale)** — RemoteAccessManager kernel subsystem, SSH tunnel management (local/remote/dynamic), Tailscale VPN integration (status/up/down/devices/serve), authorized key management, auto-reconnect with exponential backoff, REST API routes, kernel commands
+
+---
+
+## v0.4.1 — Hotfix Sprint (2026-02-10/11)
+
+Critical fixes to get agents actually running on Windows. These were identified and fixed during the first real end-to-end test session.
+
+### Fixed
+
+- [x] **WebSocket frame corruption** — Two WSS instances on same httpServer caused RSV1 bit errors in ws v8. Fix: `noServer: true` + manual upgrade routing
+- [x] **Duplicate agent windows** — `process.spawned` emitted twice (ProcessManager + Kernel.handleCommand). Removed duplicate + PID dedup in useKernel
+- [x] **Agent stuck at "Booting"** — Error handler only logged, didn't set state. Now sets `failed` state on agent loop errors
+- [x] **PTY crash on Windows** — Hardcoded `/bin/bash`. Now detects platform: `cmd.exe` on win32, no `--login` flag
+- [x] **PTY directory error (code 267)** — Agent home dir didn't exist. Now creates `cwd` with `mkdirSync` before spawn
+- [x] **"fetch failed" from LLM** — Server didn't load `.env`. Added dotenv loading with ESM-compatible path resolution
+- [x] **"require is not defined"** — CJS `require()` in ESM context. Changed to top-level ES import for GeminiProvider
+- [x] **Gemini API 400 error** — `args` schema used `type: 'object'` with no properties. Changed to `type: 'string'` + JSON parse on return
+- [x] **JWT token invalid after restart** — Random signing secret each boot. Added persistent `AETHER_SECRET` in `.env`
+- [x] **401 REST API errors** — UI fetch calls missing auth headers. Added Bearer token to all protected endpoints (AgentDashboard, SettingsApp, AgentVM, kernelClient GPU endpoints)
+- [x] **Agent tries Linux commands on Windows** — System prompt hardcoded "Linux terminal with bash". Now platform-aware (Windows/macOS/Linux) with correct shell, commands, and package managers
+- [x] **ProcessManager POSIX paths** — `cwd` was changed to real Windows paths, breaking VirtualFS double-mapping. Reverted to virtual POSIX paths
+- [x] **`run_command` empty output** — PTY marker-based capture failed on Windows cmd.exe. Replaced with `child_process.exec()` for reliable stdout/stderr capture
+- [x] **`write_file` double-path bug** — `C:\temp\aether\C:\temp\aether\home\agent_1`. Fixed `resolveCwd` to normalize backslashes + handle Windows absolute paths
+- [x] **Empty tool args** — Gemini sometimes returns `run_command({})` or `write_file({})`. Added validation guards with helpful error messages
+- [x] **Duplicate log entries (4x)** — Interleaved events bypassed consecutive-only dedup. Improved `appendLog` to check last N entries of same type
+- [x] **Long-running command FAIL** — Graphical apps (Pygame) timed out and reported FAIL. Now returns partial success with stdout if process was killed
+
+### Known Issues (Still Open)
+
+- [ ] **Gemini empty args on first call** — LLM sometimes returns empty JSON args before figuring out the correct format. The guards help but the root cause is in the Gemini response schema
+- [ ] **Duplicate events at source** — Events still emit 2-3x through EventBus wildcard + server broadcast chain. Client-side dedup mitigates but a proper fix needs event IDs or server-side dedup
+- [ ] **ShortcutManager conflicts** — `Ctrl+1` through `Ctrl+9` keyboard shortcuts overwrite each other
+- [ ] **Agent commands run on host** — No sandboxing yet; `run_command` executes directly on the host OS. Should use Docker containers when available
+- [ ] **Playwright not installed** — BrowserManager disabled; agents can't browse web. Need `npx playwright install`
+- [ ] **Multiple WebSocket connections** — Browser sometimes opens 2+ connections (StrictMode, HMR). Should enforce single connection per session
+- [ ] **Context compaction** — Long-running agents hit LLM context limits. No compaction/summarization yet
+- [ ] **Agent home directory cleanup** — Spawned agent dirs under `C:\temp\aether\home\` not cleaned up on process exit
 
 ---
 

@@ -73,6 +73,12 @@ export function createToolSet(): ToolDefinition[] {
       name: 'read_file',
       description: 'Read the contents of a file',
       execute: async (args, ctx) => {
+        if (!args.path) {
+          return {
+            success: false,
+            output: 'Error: "path" argument is required (e.g. read_file({"path":"file.txt"}))',
+          };
+        }
         try {
           const filePath = resolveCwd(ctx.cwd, args.path);
           const result = await ctx.kernel.fs.readFile(filePath);
@@ -87,6 +93,13 @@ export function createToolSet(): ToolDefinition[] {
       name: 'write_file',
       description: 'Write content to a file (creates or overwrites)',
       execute: async (args, ctx) => {
+        if (!args.path || !args.content) {
+          return {
+            success: false,
+            output:
+              'Error: "path" and "content" arguments are required (e.g. write_file({"path":"file.txt","content":"hello"}))',
+          };
+        }
         try {
           const filePath = resolveCwd(ctx.cwd, args.path);
           await ctx.kernel.fs.writeFile(filePath, args.content);
@@ -247,9 +260,17 @@ export function createToolSet(): ToolDefinition[] {
           const output = (stdout + (stderr ? `\n${stderr}` : '')).trim();
           return { success: true, output: output || '(no output)' };
         } catch (err: any) {
-          // exec errors include stdout/stderr from failed commands
-          const output = err.stdout || err.stderr || err.message;
-          return { success: false, output: `Error: ${output}` };
+          // If process was killed due to timeout but produced stdout, treat as partial success
+          if (err.killed && err.stdout) {
+            return { success: true, output: `(process timed out after 30s)\n${err.stdout}`.trim() };
+          }
+          // If exit code is non-zero but there's stdout, include both
+          const stdout = (err.stdout || '').trim();
+          const stderr = (err.stderr || '').trim();
+          if (stdout) {
+            return { success: true, output: stdout + (stderr ? `\n(stderr: ${stderr})` : '') };
+          }
+          return { success: false, output: `Error: ${stderr || err.message}` };
         }
       },
     },
