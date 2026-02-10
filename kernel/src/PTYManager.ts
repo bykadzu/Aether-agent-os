@@ -15,6 +15,7 @@
  */
 
 import { spawn, ChildProcess } from 'node:child_process';
+import * as fs from 'node:fs';
 import * as pty from 'node-pty';
 import { EventBus } from './EventBus.js';
 import { ContainerManager } from './ContainerManager.js';
@@ -87,7 +88,8 @@ export class PTYManager {
     const id = `tty_${pid}_${Date.now()}`;
     const cols = options.cols || DEFAULT_TTY_COLS;
     const rows = options.rows || DEFAULT_TTY_ROWS;
-    const cwd = options.cwd || '/tmp';
+    const defaultCwd = process.platform === 'win32' ? process.env.TEMP || 'C:\\temp' : '/tmp';
+    let cwd = options.cwd || defaultCwd;
     const defaultShell =
       process.platform === 'win32' ? process.env.COMSPEC || 'cmd.exe' : '/bin/bash';
     const shell = options.shell || defaultShell;
@@ -100,6 +102,18 @@ export class PTYManager {
       });
       if (containerProc) {
         return this.setupContainerSession(id, pid, containerProc, cols, rows, cwd);
+      }
+    }
+
+    // Ensure cwd exists (create agent home dir if needed)
+    try {
+      fs.mkdirSync(cwd, { recursive: true });
+    } catch {
+      cwd = defaultCwd;
+      try {
+        fs.mkdirSync(cwd, { recursive: true });
+      } catch {
+        /* use as-is */
       }
     }
 
