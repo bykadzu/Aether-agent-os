@@ -201,20 +201,85 @@ Critical fixes to get agents actually running on Windows. These were identified 
 
 ---
 
+## v0.4.2 — Model & Polish (2026-02-11)
+
+- [x] **Updated LLM defaults to 2026 frontier models** — Gemini 3 Flash/Pro, GPT-5.2/5.3-Codex, Claude Opus 4.6 (older models still available as options)
+- [x] **Updated Settings model selector** — Cron job model dropdown now lists all 7 current models across providers
+- [x] **Updated .env.example** — Model name comments reflect current defaults
+
+---
+
 ## v0.5 — Production, Scale & Beyond
 
 Full details in [ROADMAP-v0.5.md](./ROADMAP-v0.5.md).
 
-- [ ] Deployment & packaging (Docker, Compose, Helm, Electron, cloud templates)
-- [ ] Database evolution (PostgreSQL migration, event sourcing, CQRS)
-- [ ] Scaling (stateless kernel, load balancer, auto-scaling, cost tracking)
-- [ ] Security hardening (TLS, MFA, capability-based permissions, prompt injection defense)
-- [ ] Observability (Prometheus, Grafana, OpenTelemetry, alerting)
-- [ ] Reliability (active-active clustering, zero-downtime deploys, circuit breakers)
-- [ ] Performance (code splitting, WebSocket batching, Redis caching, smart model routing)
-- [ ] Compliance (GDPR, AI governance, audit logging, bias detection)
-- [ ] Mobile (PWA, responsive UI, push notifications)
-- [ ] Accessibility (WCAG 2.1 AA, screen reader, keyboard nav, high contrast)
+### Deployment & Packaging
+- [ ] Production Dockerfile + multi-stage build
+- [ ] Docker Compose stack (kernel + UI + PostgreSQL + Redis)
+- [ ] Helm chart for Kubernetes deployment
+- [ ] Electron wrapper for desktop app
+- [ ] Cloud deployment templates (AWS, GCP, Azure)
+
+### Database & Persistence
+- [ ] PostgreSQL migration (replace SQLite for multi-instance)
+- [ ] Sharding strategy for large agent populations
+- [ ] Event sourcing / CQRS for audit trail
+- [ ] Consistent snapshots — capture process state + filesystem delta + memory + plans atomically (current SnapshotManager only tarballs the filesystem)
+
+### Resource Governance
+- [ ] Per-agent resource quotas (CPU, memory, GPU time, network egress) enforced by ProcessManager or dedicated ResourceQuota subsystem
+- [ ] LLM token budgets per agent — track and cap token usage per session/day
+- [ ] Cost tracking dashboard — aggregate LLM spend across providers per agent/user/org
+- [ ] Runaway agent detection — auto-kill agents exceeding resource limits
+
+### Scheduling & Concurrency
+- [ ] Priority queues / fair-share scheduling for multi-agent scenarios
+- [ ] Evaluate actor-model semantics for agent coordination patterns
+- [ ] EventBus throughput hardening for 50+ concurrent agents
+
+### Security Hardening
+- [ ] TLS everywhere (WebSocket + HTTP)
+- [ ] MFA / TOTP support for user auth
+- [ ] AppArmor/SELinux-style profiles for node-pty and Docker containers
+- [ ] Fine-grained RBAC expansion — per-tool, per-directory, per-LLM-provider permissions
+- [ ] Audit logging — every tool invocation logged to StateStore with caller, args, result hash
+- [ ] Secret management integration (HashiCorp Vault or native encrypted keyring)
+- [ ] Rate limiting and circuit breakers on external integrations (GitHub, Slack, S3, Discord)
+- [ ] Prompt injection defense — input sanitization on agent tool args
+- [ ] Capability-based permissions for agent tool access
+
+### Observability
+- [ ] Prometheus metrics exporter
+- [ ] Grafana dashboards (agent lifecycle, LLM latency, resource usage)
+- [ ] OpenTelemetry tracing for agent loops and tool executions
+- [ ] Alerting rules (agent failures, resource exhaustion, auth anomalies)
+
+### Performance
+- [ ] Redis caching layer for EventBus hot paths and frequent memory lookups (SQLite is bottleneck under concurrent memory writes)
+- [ ] WebSocket message batching to reduce frame overhead
+- [ ] Frontend code splitting and lazy loading
+- [ ] Smart model routing — use cheaper models for simple tasks, frontier for complex
+
+### Reliability
+- [ ] Active-active clustering (current hub-spoke is single hub)
+- [ ] Zero-downtime kernel deploys
+- [ ] Circuit breakers on LLM providers with automatic fallback
+
+### Ecosystem & Interoperability
+- [ ] Publish OpenAPI spec publicly for third-party integrations
+- [ ] Compatibility layer for LangChain tools schema
+- [ ] OpenAI function calling format adapter for external tool registries
+- [ ] Webhook retry with exponential backoff and dead letter queue
+
+### Compliance & Governance
+- [ ] GDPR data export/deletion for agent memory and user data
+- [ ] AI governance policies — agent action approval workflows
+- [ ] Bias detection in agent outputs
+
+### Mobile & Accessibility
+- [ ] PWA with responsive UI and push notifications
+- [ ] WCAG 2.1 AA compliance (screen reader, keyboard nav, high contrast)
+- [ ] Touch-friendly Mission Control for tablets
 
 ---
 
