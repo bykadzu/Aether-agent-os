@@ -9,7 +9,7 @@ Consolidated checklist of all outstanding work, derived from NEXT_STEPS.md, FEAT
 ## Quick Wins (pre-v0.2, low effort / high impact)
 
 - [x] **Pre-commit hooks** — husky + lint-staged configured (eslint --fix + prettier on staged .ts/.tsx)
-- [ ] **Screenshots in README** — Add screenshots/GIFs of the UI to make the project more approachable. Capture: Mission Control grid, AgentVM with live terminal + plan tree, BrowserApp screencast, theme toggle, Memory Inspector, multi-workspace overview. Highest-impact single task for contributor onboarding.
+- [ ] **Screenshots in README** — Add screenshots/GIFs of the UI to make the project more approachable. Capture: Mission Control grid, AgentVM with live terminal + plan tree, BrowserApp screencast, theme toggle, Memory Inspector, multi-workspace overview. Also add a "Current Status" badge/section at top (e.g., "v0.4.2 stable on Windows/macOS/Linux · v0.5 Phase 1 in progress") so visitors immediately understand maturity level. Highest-impact single task for contributor onboarding.
 - [x] **Kernel boot banner** — Prints all 12 subsystems with status, port, FS root, cluster role on startup
 - [x] **Agent log export** — Download button in AgentVM control bar (JSON + plain text formats)
 - [x] **Loading skeleton for Mission Control** — Animated pulse skeleton cards during initial load
@@ -192,8 +192,8 @@ Critical fixes to get agents actually running on Windows. These were identified 
 
 **High priority (reliability blockers):**
 - [ ] **Gemini empty args on first call** — LLM sometimes returns empty JSON args before figuring out the correct format. The guards help but the root cause is in the Gemini response schema. *Fix: add few-shot examples to system prompt showing correct tool call format; add retry-with-guidance loop in GeminiProvider when args parse as empty.*
-- [ ] **Duplicate events at source** — Events still emit 2-3x through EventBus wildcard + server broadcast chain. Client-side dedup mitigates but a proper fix needs event IDs or server-side dedup. *Fix: add UUIDv7 event IDs in EventBus.emit(); enforce dedup server-side before WebSocket broadcast.*
-- [ ] **Context compaction** — Long-running agents hit LLM context limits. No compaction/summarization yet. *Fix: implement periodic summarization (every N steps or on token threshold) using a cheap model (e.g., gemini-3-flash or gpt-4o-mini) to compress episodic history. Critical for extended autonomy.*
+- [ ] **Duplicate events at source** — Events still emit 2-3x through EventBus wildcard + server broadcast chain. Client-side dedup mitigates but a proper fix needs event IDs or server-side dedup. *Fix: add UUIDv7 event IDs in EventBus.emit(); enforce dedup server-side before WebSocket broadcast. Make event ID mandatory at emission point (not optional) to prevent regressions when new event sources are added.*
+- [ ] **Context compaction** — Long-running agents hit LLM context limits. No compaction/summarization yet. *Fix: implement periodic summarization (every N steps or on token threshold) using a cheap model (e.g., gemini-3-flash or gpt-4o-mini) to compress episodic history. Safeguard: if summarization fails (LLM error/timeout), preserve last N raw entries rather than dropping context. Critical for extended autonomy.*
 - [ ] **Agent commands run on host** — No sandboxing yet; `run_command` executes directly on the host OS. Should use Docker containers when available. *Fix: activate ContainerManager for run_command when Docker is available; fall back to child_process only when Docker is unavailable.*
 
 **Medium priority (usability):**
@@ -227,6 +227,8 @@ Full details in [ROADMAP-v0.5.md](./ROADMAP-v0.5.md).
 - Context compaction: periodic summarization for long-running agents (moved up from v0.4.1 known issues)
 
 *Validation milestone: Spawn 50 cron-scheduled agents → observe resource enforcement → kill 3 runaways → verify audit logs → restore from snapshot.*
+
+*Tooling: Create `scripts/validate-phase1.sh` — spawns 50 agents via CLI, applies quotas, triggers one runaway (infinite loop agent), asserts detection + termination, exports audit log slice, restores from latest snapshot and verifies agent resumes. Doubles as a smoke test and demo artifact.*
 
 **Phase 2 — Scale & Performance** (can parallelize with Phase 1)
 > Focus: median loop latency down 30-50%, support 100+ concurrent agents.
