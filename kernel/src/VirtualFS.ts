@@ -31,7 +31,10 @@ export class VirtualFS {
   private bus: EventBus;
   private watchers = new Map<string, ReturnType<typeof fsSync.watch>>();
   /** Tracks shared mounts: name → { realPath, ownerPid, mountedBy: Map<pid, mountPoint> } */
-  private sharedMounts = new Map<string, { realPath: string; ownerPid: PID; mountedBy: Map<PID, string> }>();
+  private sharedMounts = new Map<
+    string,
+    { realPath: string; ownerPid: PID; mountedBy: Map<PID, string> }
+  >();
 
   constructor(bus: EventBus, root?: string) {
     this.bus = bus;
@@ -93,13 +96,16 @@ export class VirtualFS {
     try {
       await fs.access(profilePath);
     } catch {
-      await fs.writeFile(profilePath, [
-        `# Aether OS Agent Profile`,
-        `export HOME="${path.posix.join('/home', uid)}"`,
-        `export USER="${uid}"`,
-        `export PS1="\\u@aether:\\w\\$ "`,
-        '',
-      ].join('\n'));
+      await fs.writeFile(
+        profilePath,
+        [
+          `# Aether OS Agent Profile`,
+          `export HOME="${path.posix.join('/home', uid)}"`,
+          `export USER="${uid}"`,
+          `export PS1="\\u@aether:\\w\\$ "`,
+          '',
+        ].join('\n'),
+      );
     }
 
     return `/home/${uid}`;
@@ -138,12 +144,19 @@ export class VirtualFS {
     const normalized = path.posix.normalize(virtualPath);
 
     // Everyone can access /tmp, /etc, /shared
-    if (normalized.startsWith('/tmp/') || normalized.startsWith('/etc/') || normalized.startsWith('/shared/')) {
+    if (
+      normalized.startsWith('/tmp/') ||
+      normalized.startsWith('/etc/') ||
+      normalized.startsWith('/shared/')
+    ) {
       return true;
     }
 
     // Users can access their own user dir
-    if (normalized.startsWith(`/tmp/aether/users/${userId}/`) || normalized === `/tmp/aether/users/${userId}`) {
+    if (
+      normalized.startsWith(`/tmp/aether/users/${userId}/`) ||
+      normalized === `/tmp/aether/users/${userId}`
+    ) {
       return true;
     }
 
@@ -244,7 +257,10 @@ export class VirtualFS {
    * Create a readable stream for a file (for streaming large binary files).
    * Supports optional start/end byte offsets for Range requests.
    */
-  createReadStream(virtualPath: string, options?: { start?: number; end?: number }): fsSync.ReadStream {
+  createReadStream(
+    virtualPath: string,
+    options?: { start?: number; end?: number },
+  ): fsSync.ReadStream {
     const realPath = this.resolvePath(virtualPath);
     return fsSync.createReadStream(realPath, options);
   }
@@ -532,7 +548,9 @@ export class VirtualFS {
       if (existingStat.isSymbolicLink()) {
         await fs.unlink(linkPath);
       }
-    } catch { /* doesn't exist yet */ }
+    } catch {
+      /* doesn't exist yet */
+    }
 
     // Create symlink
     await fs.symlink(sharedDir, linkPath);
@@ -562,7 +580,9 @@ export class VirtualFS {
       if (stat.isSymbolicLink()) {
         await fs.unlink(linkPath);
       }
-    } catch { /* link doesn't exist */ }
+    } catch {
+      /* link doesn't exist */
+    }
 
     mount.mountedBy.delete(pid);
   }
@@ -588,7 +608,9 @@ export class VirtualFS {
           }
         }
       }
-    } catch { /* shared dir may not exist yet */ }
+    } catch {
+      /* shared dir may not exist yet */
+    }
 
     for (const [name, mount] of this.sharedMounts) {
       result.push({
@@ -603,10 +625,51 @@ export class VirtualFS {
   }
 
   // -----------------------------------------------------------------------
+  // Cleanup
+  // -----------------------------------------------------------------------
+
+  /**
+   * Remove an agent's home directory.
+   * Safety: only removes paths under /home/ and validates the uid format.
+   */
+  async removeHome(uid: string): Promise<boolean> {
+    // Safety: validate uid format (agent_N)
+    if (!/^agent_\d+$/.test(uid)) {
+      console.warn(`[VirtualFS] Refusing to remove home for invalid uid: ${uid}`);
+      return false;
+    }
+
+    const homePath = path.join(this.root, 'home', uid);
+    const resolvedHome = path.resolve(homePath);
+    const resolvedRoot = path.resolve(this.root);
+
+    // Safety: ensure the path is within our root/home
+    if (!resolvedHome.startsWith(path.join(resolvedRoot, 'home'))) {
+      console.warn(`[VirtualFS] Refusing to remove path outside /home: ${resolvedHome}`);
+      return false;
+    }
+
+    try {
+      await fs.rm(homePath, { recursive: true, force: true });
+      this.bus.emit('fs.changed', { path: `/home/${uid}`, changeType: 'delete' });
+      return true;
+    } catch (err: any) {
+      if (err.code !== 'ENOENT') {
+        console.error(`[VirtualFS] Failed to remove home for ${uid}:`, err.message);
+      }
+      return false;
+    }
+  }
+
+  // -----------------------------------------------------------------------
   // Helpers
   // -----------------------------------------------------------------------
 
-  private getFileType(entry: { isDirectory(): boolean; isSymbolicLink(): boolean; isFile(): boolean }): FileType {
+  private getFileType(entry: {
+    isDirectory(): boolean;
+    isSymbolicLink(): boolean;
+    isFile(): boolean;
+  }): FileType {
     if (entry.isDirectory()) return 'directory';
     if (entry.isSymbolicLink()) return 'symlink';
     return 'file';

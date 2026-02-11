@@ -209,6 +209,25 @@ export class Kernel {
     await this.remoteAccess.init();
     console.log('[Kernel] Remote access manager initialized');
 
+    // Listen for process cleanup events to remove agent home directories
+    this.bus.on('process.cleanup', async (data: { pid: number; uid: string; cwd: string }) => {
+      // Skip cleanup if a snapshot exists for this PID
+      try {
+        const snapshots = await this.snapshots.listSnapshots(data.pid);
+        if (snapshots && snapshots.length > 0) {
+          console.log(`[Kernel] Skipping home cleanup for PID ${data.pid} (snapshot exists)`);
+          return;
+        }
+      } catch {
+        // Non-critical — proceed with cleanup
+      }
+
+      const removed = await this.fs.removeHome(data.uid);
+      if (removed) {
+        console.log(`[Kernel] Cleaned up home directory for ${data.uid} (PID ${data.pid})`);
+      }
+    });
+
     this.running = true;
     this.startTime = Date.now();
 

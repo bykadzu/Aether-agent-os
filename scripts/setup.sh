@@ -90,6 +90,11 @@ echo "  [4/4] Server packages..."
 cd server && npm install --silent 2>&1 | tail -1 && cd ..
 
 echo ""
+echo "  [5/5] Installing Playwright browsers..."
+cd kernel && npx playwright install chromium 2>/dev/null || echo -e "  ${YELLOW}Playwright browser install skipped (optional)${NC}"
+cd ..
+
+echo ""
 
 # --- Create .env if not exists ---
 if [ ! -f .env ]; then

@@ -187,6 +187,8 @@ export class ProcessManager {
     proc.info.state = 'dead';
     proc.messageQueue = []; // Clear IPC queue
     this.bus.emit('process.reaped', { pid });
+    // Emit cleanup event for home directory removal
+    this.bus.emit('process.cleanup', { pid, uid: proc.info.uid, cwd: proc.info.cwd });
   }
 
   /**

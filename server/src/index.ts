@@ -1241,8 +1241,30 @@ function sendEvent(ws: WebSocket, event: KernelEvent): void {
   }
 }
 
+const broadcastSeenIds = new Set<string>();
+const BROADCAST_DEDUP_MAX = 500;
+
+// Clear stale broadcast dedup entries every 60 seconds
+setInterval(() => {
+  broadcastSeenIds.clear();
+}, 60_000);
+
 function broadcast(event: KernelEvent): void {
-  const msg = JSON.stringify(event);
+  // Dedup: skip if we've already broadcast this event ID
+  const eventId = (event as any).__eventId;
+  if (eventId) {
+    if (broadcastSeenIds.has(eventId)) return;
+    broadcastSeenIds.add(eventId);
+    if (broadcastSeenIds.size > BROADCAST_DEDUP_MAX) {
+      const first = broadcastSeenIds.values().next().value;
+      if (first !== undefined) broadcastSeenIds.delete(first);
+    }
+  }
+
+  // Strip internal __eventId before sending to clients
+  const clean = { ...event };
+  delete (clean as any).__eventId;
+  const msg = JSON.stringify(clean);
   for (const [, client] of clients) {
     if (client.ws.readyState === WebSocket.OPEN) {
       client.ws.send(msg, { compress: false });

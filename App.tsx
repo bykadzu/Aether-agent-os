@@ -602,7 +602,7 @@ const App: React.FC = () => {
     for (let i = 0; i < 9; i++) {
       mgr.registerShortcut(
         `global:ws-jump-${i + 1}`,
-        `Ctrl+${i + 1}`,
+        `Alt+${i + 1}`,
         () => {
           if (i < totalWorkspaces) switchWorkspace(i);
         },

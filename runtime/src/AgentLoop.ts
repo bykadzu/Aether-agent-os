@@ -175,6 +175,14 @@ export async function runAgentLoop(
     }
 
     try {
+      // Context compaction: summarize old history when it grows too large
+      if (
+        state.history.length > 20 ||
+        (state.step > 0 && state.step % 15 === 0 && state.history.length > 12)
+      ) {
+        await compactHistory(state, provider, kernel, pid);
+      }
+
       // Phase 1: Think - ask LLM for next action
       kernel.processes.setState(pid, 'running', 'thinking');
 
@@ -406,6 +414,34 @@ async function getNextAction(
       // Extract tool call from response
       if (response.toolCalls && response.toolCalls.length > 0) {
         const tc = response.toolCalls[0];
+        // Retry once if args are empty and tool requires args
+        const noArgTools = [
+          'think',
+          'complete',
+          'list_agents',
+          'check_messages',
+          'list_workspaces',
+        ];
+        if (
+          tc.arguments &&
+          Object.keys(tc.arguments).length === 0 &&
+          !noArgTools.includes(tc.name)
+        ) {
+          console.warn(`[AgentLoop] Empty args for ${tc.name}, retrying with nudge`);
+          messages.push({
+            role: 'user',
+            content: `Your args were empty. Please provide the required arguments for ${tc.name}.`,
+          });
+          const retryResponse = await provider.chat(messages, llmTools);
+          if (retryResponse.toolCalls && retryResponse.toolCalls.length > 0) {
+            const rtc = retryResponse.toolCalls[0];
+            return {
+              reasoning: retryResponse.content || response.content || 'No reasoning provided',
+              tool: rtc.name,
+              args: rtc.arguments,
+            };
+          }
+        }
         return {
           reasoning: response.content || 'No reasoning provided',
           tool: tc.name,
@@ -648,6 +684,79 @@ function getHeuristicAction(state: AgentState, config: AgentConfig): LLMDecision
     tool: 'think',
     args: { thought: `Planning next action for step ${step}` },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Context Compaction
+// ---------------------------------------------------------------------------
+
+const COMPACTION_KEEP_RECENT = 10;
+const COMPACTION_FALLBACK_KEEP = 15;
+
+async function compactHistory(
+  state: AgentState,
+  provider: LLMProvider | null,
+  kernel: Kernel,
+  pid: PID,
+): Promise<void> {
+  if (state.history.length <= COMPACTION_KEEP_RECENT + 1) return;
+
+  // Keep system prompt (index 0) and last N entries
+  const systemPrompt = state.history[0];
+  const oldEntries = state.history.slice(1, state.history.length - COMPACTION_KEEP_RECENT);
+  const recentEntries = state.history.slice(state.history.length - COMPACTION_KEEP_RECENT);
+
+  if (oldEntries.length === 0) return;
+
+  // Try to summarize using the LLM provider
+  if (provider && provider.isAvailable()) {
+    try {
+      const summaryText = oldEntries
+        .map((e) => `[${e.role}] ${e.content.substring(0, 300)}`)
+        .join('\n');
+
+      const summaryMessages = [
+        {
+          role: 'system' as const,
+          content:
+            'Summarize the following agent work log into a concise paragraph. Focus on what was accomplished, key decisions made, and any important findings. Be brief.',
+        },
+        {
+          role: 'user' as const,
+          content: summaryText,
+        },
+      ];
+
+      const response = await provider.chat(summaryMessages, []);
+      const summary = response.content || 'Previous work completed (summary unavailable).';
+
+      state.history = [
+        systemPrompt,
+        {
+          role: 'tool',
+          content: `[Previous work summary, steps 1-${oldEntries.length}] ${summary}`,
+          timestamp: Date.now(),
+        },
+        ...recentEntries,
+      ];
+
+      console.log(
+        `[AgentLoop] Compacted history for PID ${pid}: ${oldEntries.length} entries → 1 summary`,
+      );
+      return;
+    } catch (err) {
+      console.warn(`[AgentLoop] History summarization failed for PID ${pid}, using fallback:`, err);
+    }
+  }
+
+  // Fallback: if summarization fails, keep more recent entries
+  state.history = [
+    systemPrompt,
+    ...state.history.slice(state.history.length - COMPACTION_FALLBACK_KEEP),
+  ];
+  console.log(
+    `[AgentLoop] Compacted history for PID ${pid} (fallback): kept last ${COMPACTION_FALLBACK_KEEP} entries`,
+  );
 }
 
 // ---------------------------------------------------------------------------

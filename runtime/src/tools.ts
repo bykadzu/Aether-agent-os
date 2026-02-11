@@ -235,10 +235,28 @@ export function createToolSet(): ToolDefinition[] {
         try {
           // Try container execution first via ContainerManager
           if (ctx.kernel.containers?.isDockerAvailable()) {
-            const containerInfo = ctx.kernel.containers.get(ctx.pid);
+            let containerInfo = ctx.kernel.containers.get(ctx.pid);
             if (containerInfo) {
               const output = await ctx.kernel.containers.exec(ctx.pid, args.command);
               return { success: true, output };
+            }
+
+            // Lazy container creation: auto-create sandbox if Docker is available
+            try {
+              const proc = ctx.kernel.processes.get(ctx.pid);
+              const hostPath = ctx.kernel.fs.getRealRoot() + (proc?.info.cwd || '/tmp');
+              await ctx.kernel.containers.create(ctx.pid, hostPath);
+              console.log(`[Tools] Created sandbox container for PID ${ctx.pid}`);
+              containerInfo = ctx.kernel.containers.get(ctx.pid);
+              if (containerInfo) {
+                const output = await ctx.kernel.containers.exec(ctx.pid, args.command);
+                return { success: true, output };
+              }
+            } catch (containerErr: any) {
+              // Container creation failed (image missing, Docker error, etc.) — fall through to child_process
+              console.warn(
+                `[Tools] Container creation failed for PID ${ctx.pid}: ${containerErr.message}`,
+              );
             }
           }
 

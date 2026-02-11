@@ -129,6 +129,13 @@ export class GeminiProvider implements LLMProvider {
         prompt += `User: ${msg.content}\n\n`;
       }
     }
+
+    // Few-shot examples to prevent empty args on first call
+    prompt += `Example responses:\n`;
+    prompt += `{"reasoning":"I need to check what files exist","tool":"list_files","args":{"path":"."}}\n`;
+    prompt += `{"reasoning":"I should write the code","tool":"write_file","args":{"path":"hello.py","content":"print('hello')"}}\n`;
+    prompt += `{"reasoning":"I need to run this script","tool":"run_command","args":{"command":"python hello.py"}}\n\n`;
+
     prompt += `What tool should you use next? Respond with JSON: { "reasoning": "...", "tool": "...", "args": {...} }`;
     return prompt;
   }

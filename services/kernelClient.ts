@@ -157,7 +157,8 @@ export class KernelClient {
    * Connect to the kernel server.
    */
   connect(): void {
-    if (this.ws?.readyState === WebSocket.OPEN) return;
+    if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING)
+      return;
 
     try {
       const wsUrl = this._token ? `${this.url}?token=${encodeURIComponent(this._token)}` : this.url;

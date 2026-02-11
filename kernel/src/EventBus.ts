@@ -9,11 +9,16 @@
  * dependencies. The kernel should be self-contained.
  */
 
+import { createEventId } from '@aether/shared';
+
 type Listener<T = any> = (data: T) => void;
+
+const DEDUP_SET_MAX = 1000;
 
 export class EventBus {
   private listeners = new Map<string, Set<Listener>>();
   private onceListeners = new Map<string, Set<Listener>>();
+  private seenEventIds = new Set<string>();
 
   /**
    * Subscribe to an event type.
@@ -48,6 +53,24 @@ export class EventBus {
    * Emit an event to all subscribers.
    */
   emit<T = any>(event: string, data: T): void {
+    // Stamp event ID for dedup if data is an object
+    if (data && typeof data === 'object' && event !== '*') {
+      const d = data as any;
+      if (!d.__eventId) {
+        d.__eventId = createEventId();
+      }
+      // Dedup: skip if we've already processed this event ID
+      if (this.seenEventIds.has(d.__eventId)) {
+        return;
+      }
+      this.seenEventIds.add(d.__eventId);
+      // Cap the dedup set size
+      if (this.seenEventIds.size > DEDUP_SET_MAX) {
+        const first = this.seenEventIds.values().next().value;
+        if (first !== undefined) this.seenEventIds.delete(first);
+      }
+    }
+
     // Regular listeners
     const listeners = this.listeners.get(event);
     if (listeners) {
