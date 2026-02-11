@@ -100,7 +100,6 @@ export const RATE_LIMIT_REQUESTS_UNAUTH_PER_MIN = 30; // Unauthenticated users
 export const RATE_LIMIT_AGENT_TOOLS_PER_MIN = 60; // Per-agent tool executions
 
 // Event deduplication
-let _eventCounter = 0;
 export function createEventId(): string {
-  return `evt_${Date.now()}_${_eventCounter++}`;
+  return `${Date.now()}-${crypto.randomUUID()}`;
 }

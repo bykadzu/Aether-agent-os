@@ -2,7 +2,7 @@
 
 Consolidated checklist of all outstanding work, derived from NEXT_STEPS.md, FEATURES.md, all roadmaps, and the research documents. Organized by urgency and version target.
 
-**Last updated:** 2026-02-11 (v0.4.3 complete — auth fix, boot screen fix, hybrid architecture documented)
+**Last updated:** 2026-02-11 (v0.5 Phase 2 complete — event dedup, atomic snapshots, priority scheduling, model routing, WS batching, lazy loading, Gemini fix)
 
 ---
 
@@ -191,8 +191,8 @@ Critical fixes to get agents actually running on Windows. These were identified 
 ### Known Issues (Still Open) — Prioritized
 
 **High priority (reliability blockers):**
-- [ ] **Gemini empty args on first call** — LLM sometimes returns empty JSON args before figuring out the correct format. The guards help but the root cause is in the Gemini response schema. *Fix: add few-shot examples to system prompt showing correct tool call format; add retry-with-guidance loop in GeminiProvider when args parse as empty.*
-- [ ] **Duplicate events at source** — Events still emit 2-3x through EventBus wildcard + server broadcast chain. Client-side dedup mitigates but a proper fix needs event IDs or server-side dedup. *Fix: add UUIDv7 event IDs in EventBus.emit(); enforce dedup server-side before WebSocket broadcast. Make event ID mandatory at emission point (not optional) to prevent regressions when new event sources are added.*
+- [x] **Gemini empty args on first call** ✅ Added few-shot tool call examples to system prompt in AgentLoop.ts + retry-with-guidance in Gemini provider when args parse as empty
+- [x] **Duplicate events at source** ✅ Per-event-type dedup with timestamp-prefixed UUIDs in EventBus, mandatory __eventId on all events, server-side dedup before WebSocket broadcast, removed client-side workaround
 - [x] **Context compaction** ✅ Enhanced AgentLoop compaction with configurable thresholds (step interval, token threshold), cheap model resolution (gemini-2.5-flash/gpt-4o-mini), token estimation (chars/4), `agent.contextCompacted` events, fallback preservation. 19 tests.
 - [x] **Agent commands run on host** ✅ `run_command` now routes through `ContainerManager.exec()` when Docker container exists for the agent; falls back to child_process when Docker is unavailable. Lazy container creation supported.
 
@@ -281,19 +281,19 @@ Full details in [ROADMAP-v0.5.md](./ROADMAP-v0.5.md).
 - [x] Resource governance: quotas, token budgets, runaway detection, basic cost tracking ✅ ResourceGovernor subsystem (30 tests)
 - [x] Security basics: audit logging schema + append, rate limiting middleware, prompt injection guards ✅ AuditLogger (34 tests) + rate limiter (8 tests) + guards (24 tests)
 - [ ] Database: PostgreSQL migration (core tables: agents, memory, events, audits) with SQLite read fallback during transition — **deferred**
-- [ ] Reliable snapshots: atomic capture (state + fs delta + memory dump)
+- [x] Reliable snapshots: atomic capture (state + fs delta + memory dump) ✅ SnapshotManager captures process state, memories, plan state, resource usage, fs tarball with SHA-256 integrity hash; manifest.json + restore rebuilds full agent state
 - [x] Context compaction: periodic summarization for long-running agents ✅ Enhanced AgentLoop compaction (19 tests)
 
 *Validation milestone: Spawn 50 cron-scheduled agents → observe resource enforcement → kill 3 runaways → verify audit logs → restore from snapshot.*
 
 *Tooling: Create `scripts/validate-phase1.sh` — spawns 50 agents via CLI, applies quotas, triggers one runaway (infinite loop agent), asserts detection + termination, exports audit log slice, restores from latest snapshot and verifies agent resumes. Doubles as a smoke test and demo artifact.*
 
-**Phase 2 — Scale & Performance** (can parallelize with Phase 1)
+**Phase 2 — Scale & Performance** (can parallelize with Phase 1) — **COMPLETE** (except Redis, deferred)
 > Focus: median loop latency down 30-50%, support 100+ concurrent agents.
-- Redis for caching (EventBus, memory hot paths)
-- Smart model routing (rule-based: task length/complexity → model family)
-- Priority/fair-share scheduling in ProcessManager
-- WebSocket batching + frontend lazy loading
+- [ ] Redis for caching (EventBus, memory hot paths) — **deferred** (keeping SQLite + in-memory)
+- [x] Smart model routing (rule-based: task length/complexity → model family) ✅ ModelRouter subsystem with configurable rules (flash/standard/frontier), integrated into AgentLoop provider resolution
+- [x] Priority/fair-share scheduling in ProcessManager ✅ Priority 1-5, wait queue with max concurrent limit, process.setPriority/getQueue commands, auto-dequeue on process exit
+- [x] WebSocket batching + frontend lazy loading ✅ 50ms event batching with flush-on-threshold (20 events), client-side batched frame parsing, React.lazy() for heavy apps (Browser, Code, Spreadsheet, Canvas, Writer), Vite manual chunks
 
 *Validation milestone: 100 concurrent agents with <2s median loop latency, no SQLite lock contention.*
 
@@ -329,7 +329,7 @@ Full details in [ROADMAP-v0.5.md](./ROADMAP-v0.5.md).
 - [ ] PostgreSQL migration (replace SQLite for multi-instance)
 - [ ] Sharding strategy for large agent populations
 - [ ] Event sourcing / CQRS for audit trail
-- [ ] Consistent snapshots — capture process state + filesystem delta + memory + plans atomically (current SnapshotManager only tarballs the filesystem)
+- [x] Consistent snapshots — capture process state + filesystem delta + memory + plans atomically ✅ SnapshotManager atomic capture with manifest.json (process state, memories, plans, resource usage, fs hash)
 
 ### Resource Governance
 - [x] Per-agent resource quotas (CPU, memory, GPU time, network egress) enforced by ProcessManager or dedicated ResourceQuota subsystem ✅ ResourceGovernor subsystem with per-agent quotas (tokens/session, tokens/day, steps, wall-clock)
@@ -338,9 +338,9 @@ Full details in [ROADMAP-v0.5.md](./ROADMAP-v0.5.md).
 - [x] Runaway agent detection — auto-kill agents exceeding resource limits ✅ ResourceGovernor.isRunaway() + resource.exceeded event + auto-kill
 
 ### Scheduling & Concurrency
-- [ ] Priority queues / fair-share scheduling for multi-agent scenarios
+- [x] Priority queues / fair-share scheduling for multi-agent scenarios ✅ ProcessManager priority 1-5, wait queue, max concurrent agents, auto-dequeue on exit
 - [ ] Evaluate actor-model semantics for agent coordination patterns
-- [ ] EventBus throughput hardening for 50+ concurrent agents
+- [x] EventBus throughput hardening for 50+ concurrent agents ✅ Per-event-type dedup (500 IDs per type), mandatory __eventId, WebSocket batching reduces frame overhead
 
 ### Security Hardening
 - [ ] TLS everywhere (WebSocket + HTTP)
@@ -361,9 +361,9 @@ Full details in [ROADMAP-v0.5.md](./ROADMAP-v0.5.md).
 
 ### Performance
 - [ ] Redis caching layer for EventBus hot paths and frequent memory lookups (SQLite is bottleneck under concurrent memory writes)
-- [ ] WebSocket message batching to reduce frame overhead
-- [ ] Frontend code splitting and lazy loading
-- [ ] Smart model routing — use cheaper models for simple tasks, frontier for complex
+- [x] WebSocket message batching to reduce frame overhead ✅ 50ms batching with 20-event threshold, backward-compatible JSON array frames
+- [x] Frontend code splitting and lazy loading ✅ React.lazy() for Browser, Code, Spreadsheet, Canvas, Writer apps; Vite manual chunks for xterm + vendor
+- [x] Smart model routing — use cheaper models for simple tasks, frontier for complex ✅ ModelRouter subsystem with flash/standard/frontier families, rule-based routing by tools + step count
 
 ### Reliability
 - [ ] Active-active clustering (current hub-spoke is single hub)
@@ -434,6 +434,7 @@ npx vitest run --exclude "**/raw-file-endpoint*" --exclude "**/kernel-integratio
 ### Known Pre-existing Failures
 
 - `VirtualFS.test.ts` — 2 symlink tests (`mountShared creates symlink`, `unmountShared removes symlink`) fail on Windows due to lack of symlink permissions. These pass on Linux/macOS/CI.
+- `RemoteAccessManager.test.ts` — 43 tests fail due to constructor initialization issue (`Cannot read properties of undefined (reading 'shutdown')`). Pre-existing; unrelated to Phase 2 changes.
 
 ---
 

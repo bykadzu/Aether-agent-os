@@ -54,17 +54,192 @@ describe('ProcessManager', () => {
     });
 
     it('rejects when MAX_PROCESSES (64) reached', () => {
-      // Fill up the process table with non-dead processes
+      // Use a PM with high maxConcurrent to actually fill the process table
+      const largePm = new ProcessManager(bus, 100);
       for (let i = 0; i < 64; i++) {
-        const proc = pm.spawn(testConfig);
-        pm.setState(proc.info.pid, 'running');
+        const proc = largePm.spawn(testConfig);
+        largePm.setState(proc.info.pid, 'running');
       }
-      expect(() => pm.spawn(testConfig)).toThrow('Process table full');
+      expect(() => largePm.spawn(testConfig)).toThrow('Process table full');
     });
 
     it('defaults ownerUid to root when not provided', () => {
       const proc = pm.spawn(testConfig);
       expect(proc.info.ownerUid).toBe('root');
+    });
+  });
+
+  describe('priority field', () => {
+    it('defaults priority to 3', () => {
+      const proc = pm.spawn(testConfig);
+      expect(proc.info.priority).toBe(3);
+    });
+
+    it('respects explicit priority in config', () => {
+      const proc = pm.spawn({ ...testConfig, priority: 1 });
+      expect(proc.info.priority).toBe(1);
+    });
+
+    it('clamps priority to 1-5 range', () => {
+      const low = pm.spawn({ ...testConfig, priority: 0 });
+      expect(low.info.priority).toBe(1);
+
+      const high = pm.spawn({ ...testConfig, priority: 10 });
+      expect(high.info.priority).toBe(5);
+    });
+  });
+
+  describe('setPriority()', () => {
+    it('updates process priority', () => {
+      const proc = pm.spawn(testConfig);
+      pm.setState(proc.info.pid, 'running');
+
+      const result = pm.setPriority(proc.info.pid, 1);
+      expect(result).toBe(true);
+      expect(proc.info.priority).toBe(1);
+    });
+
+    it('emits process.priorityChanged event', () => {
+      const handler = vi.fn();
+      bus.on('process.priorityChanged', handler);
+      const proc = pm.spawn(testConfig);
+
+      pm.setPriority(proc.info.pid, 5);
+      expect(handler).toHaveBeenCalledWith(
+        expect.objectContaining({
+          pid: proc.info.pid,
+          priority: 5,
+          previousPriority: 3,
+        }),
+      );
+    });
+
+    it('throws for invalid priority values', () => {
+      const proc = pm.spawn(testConfig);
+      expect(() => pm.setPriority(proc.info.pid, 0)).toThrow(
+        'Priority must be an integer between 1 and 5',
+      );
+      expect(() => pm.setPriority(proc.info.pid, 6)).toThrow(
+        'Priority must be an integer between 1 and 5',
+      );
+      expect(() => pm.setPriority(proc.info.pid, 2.5)).toThrow(
+        'Priority must be an integer between 1 and 5',
+      );
+    });
+
+    it('returns false for dead processes', () => {
+      const proc = pm.spawn(testConfig);
+      pm.reap(proc.info.pid);
+      expect(pm.setPriority(proc.info.pid, 2)).toBe(false);
+    });
+  });
+
+  describe('queue overflow and dequeue', () => {
+    it('queues spawn when maxConcurrent reached', () => {
+      const smallPm = new ProcessManager(bus, 2);
+      smallPm.spawn(testConfig);
+      smallPm.spawn(testConfig);
+
+      // Third should throw (queued)
+      expect(() => smallPm.spawn(testConfig)).toThrow('Process queued');
+    });
+
+    it('dequeues on process exit', () => {
+      const smallPm = new ProcessManager(bus, 2);
+      const p1 = smallPm.spawn(testConfig);
+      smallPm.spawn(testConfig);
+
+      // Attempt to queue a third
+      const dequeuedHandler = vi.fn();
+      bus.on('process.dequeued', dequeuedHandler);
+
+      try {
+        smallPm.spawn({ ...testConfig, priority: 1 });
+      } catch {
+        // Expected: process queued
+      }
+
+      expect(smallPm.getQueue()).toHaveLength(1);
+
+      // Kill p1 to free a slot — reap transitions to dead and triggers dequeue
+      smallPm.reap(p1.info.pid);
+
+      expect(smallPm.getQueue()).toHaveLength(0);
+      expect(dequeuedHandler).toHaveBeenCalledOnce();
+    });
+
+    it('dequeues highest priority first', () => {
+      const smallPm = new ProcessManager(bus, 1);
+      smallPm.spawn(testConfig);
+
+      // Queue two with different priorities
+      try {
+        smallPm.spawn({ ...testConfig, priority: 5 });
+      } catch {
+        /* queued */
+      }
+      try {
+        smallPm.spawn({ ...testConfig, priority: 1 });
+      } catch {
+        /* queued */
+      }
+
+      const queue = smallPm.getQueue();
+      expect(queue).toHaveLength(2);
+      // Priority 1 should be first
+      expect(queue[0].priority).toBe(1);
+      expect(queue[1].priority).toBe(5);
+    });
+  });
+
+  describe('getQueue()', () => {
+    it('returns empty array when no queued requests', () => {
+      expect(pm.getQueue()).toEqual([]);
+    });
+
+    it('returns sorted queue', () => {
+      const smallPm = new ProcessManager(bus, 1);
+      smallPm.spawn(testConfig);
+
+      try {
+        smallPm.spawn({ ...testConfig, priority: 3 });
+      } catch {
+        /* queued */
+      }
+      try {
+        smallPm.spawn({ ...testConfig, priority: 1 });
+      } catch {
+        /* queued */
+      }
+      try {
+        smallPm.spawn({ ...testConfig, priority: 2 });
+      } catch {
+        /* queued */
+      }
+
+      const queue = smallPm.getQueue();
+      expect(queue).toHaveLength(3);
+      expect(queue[0].priority).toBe(1);
+      expect(queue[1].priority).toBe(2);
+      expect(queue[2].priority).toBe(3);
+    });
+  });
+
+  describe('getByPriority()', () => {
+    it('filters active processes by priority', () => {
+      pm.spawn({ ...testConfig, priority: 1 });
+      pm.spawn({ ...testConfig, priority: 2 });
+      pm.spawn({ ...testConfig, priority: 1 });
+      pm.spawn({ ...testConfig, priority: 3 });
+
+      const p1s = pm.getByPriority(1);
+      expect(p1s).toHaveLength(2);
+
+      const p2s = pm.getByPriority(2);
+      expect(p2s).toHaveLength(1);
+
+      const p5s = pm.getByPriority(5);
+      expect(p5s).toHaveLength(0);
     });
   });
 
@@ -188,7 +363,7 @@ describe('ProcessManager', () => {
       const proc = pm.spawn(testConfig);
       pm.reap(proc.info.pid);
 
-      expect(handler).toHaveBeenCalledWith({ pid: proc.info.pid });
+      expect(handler).toHaveBeenCalledWith(expect.objectContaining({ pid: proc.info.pid }));
     });
   });
 

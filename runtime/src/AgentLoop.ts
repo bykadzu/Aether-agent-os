@@ -86,8 +86,30 @@ export async function runAgentLoop(
   const tools = kernel.plugins ? getToolsForAgent(pid, kernel.plugins) : createToolSet();
   const toolMap = new Map(tools.map((t) => [t.name, t]));
 
+  // Smart model routing: if no explicit model in config, ask the ModelRouter
+  let effectiveConfig = config;
+  if (!config.model && kernel.modelRouter) {
+    const toolNames = tools.map((t) => t.name);
+    const recommended = kernel.modelRouter.route({
+      goal: config.goal,
+      tools: toolNames,
+      stepCount: 0,
+      maxSteps: config.maxSteps || DEFAULT_AGENT_MAX_STEPS,
+    });
+    // Map model family to a concrete provider:model hint
+    const familyModelMap: Record<string, string> = {
+      flash: 'gemini:gemini-2.5-flash',
+      standard: 'gemini:gemini-2.5-pro',
+      frontier: 'anthropic:claude-sonnet-4-5-20250929',
+    };
+    const modelHint = familyModelMap[recommended];
+    if (modelHint) {
+      effectiveConfig = { ...config, model: modelHint };
+    }
+  }
+
   // Resolve LLM provider from config.model string or environment
-  const provider = resolveProvider(config, options.apiKey);
+  const provider = resolveProvider(effectiveConfig, options.apiKey);
 
   const state: AgentState = {
     step: 0,
@@ -696,6 +718,13 @@ function buildSystemPrompt(
     `5. Be efficient - don't repeat actions unnecessarily`,
     `6. Use 'remember' to save important discoveries for future sessions`,
     `7. Use 'recall' to retrieve relevant knowledge from past sessions`,
+    ``,
+    `## Tool Call Format`,
+    `When using tools, always provide the required arguments. Never call a tool with empty arguments {}.`,
+    `Examples:`,
+    `- list_files: { "path": "/home/agent/project" }`,
+    `- write_file: { "path": "/home/agent/output.txt", "content": "Hello world" }`,
+    `- run_command: { "command": "python main.py" }`,
   ];
 
   // Inject agent profile if available (v0.3 Wave 4)

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback, Suspense } from 'react';
 import { AppID, WindowState, Agent, AgentStatus, RuntimeMode, phaseToStatus } from './types';
 import { Window } from './components/os/Window';
 import { Dock } from './components/os/Dock';
@@ -9,22 +9,36 @@ import { ChatApp } from './components/apps/ChatApp';
 import { FileExplorer } from './components/apps/FileExplorer';
 import { SettingsApp } from './components/apps/SettingsApp';
 import { TerminalApp } from './components/apps/TerminalApp';
-import { BrowserApp } from './components/apps/BrowserApp';
 import { CalculatorApp } from './components/apps/CalculatorApp';
-import { CodeEditorApp } from './components/apps/CodeEditorApp';
 import { VideoPlayerApp } from './components/apps/VideoPlayerApp';
 import { AgentDashboard } from './components/apps/AgentDashboard';
-import { AgentVM } from './components/apps/AgentVM';
-import { SheetsApp } from './components/apps/SheetsApp';
-import { CanvasApp } from './components/apps/CanvasApp';
 import { WriterApp } from './components/apps/WriterApp';
 import { SystemMonitorApp } from './components/apps/SystemMonitorApp';
 import { MusicApp } from './components/apps/MusicApp';
-import { DocumentsApp } from './components/apps/DocumentsApp';
 import { MemoryInspectorApp } from './components/apps/MemoryInspectorApp';
 import { AppStoreApp } from './components/apps/AppStoreApp';
 import { PluginMarketplaceApp } from './components/apps/PluginMarketplaceApp';
 import { IntegrationsApp } from './components/apps/IntegrationsApp';
+
+// Lazy-loaded heavy components (Monaco editor, browser, canvas, spreadsheet, PDF viewer, Agent VM)
+const CodeEditorApp = React.lazy(() =>
+  import('./components/apps/CodeEditorApp').then((m) => ({ default: m.CodeEditorApp })),
+);
+const BrowserApp = React.lazy(() =>
+  import('./components/apps/BrowserApp').then((m) => ({ default: m.BrowserApp })),
+);
+const SheetsApp = React.lazy(() =>
+  import('./components/apps/SheetsApp').then((m) => ({ default: m.SheetsApp })),
+);
+const CanvasApp = React.lazy(() =>
+  import('./components/apps/CanvasApp').then((m) => ({ default: m.CanvasApp })),
+);
+const DocumentsApp = React.lazy(() =>
+  import('./components/apps/DocumentsApp').then((m) => ({ default: m.DocumentsApp })),
+);
+const AgentVM = React.lazy(() =>
+  import('./components/apps/AgentVM').then((m) => ({ default: m.AgentVM })),
+);
 import { DesktopWidgets } from './components/os/DesktopWidgets';
 import { ContextMenu } from './components/os/ContextMenu';
 import { LoginScreen } from './components/os/LoginScreen';
@@ -50,6 +64,13 @@ import { generateText, GeminiModel, getAgentDecision } from './services/geminiSe
 import { useKernel, AgentProcess } from './services/useKernel';
 import { getKernelClient, UserInfo } from './services/kernelClient';
 import { getShortcutManager } from './services/shortcutManager';
+
+// Suspense fallback for lazy-loaded app components
+const LazyFallback = () => (
+  <div className="flex items-center justify-center w-full h-full bg-[#1a1d26]">
+    <div className="w-6 h-6 border-2 border-white/20 border-t-white/70 rounded-full animate-spin" />
+  </div>
+);
 
 // Dock app ordering — also used for Cmd+1..9 mapping
 const DOCK_APPS: AppID[] = [
@@ -1164,19 +1185,25 @@ const App: React.FC = () => {
       case AppID.TERMINAL:
         return <TerminalApp files={files} setFiles={setFiles} />;
       case AppID.BROWSER:
-        return <BrowserApp />;
+        return (
+          <Suspense fallback={<LazyFallback />}>
+            <BrowserApp />
+          </Suspense>
+        );
       case AppID.CALCULATOR:
         return <CalculatorApp />;
       case AppID.CODE:
         return (
-          <CodeEditorApp
-            initialContent={windowState.initialData?.content}
-            fileName={windowState.initialData?.fileName}
-            onSave={(content) =>
-              windowState.initialData?.fileId &&
-              handleSaveFile(windowState.initialData.fileId, content)
-            }
-          />
+          <Suspense fallback={<LazyFallback />}>
+            <CodeEditorApp
+              initialContent={windowState.initialData?.content}
+              fileName={windowState.initialData?.fileName}
+              onSave={(content) =>
+                windowState.initialData?.fileId &&
+                handleSaveFile(windowState.initialData.fileId, content)
+              }
+            />
+          </Suspense>
         );
       case AppID.VIDEO:
         return (
@@ -1195,9 +1222,17 @@ const App: React.FC = () => {
           />
         );
       case AppID.SHEETS:
-        return <SheetsApp />;
+        return (
+          <Suspense fallback={<LazyFallback />}>
+            <SheetsApp />
+          </Suspense>
+        );
       case AppID.CANVAS:
-        return <CanvasApp />;
+        return (
+          <Suspense fallback={<LazyFallback />}>
+            <CanvasApp />
+          </Suspense>
+        );
       case AppID.WRITER:
         return <WriterApp />;
       case AppID.SYSTEM_MONITOR:
@@ -1205,7 +1240,11 @@ const App: React.FC = () => {
       case AppID.MUSIC:
         return <MusicApp />;
       case AppID.DOCUMENTS:
-        return <DocumentsApp initialFile={windowState.initialData?.filePath} />;
+        return (
+          <Suspense fallback={<LazyFallback />}>
+            <DocumentsApp initialFile={windowState.initialData?.filePath} />
+          </Suspense>
+        );
       case AppID.MEMORY_INSPECTOR:
         return <MemoryInspectorApp />;
       case AppID.APP_STORE:
@@ -1214,18 +1253,21 @@ const App: React.FC = () => {
         return <PluginMarketplaceApp />;
       case AppID.INTEGRATIONS:
         return <IntegrationsApp />;
-      case AppID.VM:
+      case AppID.VM: {
         const agent = agents.find((a) => a.id === windowState.initialData?.agentId);
         if (!agent) return <div className="p-4 text-white">Agent not found or terminated.</div>;
         return (
-          <AgentVM
-            agent={agent}
-            onApprove={approveAgent}
-            onReject={rejectAgent}
-            onStop={stopAgent}
-            onSyncGithub={syncGithub}
-          />
+          <Suspense fallback={<LazyFallback />}>
+            <AgentVM
+              agent={agent}
+              onApprove={approveAgent}
+              onReject={rejectAgent}
+              onStop={stopAgent}
+              onSyncGithub={syncGithub}
+            />
+          </Suspense>
         );
+      }
       default:
         return null;
     }

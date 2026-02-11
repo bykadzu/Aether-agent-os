@@ -1106,6 +1106,71 @@ interface AuthenticatedClient {
   user: UserInfo | null;
 }
 
+// ---------------------------------------------------------------------------
+// WebSocket Event Batching
+// ---------------------------------------------------------------------------
+
+const BATCH_FLUSH_INTERVAL_MS = 50;
+const BATCH_MAX_SIZE = 20;
+
+interface EventBuffer {
+  events: KernelEvent[];
+  flushTimer: ReturnType<typeof setInterval>;
+}
+
+const eventBuffers = new Map<WebSocket, EventBuffer>();
+
+/** Send a single event immediately (bypass batching). */
+function sendEventImmediate(ws: WebSocket, event: KernelEvent): void {
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(event), { compress: false });
+  }
+}
+
+/** Add an event to a connection's buffer, flushing if full. */
+function bufferEvent(ws: WebSocket, event: KernelEvent): void {
+  const buf = eventBuffers.get(ws);
+  if (!buf) {
+    // No buffer (disconnected or not initialized) — send directly
+    sendEventImmediate(ws, event);
+    return;
+  }
+  buf.events.push(event);
+  if (buf.events.length >= BATCH_MAX_SIZE) {
+    flushBuffer(ws, buf);
+  }
+}
+
+/** Flush all buffered events for a connection as a single JSON array frame. */
+function flushBuffer(ws: WebSocket, buf: EventBuffer): void {
+  if (buf.events.length === 0) return;
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(buf.events), { compress: false });
+  }
+  buf.events = [];
+}
+
+/** Initialize the event buffer for a new connection. */
+function initBuffer(ws: WebSocket): void {
+  const buf: EventBuffer = {
+    events: [],
+    flushTimer: setInterval(() => {
+      const b = eventBuffers.get(ws);
+      if (b) flushBuffer(ws, b);
+    }, BATCH_FLUSH_INTERVAL_MS),
+  };
+  eventBuffers.set(ws, buf);
+}
+
+/** Clean up the event buffer when a connection closes. */
+function destroyBuffer(ws: WebSocket): void {
+  const buf = eventBuffers.get(ws);
+  if (buf) {
+    clearInterval(buf.flushTimer);
+    eventBuffers.delete(ws);
+  }
+}
+
 const clients = new Map<WebSocket, AuthenticatedClient>();
 
 wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
@@ -1119,26 +1184,27 @@ wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
   }
 
   clients.set(ws, { ws, user });
+  initBuffer(ws);
   console.log(
     `[Server] Client connected (${clients.size} total)${user ? ` as ${user.username}` : ' (unauthenticated)'}`,
   );
 
-  // Send kernel ready event
-  sendEvent(ws, {
+  // Send kernel ready event (immediate — initial handshake)
+  sendEventImmediate(ws, {
     type: 'kernel.ready',
     version: AETHER_VERSION,
     uptime: kernel.getUptime(),
-  });
+  } as KernelEvent);
 
-  // Send current process list (filtered by user)
+  // Send current process list (filtered by user) — immediate for initial state
   const isAdmin = !user || user.role === 'admin';
   const processes = kernel.processes
     .getActiveByOwner(user?.id, isAdmin)
     .map((p) => ({ ...p.info }));
-  sendEvent(ws, {
+  sendEventImmediate(ws, {
     type: 'process.list',
     processes,
-  });
+  } as KernelEvent);
 
   // Handle incoming commands
   ws.on('message', async (raw: Buffer) => {
@@ -1146,11 +1212,11 @@ wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
     try {
       cmd = JSON.parse(raw.toString());
     } catch {
-      sendEvent(ws, {
+      sendEventImmediate(ws, {
         type: 'response.error',
         id: 'parse_error',
         error: 'Invalid JSON',
-      });
+      } as KernelEvent);
       return;
     }
 
@@ -1164,18 +1230,24 @@ wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
 
     // For non-auth commands, require authentication
     if (!isAuthCmd && !currentUser) {
-      sendEvent(ws, {
+      sendEventImmediate(ws, {
         type: 'response.error',
         id: (cmd as any).id || 'auth_required',
         error: 'Authentication required',
-      });
+      } as KernelEvent);
       return;
     }
 
     // Process the command through the kernel
+    // Response events (response.ok / response.error) are sent immediately for
+    // low-latency command correlation; other events are batched.
     const events = await kernel.handleCommand(cmd, currentUser || undefined);
     for (const event of events) {
-      sendEvent(ws, event);
+      if (event.type === 'response.ok' || event.type === 'response.error') {
+        sendEventImmediate(ws, event);
+      } else {
+        bufferEvent(ws, event);
+      }
     }
 
     // If auth.login or auth.register succeeded, update the client's user
@@ -1206,6 +1278,7 @@ wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
   });
 
   ws.on('close', (code, reason) => {
+    destroyBuffer(ws);
     clients.delete(ws);
     console.log(
       `[Server] Client disconnected (${clients.size} total) code=${code} reason=${reason?.toString() || ''}`,
@@ -1214,6 +1287,7 @@ wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
 
   ws.on('error', (err) => {
     console.error('[Server] WebSocket error:', err.message);
+    destroyBuffer(ws);
     clients.delete(ws);
   });
 });
@@ -1368,12 +1442,6 @@ for (const eventType of BROADCAST_EVENTS) {
   });
 }
 
-function sendEvent(ws: WebSocket, event: KernelEvent): void {
-  if (ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(event), { compress: false });
-  }
-}
-
 const broadcastSeenIds = new Set<string>();
 const BROADCAST_DEDUP_MAX = 500;
 
@@ -1395,13 +1463,11 @@ function broadcast(event: KernelEvent): void {
   }
 
   // Strip internal __eventId before sending to clients
-  const clean = { ...event };
+  const clean = { ...event } as KernelEvent;
   delete (clean as any).__eventId;
-  const msg = JSON.stringify(clean);
+
   for (const [, client] of clients) {
-    if (client.ws.readyState === WebSocket.OPEN) {
-      client.ws.send(msg, { compress: false });
-    }
+    bufferEvent(client.ws, clean);
   }
 }
 
@@ -1447,8 +1513,9 @@ setInterval(() => {
 async function gracefulShutdown(signal: string) {
   console.log(`\n[Server] ${signal} received, shutting down...`);
 
-  // Close all WebSocket connections
+  // Flush and clean up all event buffers, then close connections
   for (const [, client] of clients) {
+    destroyBuffer(client.ws);
     client.ws.close(1001, 'Server shutting down');
   }
   wss.close();

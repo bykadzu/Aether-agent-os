@@ -41,6 +41,7 @@ import { SkillManager } from './SkillManager.js';
 import { RemoteAccessManager } from './RemoteAccessManager.js';
 import { ResourceGovernor } from './ResourceGovernor.js';
 import { AuditLogger } from './AuditLogger.js';
+import { ModelRouter } from './ModelRouter.js';
 import {
   KernelCommand,
   KernelEvent,
@@ -76,6 +77,7 @@ export class Kernel {
   readonly remoteAccess: RemoteAccessManager;
   readonly resources: ResourceGovernor;
   readonly audit: AuditLogger;
+  readonly modelRouter: ModelRouter;
 
   private startTime: number;
   private running = false;
@@ -92,7 +94,6 @@ export class Kernel {
     this.state = new StateStore(this.bus, options.dbPath);
     this.memory = new MemoryManager(this.bus, this.state);
     this.cron = new CronManager(this.bus, this.state);
-    this.snapshots = new SnapshotManager(this.bus, this.processes, this.state, options.fsRoot);
     this.auth = new AuthManager(this.bus, this.state);
     this.cluster = new ClusterManager(this.bus);
     this.webhooks = new WebhookManager(this.bus, this.state);
@@ -104,6 +105,15 @@ export class Kernel {
     this.remoteAccess = new RemoteAccessManager(this.bus, this.state);
     this.resources = new ResourceGovernor(this.bus, this.processes);
     this.audit = new AuditLogger(this.bus, this.state);
+    this.modelRouter = new ModelRouter();
+    this.snapshots = new SnapshotManager(
+      this.bus,
+      this.processes,
+      this.state,
+      options.fsRoot,
+      this.memory,
+      this.resources,
+    );
     this.startTime = Date.now();
   }
 
@@ -239,6 +249,9 @@ export class Kernel {
 
     // Audit logger is ready (subscribed to EventBus, prune timer started)
     console.log('[Kernel] Audit logger initialized');
+
+    // Model router is ready (stateless, no async init needed)
+    console.log('[Kernel] Model router initialized');
 
     // Listen for process cleanup events to remove agent home directories
     this.bus.on('process.cleanup', async (data: { pid: number; uid: string; cwd: string }) => {
@@ -2001,6 +2014,44 @@ export class Kernel {
           break;
         }
 
+        // ----- Priority Scheduling Commands (v0.5 Phase 2) -----
+        case 'process.setPriority': {
+          const isAdmin = !user || user.role === 'admin';
+          if (!this.processes.isOwner(cmd.pid, user?.id, isAdmin)) {
+            events.push({
+              type: 'response.error',
+              id: cmd.id,
+              error: 'Permission denied: you do not own this process',
+            });
+            break;
+          }
+          try {
+            const success = this.processes.setPriority(cmd.pid, cmd.priority);
+            if (success) {
+              events.push({
+                type: 'response.ok',
+                id: cmd.id,
+                data: { pid: cmd.pid, priority: cmd.priority },
+              });
+            } else {
+              events.push({
+                type: 'response.error',
+                id: cmd.id,
+                error: `Process ${cmd.pid} not found`,
+              });
+            }
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        case 'process.getQueue': {
+          const queue = this.processes.getQueue();
+          events.push({ type: 'response.ok', id: cmd.id, data: queue });
+          break;
+        }
+
         // ----- Audit Logger Commands (v0.5) -----
         case 'audit.query': {
           const result = this.audit.query(cmd.filters || {});
@@ -2081,6 +2132,7 @@ export class Kernel {
       ['RemoteAccessMgr', true],
       ['ResourceGovernor', true],
       ['AuditLogger', true],
+      ['ModelRouter', true],
     ];
 
     const port = process.env.AETHER_PORT || String(DEFAULT_PORT);
@@ -2144,6 +2196,7 @@ export class Kernel {
 
     await this.remoteAccess.shutdown();
     this.audit.shutdown();
+    this.modelRouter.shutdown();
     this.resources.shutdown();
     this.skills.shutdown();
     this.webhooks.shutdown();

@@ -12,6 +12,15 @@ export default defineConfig(({ mode }) => {
     plugins: [react()],
     build: {
       target: 'esnext',
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            monaco: ['@monaco-editor/react'],
+            vendor: ['react', 'react-dom'],
+            xterm: ['xterm', '@xterm/addon-fit'],
+          },
+        },
+      },
     },
     optimizeDeps: {
       exclude: ['@novnc/novnc'],

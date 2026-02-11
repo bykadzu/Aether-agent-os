@@ -175,7 +175,14 @@ export class KernelClient {
       this.ws.onmessage = (event: MessageEvent) => {
         try {
           const data = JSON.parse(event.data);
-          this.handleEvent(data);
+          // Support batched events: server may send a JSON array of events
+          if (Array.isArray(data)) {
+            for (const item of data) {
+              this.handleEvent(item);
+            }
+          } else {
+            this.handleEvent(data);
+          }
         } catch (err) {
           console.error('[KernelClient] Failed to parse message:', err);
         }

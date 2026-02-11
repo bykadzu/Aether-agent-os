@@ -101,7 +101,7 @@ describe('BrowserManager', () => {
 
       expect(mockBrowser.newPage).toHaveBeenCalledOnce();
       expect(mockPage.setViewportSize).toHaveBeenCalledWith({ width: 1280, height: 720 });
-      expect(handler).toHaveBeenCalledWith({ sessionId: 'test-session' });
+      expect(handler).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 'test-session' }));
     });
 
     it('creates a session with custom viewport', async () => {
@@ -132,7 +132,7 @@ describe('BrowserManager', () => {
       await manager.destroySession('s1');
 
       expect(mockPage.close).toHaveBeenCalled();
-      expect(handler).toHaveBeenCalledWith({ sessionId: 's1' });
+      expect(handler).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 's1' }));
     });
 
     it('throws when session does not exist', async () => {

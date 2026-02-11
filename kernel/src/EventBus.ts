@@ -13,12 +13,12 @@ import { createEventId } from '@aether/shared';
 
 type Listener<T = any> = (data: T) => void;
 
-const DEDUP_SET_MAX = 1000;
+const DEDUP_MAX_PER_TYPE = 500;
 
 export class EventBus {
   private listeners = new Map<string, Set<Listener>>();
   private onceListeners = new Map<string, Set<Listener>>();
-  private seenEventIds = new Set<string>();
+  private seenEventIds = new Map<string, Set<string>>();
 
   /**
    * Subscribe to an event type.
@@ -50,6 +50,14 @@ export class EventBus {
   }
 
   /**
+   * Check if an event ID has already been seen (for external dedup use).
+   */
+  isDuplicate(eventType: string, eventId: string): boolean {
+    const seen = this.seenEventIds.get(eventType);
+    return seen ? seen.has(eventId) : false;
+  }
+
+  /**
    * Emit an event to all subscribers.
    */
   emit<T = any>(event: string, data: T): void {
@@ -59,15 +67,19 @@ export class EventBus {
       if (!d.__eventId) {
         d.__eventId = createEventId();
       }
-      // Dedup: skip if we've already processed this event ID
-      if (this.seenEventIds.has(d.__eventId)) {
+      // Per-event-type dedup: skip if we've already processed this event ID for this type
+      if (!this.seenEventIds.has(event)) {
+        this.seenEventIds.set(event, new Set());
+      }
+      const seen = this.seenEventIds.get(event)!;
+      if (seen.has(d.__eventId)) {
         return;
       }
-      this.seenEventIds.add(d.__eventId);
-      // Cap the dedup set size
-      if (this.seenEventIds.size > DEDUP_SET_MAX) {
-        const first = this.seenEventIds.values().next().value;
-        if (first !== undefined) this.seenEventIds.delete(first);
+      seen.add(d.__eventId);
+      // Cap the dedup set size per event type
+      if (seen.size > DEDUP_MAX_PER_TYPE) {
+        const first = seen.values().next().value;
+        if (first !== undefined) seen.delete(first);
       }
     }
 
@@ -96,9 +108,30 @@ export class EventBus {
       this.onceListeners.delete(event);
     }
 
-    // Also emit on wildcard channel
+    // Also emit on wildcard channel (direct dispatch, not recursive)
     if (event !== '*') {
-      this.emit('*', { event, data });
+      const wildcardData = { event, data };
+      const wildcardListeners = this.listeners.get('*');
+      if (wildcardListeners) {
+        for (const listener of wildcardListeners) {
+          try {
+            listener(wildcardData);
+          } catch (err) {
+            console.error(`[EventBus] Error in wildcard listener for '${event}':`, err);
+          }
+        }
+      }
+      const wildcardOnce = this.onceListeners.get('*');
+      if (wildcardOnce) {
+        for (const listener of wildcardOnce) {
+          try {
+            listener(wildcardData);
+          } catch (err) {
+            console.error(`[EventBus] Error in wildcard once-listener for '${event}':`, err);
+          }
+        }
+        this.onceListeners.delete('*');
+      }
     }
   }
 

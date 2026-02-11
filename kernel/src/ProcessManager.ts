@@ -12,6 +12,7 @@
  * native executables. But the abstraction is the same: spawn, signal, wait.
  *
  * Includes per-process message queues for IPC between agents.
+ * Includes priority-based scheduling with a wait queue (v0.5 Phase 2).
  */
 
 import { EventBus } from './EventBus.js';
@@ -23,10 +24,14 @@ import {
   AgentConfig,
   Signal,
   IPCMessage,
+  QueuedSpawnRequest,
   createMessageId,
   IPC_QUEUE_MAX_LENGTH,
 } from '@aether/shared';
 import { MAX_PROCESSES } from '@aether/shared';
+
+/** Default max concurrent active (non-dead, non-zombie) processes */
+const DEFAULT_MAX_CONCURRENT = 20;
 
 export interface ManagedProcess {
   info: ProcessInfo;
@@ -43,8 +48,15 @@ export class ProcessManager {
   private nextPid: PID = 1;
   private bus: EventBus;
 
-  constructor(bus: EventBus) {
+  /** Queue of spawn requests waiting for a slot, sorted by priority (1 = highest) */
+  private waitQueue: QueuedSpawnRequest[] = [];
+
+  /** Maximum number of concurrently active processes */
+  readonly maxConcurrent: number;
+
+  constructor(bus: EventBus, maxConcurrent?: number) {
     this.bus = bus;
+    this.maxConcurrent = maxConcurrent ?? DEFAULT_MAX_CONCURRENT;
   }
 
   /**
@@ -65,15 +77,64 @@ export class ProcessManager {
   }
 
   /**
+   * Count currently active processes (not dead, not zombie).
+   */
+  private activeCount(): number {
+    let count = 0;
+    for (const proc of this.processes.values()) {
+      if (proc.info.state !== 'dead' && proc.info.state !== 'zombie') {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  /**
    * Create a new process for an agent.
    * Returns the PID. The process starts in 'created' state.
    * The runtime is responsible for actually starting execution.
+   *
+   * If the active process count >= maxConcurrent, the spawn is queued
+   * and null is returned. The request will be dequeued when a slot opens.
    */
   spawn(config: AgentConfig, ppid: PID = 0, ownerUid?: string): ManagedProcess {
     if (this.getAll().filter((p) => p.info.state !== 'dead').length >= MAX_PROCESSES) {
       throw new Error('Process table full');
     }
 
+    const priority = Math.max(1, Math.min(5, config.priority ?? 3));
+
+    // Check concurrent limit — queue if at capacity
+    if (this.activeCount() >= this.maxConcurrent) {
+      const request: QueuedSpawnRequest = {
+        config,
+        ppid,
+        ownerUid,
+        priority,
+        queuedAt: Date.now(),
+      };
+      this.waitQueue.push(request);
+      // Keep sorted by priority (1 = highest first), then by queuedAt
+      this.waitQueue.sort((a, b) => a.priority - b.priority || a.queuedAt - b.queuedAt);
+
+      const position = this.waitQueue.indexOf(request) + 1;
+      this.bus.emit('process.queued', { priority, position });
+
+      throw new Error(`Process queued (position ${position}): concurrent limit reached`);
+    }
+
+    return this.doSpawn(config, ppid, ownerUid, priority);
+  }
+
+  /**
+   * Internal: actually create the process (bypasses queue check).
+   */
+  private doSpawn(
+    config: AgentConfig,
+    ppid: PID,
+    ownerUid: string | undefined,
+    priority: number,
+  ): ManagedProcess {
     const pid = this.allocatePid();
     const now = Date.now();
     const uid = `agent_${pid}`;
@@ -98,6 +159,7 @@ export class ProcessManager {
         ...(config.model ? { AETHER_MODEL: config.model } : {}),
       },
       createdAt: now,
+      priority,
       cpuPercent: 0,
       memoryMB: 0,
     };
@@ -112,6 +174,20 @@ export class ProcessManager {
     this.processes.set(pid, proc);
 
     this.bus.emit('process.spawned', { pid, info: { ...info } });
+    return proc;
+  }
+
+  /**
+   * Try to dequeue the highest-priority waiting spawn request.
+   * Called when a process exits or is reaped to free up a slot.
+   */
+  private dequeueNext(): ManagedProcess | null {
+    if (this.waitQueue.length === 0) return null;
+    if (this.activeCount() >= this.maxConcurrent) return null;
+
+    const request = this.waitQueue.shift()!;
+    const proc = this.doSpawn(request.config, request.ppid, request.ownerUid, request.priority);
+    this.bus.emit('process.dequeued', { pid: proc.info.pid, priority: request.priority });
     return proc;
   }
 
@@ -134,6 +210,11 @@ export class ProcessManager {
       previousState: prev,
       agentPhase: proc.info.agentPhase,
     });
+
+    // If process transitioned to a terminal state, try dequeuing
+    if (state === 'zombie' || state === 'dead') {
+      this.dequeueNext();
+    }
   }
 
   /**
@@ -189,6 +270,8 @@ export class ProcessManager {
     this.bus.emit('process.reaped', { pid });
     // Emit cleanup event for home directory removal
     this.bus.emit('process.cleanup', { pid, uid: proc.info.uid, cwd: proc.info.cwd });
+    // Try dequeuing a waiting request
+    this.dequeueNext();
   }
 
   /**
@@ -204,6 +287,43 @@ export class ProcessManager {
 
     // Auto-reap after delay
     setTimeout(() => this.reap(pid), 2000);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Priority Scheduling
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Set the priority of a running process.
+   * Priority must be 1-5 (1 = highest).
+   */
+  setPriority(pid: PID, priority: number): boolean {
+    if (priority < 1 || priority > 5 || !Number.isInteger(priority)) {
+      throw new Error('Priority must be an integer between 1 and 5');
+    }
+
+    const proc = this.processes.get(pid);
+    if (!proc || proc.info.state === 'dead') return false;
+
+    const prev = proc.info.priority;
+    proc.info.priority = priority;
+
+    this.bus.emit('process.priorityChanged', { pid, priority, previousPriority: prev });
+    return true;
+  }
+
+  /**
+   * Get the current wait queue (queued spawn requests), sorted by priority.
+   */
+  getQueue(): QueuedSpawnRequest[] {
+    return [...this.waitQueue];
+  }
+
+  /**
+   * Get active processes filtered by priority level.
+   */
+  getByPriority(priority: number): ManagedProcess[] {
+    return this.getActive().filter((p) => p.info.priority === priority);
   }
 
   /**
@@ -370,9 +490,10 @@ export class ProcessManager {
   }
 
   /**
-   * Shutdown: kill all processes.
+   * Shutdown: kill all processes and clear wait queue.
    */
   async shutdown(): Promise<void> {
+    this.waitQueue = [];
     const active = this.getActive();
     for (const proc of active) {
       this.signal(proc.info.pid, 'SIGTERM');

@@ -6,51 +6,38 @@ FROM ubuntu:24.04
 
 ARG DEBIAN_FRONTEND=noninteractive
 
-# ---------- System packages (single layer, clean up aggressively) ----------
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    # X11 / VNC
-    xvfb \
-    x11vnc \
-    dbus-x11 \
-    # XFCE desktop (minimal)
-    xfce4 \
-    xfce4-terminal \
-    # Browser
-    firefox \
-    # Dev essentials
-    python3.12 \
-    git \
-    curl \
-    wget \
-    ca-certificates \
-    gnupg \
-    sudo \
-    locales \
-    # Misc utilities
-    xdg-utils \
-    procps \
-    net-tools \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* /var/cache/apt/* /usr/share/doc/* /usr/share/man/* /usr/share/info/* \
-    /usr/share/lintian /var/log/*
-
-# ---------- Locale ----------
-RUN sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && locale-gen
-
-# ---------- Node.js 22 (NodeSource) ----------
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+# ---------- All packages in a single layer to minimize image size ----------
+RUN apt-get update \
+    # Core X11, VNC, desktop
+    && apt-get install -y --no-install-recommends \
+       xvfb x11vnc dbus-x11 \
+       xfce4 xfce4-terminal \
+       firefox \
+       python3.12 git curl wget ca-certificates gnupg sudo locales \
+       xdg-utils procps net-tools \
+    # Locale
+    && sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && locale-gen \
+    # Node.js 22 via NodeSource
+    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
+    # code-server (VS Code)
+    && curl -fsSL https://code-server.dev/install.sh | sh \
+    # Create non-root user
+    && useradd -m -s /bin/bash -G sudo aether \
+    && echo "aether ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/aether \
+    # ---------- Aggressive cleanup ----------
+    && apt-get purge -y --auto-remove gnupg \
     && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* /var/cache/apt/*
-
-# ---------- code-server (VS Code in the browser) ----------
-RUN curl -fsSL https://code-server.dev/install.sh | sh \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* /var/cache/apt/* /tmp/* /root/.cache
-
-# ---------- Non-root user ----------
-RUN useradd -m -s /bin/bash -G sudo aether \
-    && echo "aether ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/aether
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/* \
+       /usr/share/doc/* /usr/share/man/* /usr/share/info/* /usr/share/lintian \
+       /var/log/* /tmp/* /root/.cache \
+       /usr/share/icons/*/48x48 /usr/share/icons/*/64x64 \
+       /usr/share/icons/*/96x96 /usr/share/icons/*/128x128 \
+       /usr/share/icons/*/256x256 /usr/share/icons/*/scalable \
+       /usr/share/help /usr/share/gnome /usr/share/backgrounds \
+       /usr/share/locale/[a-d]* /usr/share/locale/[f-z]* /usr/share/locale/e[a-m]* /usr/share/locale/eo \
+       /usr/share/locale/e[o-z]* \
+       /usr/share/fonts/truetype/noto
 
 # ---------- Environment ----------
 ENV DISPLAY=:99

@@ -269,6 +269,7 @@ export interface ProcessInfo {
   cwd: string; // Current working directory
   env: Record<string, string>;
   createdAt: number; // Unix timestamp ms
+  priority: number; // 1-5, default 3 (1 = highest)
   cpuPercent: number; // 0-100
   memoryMB: number; // Memory usage in MB
   ttyId?: string; // Attached terminal ID
@@ -282,6 +283,7 @@ export interface AgentConfig {
   model?: string; // LLM model to use
   tools?: string[]; // Allowed tools
   maxSteps?: number; // Max autonomous steps before pause
+  priority?: number; // 1-5, default 3 (1 = highest)
   sandbox?: SandboxConfig;
 }
 
@@ -754,6 +756,21 @@ export interface SnapshotInfo {
   description: string;
 }
 
+export interface SnapshotManifest {
+  version: number; // 1
+  snapshotId: string;
+  pid: PID;
+  uid: string;
+  timestamp: number;
+  description: string;
+  processState: { state: string; phase: string; config: any; metrics: any };
+  memories: Array<{ key: string; value: string; layer: string; metadata?: any }>;
+  planState?: any;
+  resourceUsage?: { tokensUsed: number; costUsd: number; quotaRemaining: number };
+  fsHash: string; // SHA-256 of tarball for integrity
+  fsSize: number; // bytes
+}
+
 // ---------------------------------------------------------------------------
 // VNC Types
 // ---------------------------------------------------------------------------
@@ -860,6 +877,47 @@ export interface ClusterInfo {
 }
 
 // ---------------------------------------------------------------------------
+// Model Router Types (v0.5 Phase 2)
+// ---------------------------------------------------------------------------
+
+/** Model family tiers for smart routing */
+export type ModelFamily = 'flash' | 'standard' | 'frontier';
+
+/** A rule that maps tool patterns / step thresholds to a model family */
+export interface ModelRoutingRule {
+  pattern: string;
+  tools?: string[];
+  maxSteps?: number;
+  family: ModelFamily;
+}
+
+/** Configuration for the ModelRouter */
+export interface ModelRouterConfig {
+  rules: ModelRoutingRule[];
+  defaultFamily: ModelFamily;
+}
+
+/** Context passed to the model router for routing decisions */
+export interface ModelRoutingContext {
+  goal?: string;
+  tools: string[];
+  stepCount: number;
+  maxSteps: number;
+}
+
+// ---------------------------------------------------------------------------
+// Queued Spawn Request (v0.5 Phase 2)
+// ---------------------------------------------------------------------------
+
+export interface QueuedSpawnRequest {
+  config: AgentConfig;
+  ppid: PID;
+  ownerUid?: string;
+  priority: number;
+  queuedAt: number;
+}
+
+// ---------------------------------------------------------------------------
 // UI -> Kernel Commands (what the frontend sends)
 // ---------------------------------------------------------------------------
 
@@ -871,6 +929,8 @@ export type KernelCommand =
   | { type: 'process.info'; id: string; pid: PID }
   | { type: 'process.approve'; id: string; pid: PID }
   | { type: 'process.reject'; id: string; pid: PID; reason?: string }
+  | { type: 'process.setPriority'; id: string; pid: PID; priority: number }
+  | { type: 'process.getQueue'; id: string }
 
   // Filesystem operations
   | { type: 'fs.read'; id: string; path: string }
@@ -1196,7 +1256,9 @@ export type KernelCommand =
 // Kernel -> UI Events (what the backend sends)
 // ---------------------------------------------------------------------------
 
-export type KernelEvent =
+export type KernelEvent = KernelEventBase & { __eventId?: string };
+
+type KernelEventBase =
   // Responses (matched by id to the originating command)
   | { type: 'response.ok'; id: string; data?: any }
   | { type: 'response.error'; id: string; error: string; code?: string }
@@ -1209,6 +1271,9 @@ export type KernelEvent =
   | { type: 'process.exit'; pid: PID; code: number; signal?: string }
   | { type: 'process.list'; processes: ProcessInfo[] }
   | { type: 'process.approval_required'; pid: PID; action: string; details: string }
+  | { type: 'process.queued'; pid: PID; priority: number; position: number }
+  | { type: 'process.dequeued'; pid: PID; priority: number }
+  | { type: 'process.priorityChanged'; pid: PID; priority: number; previousPriority: number }
 
   // Agent-specific events
   | { type: 'agent.thought'; pid: PID; thought: string }

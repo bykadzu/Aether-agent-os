@@ -22,6 +22,7 @@ export { SkillManager } from './SkillManager.js';
 export { RemoteAccessManager } from './RemoteAccessManager.js';
 export { ResourceGovernor } from './ResourceGovernor.js';
 export { AuditLogger } from './AuditLogger.js';
+export { ModelRouter } from './ModelRouter.js';
 export {
   SlackIntegration,
   verifySlackSignature,
