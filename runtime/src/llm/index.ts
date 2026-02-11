@@ -5,7 +5,13 @@
  * model string parsing ("provider:model"), and availability checking.
  */
 
-export type { LLMProvider, ChatMessage, LLMResponse, ToolDefinition, ToolCall } from './LLMProvider.js';
+export type {
+  LLMProvider,
+  ChatMessage,
+  LLMResponse,
+  ToolDefinition,
+  ToolCall,
+} from './LLMProvider.js';
 
 import type { LLMProvider } from './LLMProvider.js';
 import { GeminiProvider } from './GeminiProvider.js';
@@ -87,17 +93,17 @@ export function listProviders(): Array<{
     {
       name: 'gemini',
       available: new GeminiProvider().isAvailable(),
-      models: ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash'],
+      models: ['gemini-3-flash', 'gemini-3-pro', 'gemini-2.5-flash', 'gemini-2.5-pro'],
     },
     {
       name: 'openai',
       available: new OpenAIProvider().isAvailable(),
-      models: ['gpt-4o', 'gpt-4o-mini', 'gpt-3.5-turbo'],
+      models: ['gpt-5.2', 'gpt-5.3-codex', 'gpt-4o', 'gpt-4o-mini'],
     },
     {
       name: 'anthropic',
       available: new AnthropicProvider().isAvailable(),
-      models: ['claude-sonnet-4-5-20250929', 'claude-haiku-4-5-20251001'],
+      models: ['claude-opus-4-6', 'claude-sonnet-4-5-20250929', 'claude-haiku-4-5-20251001'],
     },
     {
       name: 'ollama',

@@ -20,7 +20,7 @@ export class AnthropicProvider implements LLMProvider {
 
   constructor(model?: string) {
     this.apiKey = process.env.ANTHROPIC_API_KEY || '';
-    this.model = model || 'claude-sonnet-4-5-20250929';
+    this.model = model || 'claude-opus-4-6';
   }
 
   isAvailable(): boolean {
@@ -40,7 +40,7 @@ export class AnthropicProvider implements LLMProvider {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: this.model || 'claude-sonnet-4-5-20250929',
+        model: this.model || 'claude-opus-4-6',
         max_tokens: 1024,
         messages: [
           {

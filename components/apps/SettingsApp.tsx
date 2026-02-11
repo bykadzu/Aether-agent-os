@@ -1235,10 +1235,13 @@ export const SettingsApp: React.FC = () => {
                       className="w-40 bg-gray-100 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400 transition-colors"
                     >
                       <option value="">Default model</option>
-                      <option value="gpt-4o">gpt-4o</option>
-                      <option value="gpt-4o-mini">gpt-4o-mini</option>
-                      <option value="claude-sonnet-4-20250514">claude-sonnet</option>
-                      <option value="gemini-pro">gemini-pro</option>
+                      <option value="gpt-5.2">GPT-5.2</option>
+                      <option value="gpt-5.3-codex">GPT-5.3 Codex</option>
+                      <option value="gpt-4o">GPT-4o</option>
+                      <option value="claude-opus-4-6">Claude Opus 4.6</option>
+                      <option value="claude-sonnet-4-5-20250929">Claude Sonnet 4.5</option>
+                      <option value="gemini-3-flash">Gemini 3 Flash</option>
+                      <option value="gemini-3-pro">Gemini 3 Pro</option>
                     </select>
                   </div>
                   <input

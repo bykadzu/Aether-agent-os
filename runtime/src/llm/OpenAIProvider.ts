@@ -2,7 +2,7 @@
  * Aether Runtime - OpenAI LLM Provider
  *
  * Wraps the OpenAI API to implement the LLMProvider interface.
- * Supports gpt-4o, gpt-4o-mini, gpt-3.5-turbo via function calling.
+ * Supports GPT-5.x, GPT-4o, and legacy models via function calling.
  */
 
 import type {
@@ -20,7 +20,7 @@ export class OpenAIProvider implements LLMProvider {
 
   constructor(model?: string) {
     this.apiKey = process.env.OPENAI_API_KEY || '';
-    this.model = model || 'gpt-4o';
+    this.model = model || 'gpt-5.2';
   }
 
   isAvailable(): boolean {
@@ -76,7 +76,7 @@ export class OpenAIProvider implements LLMProvider {
   }
 
   supportsVision(): boolean {
-    return true; // GPT-4o models support vision
+    return true; // GPT-5.x / GPT-4o models support vision
   }
 
   async analyzeImage(imageBase64: string, prompt: string): Promise<LLMResponse> {
@@ -87,7 +87,7 @@ export class OpenAIProvider implements LLMProvider {
         Authorization: `Bearer ${this.apiKey}`,
       },
       body: JSON.stringify({
-        model: this.model || 'gpt-4o',
+        model: this.model || 'gpt-5.2',
         messages: [
           {
             role: 'user',
