@@ -307,6 +307,37 @@ export class VirtualFS {
   }
 
   /**
+   * Write binary content to a file (for uploads).
+   */
+  async writeFileBinary(virtualPath: string, content: Buffer, ownerUid?: string): Promise<void> {
+    const realPath = this.resolvePath(virtualPath);
+
+    await fs.mkdir(path.dirname(realPath), { recursive: true });
+
+    const tmpPath = realPath + `.aether-tmp-${Date.now()}`;
+    try {
+      await fs.writeFile(tmpPath, content);
+      await fs.rename(tmpPath, realPath);
+    } catch (err: any) {
+      try {
+        await fs.unlink(tmpPath);
+      } catch {
+        /* ignore */
+      }
+      if (err.code === 'ENOSPC') throw new Error(`Disk full: cannot write to ${virtualPath}`);
+      if (err.code === 'EACCES')
+        throw new Error(`Permission denied: cannot write to ${virtualPath}`);
+      throw err;
+    }
+
+    if (ownerUid) {
+      this.setFileOwner(virtualPath, ownerUid);
+    }
+
+    this.bus.emit('fs.changed', { path: virtualPath, changeType: 'modify' });
+  }
+
+  /**
    * Create a directory.
    */
   async mkdir(virtualPath: string, recursive = false): Promise<void> {

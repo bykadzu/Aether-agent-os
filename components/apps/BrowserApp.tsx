@@ -109,6 +109,9 @@ export const BrowserApp: React.FC = () => {
   /** Screenshot polling timer. */
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  /** True once the kernel starts pushing screencast frames (stops polling). */
+  const receivingScreencastRef = useRef(false);
+
   /** Guard to stop async work after unmount. */
   const unmountedRef = useRef(false);
 
@@ -223,9 +226,20 @@ export const BrowserApp: React.FC = () => {
     const client = getKernelClient();
 
     // Listen for kernel-pushed screencast frames.
+    receivingScreencastRef.current = false;
     const unsubFrame = client.on('browser:screencast_frame', (data: any) => {
       if (data.sessionId !== activeSessionRef.current) return;
-      if (data.frame) drawFrame(data.frame);
+      if (data.frame) {
+        drawFrame(data.frame);
+        // Stop polling once the kernel is actively pushing frames
+        if (!receivingScreencastRef.current) {
+          receivingScreencastRef.current = true;
+          if (pollTimerRef.current) {
+            clearInterval(pollTimerRef.current);
+            pollTimerRef.current = null;
+          }
+        }
+      }
     });
 
     // Listen for navigation events from the kernel.
@@ -284,16 +298,19 @@ export const BrowserApp: React.FC = () => {
   // Event forwarding (kernel mode)
   // =========================================================================
 
-  /** Map client coordinates on the canvas to the virtual viewport coords. */
+  /** Map client coordinates on the canvas to the virtual viewport coords.
+   *  Uses the viewport container rect for accurate bounds when the canvas
+   *  is scaled inside a windowed or iframe context. */
   const scaleCoords = useCallback((clientX: number, clientY: number): { x: number; y: number } => {
-    const canvas = canvasRef.current;
-    if (!canvas) return { x: clientX, y: clientY };
-    const rect = canvas.getBoundingClientRect();
+    // Prefer the viewport container for accurate bounds (handles window chrome offsets)
+    const el = viewportRef.current || canvasRef.current;
+    if (!el) return { x: clientX, y: clientY };
+    const rect = el.getBoundingClientRect();
     const scaleX = VIEWPORT_WIDTH / rect.width;
     const scaleY = VIEWPORT_HEIGHT / rect.height;
     return {
-      x: Math.round((clientX - rect.left) * scaleX),
-      y: Math.round((clientY - rect.top) * scaleY),
+      x: Math.round(Math.max(0, Math.min(VIEWPORT_WIDTH, (clientX - rect.left) * scaleX))),
+      y: Math.round(Math.max(0, Math.min(VIEWPORT_HEIGHT, (clientY - rect.top) * scaleY))),
     };
   }, []);
 

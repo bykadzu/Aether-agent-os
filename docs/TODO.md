@@ -227,6 +227,12 @@ Critical fixes to get agents actually running on Windows. These were identified 
 - [x] **Enhanced setup.sh** — Now prompts for API key, verifies Playwright, runs doctor check, and shows scoped test commands.
 - [x] **Integration smoke tests** — 9 smoke tests covering: kernel lifecycle, file lifecycle (write/read/list/delete), atomic write verification, auth flow, agent pause/resume, process spawn/info/list.
 
+### Polish (Tier 3)
+- [x] **Window edge snapping** — Drag a window to screen edge to snap: left edge = left half, right edge = right half, top edge = maximize. 20px threshold with blue preview overlay.
+- [x] **File upload endpoint** — `POST /api/fs/upload?path=...` with raw binary body (50 MB limit). New `VirtualFS.writeFileBinary()` method. Upload button in File Explorer toolbar. `kernelClient.uploadFile()` client method.
+- [x] **Screenshot polling optimization** — BrowserApp stops polling once kernel starts pushing screencast frames. Saves bandwidth and CPU in kernel mode.
+- [x] **Iframe coordinate scaling fix** — `scaleCoords()` now uses viewport container rect instead of just canvas, and clamps coordinates to valid viewport range.
+
 ---
 
 ## v0.5 — Production, Scale & Beyond

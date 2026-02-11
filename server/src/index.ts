@@ -955,6 +955,59 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
     }
   }
 
+  // ----- File Upload Endpoint -----
+
+  if (url.pathname === '/api/fs/upload' && req.method === 'POST') {
+    const destPath = url.searchParams.get('path');
+    if (!destPath) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Missing required "path" query parameter' }));
+      return;
+    }
+
+    // Path traversal check
+    const normalized = nodePath.posix.normalize(destPath);
+    if (normalized.includes('..')) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Access denied: path traversal detected' }));
+      return;
+    }
+
+    // Size limit: 50 MB
+    const MAX_UPLOAD = 50 * 1024 * 1024;
+    const contentLength = parseInt(req.headers['content-length'] || '0', 10);
+    if (contentLength > MAX_UPLOAD) {
+      res.writeHead(413, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'File too large. Maximum 50 MB.' }));
+      return;
+    }
+
+    try {
+      const chunks: Buffer[] = [];
+      let totalSize = 0;
+
+      for await (const chunk of req) {
+        totalSize += chunk.length;
+        if (totalSize > MAX_UPLOAD) {
+          res.writeHead(413, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'File too large. Maximum 50 MB.' }));
+          return;
+        }
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      }
+
+      const content = Buffer.concat(chunks);
+      await kernel.fs.writeFileBinary(destPath, content);
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, path: destPath, size: content.length }));
+    } catch (err: any) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
   // 404
   res.writeHead(404, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ error: 'Not found' }));

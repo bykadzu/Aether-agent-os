@@ -471,6 +471,31 @@ export class KernelClient {
     return this.request({ type: 'fs.rm', path, recursive });
   }
 
+  /**
+   * Upload a file to the virtual filesystem.
+   */
+  async uploadFile(file: File, destinationPath: string): Promise<{ path: string; size: number }> {
+    const fullPath = destinationPath.endsWith('/')
+      ? `${destinationPath}${file.name}`
+      : `${destinationPath}/${file.name}`;
+
+    const res = await fetch(
+      `${this.getBaseUrl()}/api/fs/upload?path=${encodeURIComponent(fullPath)}`,
+      {
+        method: 'POST',
+        headers: {
+          ...(this._token ? { Authorization: `Bearer ${this._token}` } : {}),
+        },
+        body: file,
+      },
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || 'Upload failed');
+    }
+    return res.json();
+  }
+
   // -----------------------------------------------------------------------
   // Terminal API
   // -----------------------------------------------------------------------
