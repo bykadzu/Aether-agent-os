@@ -2,14 +2,16 @@
 
 ## Where We Are Now
 
-Aether OS v0.3 is complete. On top of the v0.1 kernel foundation and v0.2 real apps, agents now have cross-session memory, goal planning, self-reflection, vision capabilities, collaboration protocols, agent profiles, feedback loops, cron scheduling, and a Memory Inspector UI. The system has 18+ desktop apps, 28+ agent tools, 4 LLM providers, and 345+ tests.
+Aether OS v0.5 is complete. The system has 26 kernel subsystems, 20+ desktop apps, 28+ agent tools, 4 LLM providers, and 900+ tests.
 
 **Completed versions:**
 - **v0.1** — Kernel foundation (12 subsystems), agent runtime, desktop UI, 14 apps
 - **v0.2** — Real apps (Playwright browser, Monaco editor, music player, PDF viewer, spreadsheet, canvas, writer, system monitor, theme system, workspaces)
 - **v0.3** — Agent intelligence (memory, planning, reflection, feedback, profiles, collaboration, vision, cron scheduling, Memory Inspector, automation UI)
+- **v0.4** — Ecosystem (REST API v1, webhooks, Slack/GitHub/S3/Discord integrations, plugin marketplace, agent templates, CLI, SDK, RBAC organizations)
+- **v0.5** — Production (resource governance, audit logging, Prometheus metrics, TLS, MFA/TOTP, Helm chart, priority scheduling, model routing, WebSocket batching, LangChain/OpenAI tool compat, granular RBAC, PWA, responsive UI)
 
-**Next:** v0.4 — Ecosystem, Marketplace & Integrations
+**Next:** Testing, stabilization, and v0.6 planning
 
 ---
 
