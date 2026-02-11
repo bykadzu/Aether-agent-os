@@ -388,8 +388,9 @@ export function useKernel(wsUrl?: string) {
         .catch(() => {});
     });
 
-    // Connect
-    client.connect();
+    // NOTE: Do NOT auto-connect here. App.tsx controls the connection lifecycle
+    // to ensure the auth token is set before the WebSocket connects.
+    // App.tsx calls client.connect() after token validation or client.reconnect() after login.
 
     // Cleanup
     return () => {
@@ -448,6 +449,18 @@ export function useKernel(wsUrl?: string) {
     client.sendTerminalInput(ttyId, data);
   }, []);
 
+  const connectToKernel = useCallback(() => {
+    const client = clientRef.current;
+    if (!client) return;
+    client.connect();
+  }, []);
+
+  const reconnectToKernel = useCallback(() => {
+    const client = clientRef.current;
+    if (!client) return;
+    client.reconnect();
+  }, []);
+
   return {
     ...state,
     client: clientRef.current,
@@ -456,5 +469,7 @@ export function useKernel(wsUrl?: string) {
     approveAction,
     rejectAction,
     sendTerminalInput,
+    connectToKernel,
+    reconnectToKernel,
   };
 }

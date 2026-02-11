@@ -219,6 +219,15 @@ export class KernelClient {
     this._connected = false;
   }
 
+  /**
+   * Force a fresh reconnection (disconnect + connect).
+   * Useful after token changes to ensure the WS URL includes the new token.
+   */
+  reconnect(): void {
+    this.disconnect();
+    this.connect();
+  }
+
   get connected(): boolean {
     return this._connected;
   }

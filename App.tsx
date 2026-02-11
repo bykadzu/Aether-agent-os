@@ -109,25 +109,23 @@ const App: React.FC = () => {
   // Notification system
   const { notify } = useNotifications();
 
-  // Check for stored token on mount
+  // Check for stored token on mount and connect WS only AFTER token is set
   useEffect(() => {
     const storedToken = localStorage.getItem('aether_token');
     if (storedToken) {
       const client = getKernelClient();
       client.setToken(storedToken);
-      // Try to validate via HTTP
+      // Validate token via HTTP first
       const baseUrl = 'http://localhost:3001';
       fetch(`${baseUrl}/api/kernel`, {
         headers: { Authorization: `Bearer ${storedToken}` },
       })
         .then((res) => {
           if (res.ok) {
-            // Token is valid with server, now validate user from WS
-            // The WS connection will include the token automatically
-            client.connect();
-            // Try to decode user from token (will be validated server-side)
-            // We'll get the user info once the WS validates
-            // For now, parse the token payload
+            // Token is valid — now connect WS with token already set
+            // Use reconnect() to ensure a fresh connection with the token in the URL
+            client.reconnect();
+            // Decode user from token payload
             try {
               const parts = storedToken.split('.');
               if (parts.length === 3) {
@@ -154,10 +152,11 @@ const App: React.FC = () => {
           setAuthChecking(false);
         })
         .catch(() => {
-          // Server not available - might be mock mode
+          // Server not available - mock mode, no WS connection needed
           setAuthChecking(false);
         });
     } else {
+      // No stored token — don't connect WS, show login screen
       setAuthChecking(false);
     }
   }, []);
@@ -176,9 +175,8 @@ const App: React.FC = () => {
       const result = await client.loginHttp(username, password);
       setAuthUser(result.user);
       setAuthError(null);
-      // Reconnect WS with new token
-      client.disconnect();
-      client.connect();
+      // Connect WS with the new token (reconnect ensures fresh connection)
+      client.reconnect();
       return true;
     } catch (err: any) {
       setAuthError(err.message);
@@ -196,9 +194,8 @@ const App: React.FC = () => {
       const result = await client.registerHttp(username, password, displayName);
       setAuthUser(result.user);
       setAuthError(null);
-      // Reconnect WS with new token
-      client.disconnect();
-      client.connect();
+      // Connect WS with the new token (reconnect ensures fresh connection)
+      client.reconnect();
       return true;
     } catch (err: any) {
       setAuthError(err.message);
@@ -1339,7 +1336,7 @@ const App: React.FC = () => {
       <div className="w-screen h-screen bg-black flex flex-col items-center justify-center text-white">
         <div className="text-6xl mb-8"></div>
         <div className="w-48 h-1 bg-gray-800 rounded-full overflow-hidden">
-          <div className="h-full bg-white animate-[width_2s_ease-out_forwards] w-0"></div>
+          <div className="h-full bg-white animate-progress-fill"></div>
         </div>
       </div>
     );
