@@ -24,6 +24,7 @@ export { ResourceGovernor } from './ResourceGovernor.js';
 export { AuditLogger } from './AuditLogger.js';
 export { ModelRouter } from './ModelRouter.js';
 export { MetricsExporter } from './MetricsExporter.js';
+export { ToolCompatLayer } from './ToolCompatLayer.js';
 export {
   SlackIntegration,
   verifySlackSignature,

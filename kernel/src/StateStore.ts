@@ -224,6 +224,12 @@ export class StateStore {
     setUserMfa: Database.Statement;
     enableUserMfa: Database.Statement;
     disableUserMfa: Database.Statement;
+    // Permission Policy statements (v0.5 Phase 4)
+    insertPermissionPolicy: Database.Statement;
+    deletePermissionPolicy: Database.Statement;
+    getPermissionPoliciesForSubject: Database.Statement;
+    getPermissionPoliciesForAction: Database.Statement;
+    getAllPermissionPolicies: Database.Statement;
   };
 
   private _persistenceDisabled = false;
@@ -739,6 +745,21 @@ export class StateStore {
     // v0.5 Phase 3: Add MFA columns to users table
     this.migrateAddColumn('users', 'mfa_secret', 'TEXT');
     this.migrateAddColumn('users', 'mfa_enabled', 'INTEGER DEFAULT 0');
+
+    // v0.5 Phase 4: Permission policies table
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS permission_policies (
+        id TEXT PRIMARY KEY,
+        subject TEXT NOT NULL,
+        action TEXT NOT NULL,
+        resource TEXT NOT NULL,
+        effect TEXT NOT NULL CHECK(effect IN ('allow', 'deny')),
+        created_at INTEGER NOT NULL,
+        created_by TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_permission_policies_subject_action ON permission_policies(subject, action);
+    `);
   }
 
   /** Safely add a column if it does not already exist. */
@@ -1336,6 +1357,21 @@ export class StateStore {
       enableUserMfa: this.db.prepare(`UPDATE users SET mfa_enabled = 1 WHERE id = ?`),
       disableUserMfa: this.db.prepare(
         `UPDATE users SET mfa_enabled = 0, mfa_secret = NULL WHERE id = ?`,
+      ),
+      // Permission Policy statements (v0.5 Phase 4)
+      insertPermissionPolicy: this.db.prepare(`
+        INSERT INTO permission_policies (id, subject, action, resource, effect, created_at, created_by)
+        VALUES (@id, @subject, @action, @resource, @effect, @created_at, @created_by)
+      `),
+      deletePermissionPolicy: this.db.prepare(`DELETE FROM permission_policies WHERE id = ?`),
+      getPermissionPoliciesForSubject: this.db.prepare(
+        `SELECT id, subject, action, resource, effect, created_at, created_by FROM permission_policies WHERE subject = ?`,
+      ),
+      getPermissionPoliciesForAction: this.db.prepare(
+        `SELECT id, subject, action, resource, effect, created_at, created_by FROM permission_policies WHERE action = ?`,
+      ),
+      getAllPermissionPolicies: this.db.prepare(
+        `SELECT id, subject, action, resource, effect, created_at, created_by FROM permission_policies ORDER BY created_at ASC`,
       ),
     };
   }
@@ -2725,6 +2761,105 @@ export class StateStore {
   pruneAuditLog(cutoffTimestamp: number): number {
     const result = this.stmts.pruneAuditLog.run(cutoffTimestamp);
     return result.changes;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Permission Policies (v0.5 Phase 4)
+  // ---------------------------------------------------------------------------
+
+  insertPermissionPolicy(record: {
+    id: string;
+    subject: string;
+    action: string;
+    resource: string;
+    effect: string;
+    created_at: number;
+    created_by: string | null;
+  }): void {
+    this.stmts.insertPermissionPolicy.run(record);
+  }
+
+  deletePermissionPolicy(id: string): boolean {
+    const result = this.stmts.deletePermissionPolicy.run(id);
+    return result.changes > 0;
+  }
+
+  getPermissionPoliciesForSubject(subject: string): any[] {
+    return this.stmts.getPermissionPoliciesForSubject.all(subject) as any[];
+  }
+
+  getPermissionPoliciesForAction(action: string): any[] {
+    return this.stmts.getPermissionPoliciesForAction.all(action) as any[];
+  }
+
+  getAllPermissionPolicies(): any[] {
+    return this.stmts.getAllPermissionPolicies.all() as any[];
+  }
+
+  // ---------------------------------------------------------------------------
+  // Imported Tools (v0.5 Phase 4 — Tool Compatibility Layer)
+  // ---------------------------------------------------------------------------
+
+  private _importedToolStmts?: {
+    upsertImportedTool: Database.Statement;
+    getImportedTool: Database.Statement;
+    getAllImportedTools: Database.Statement;
+    deleteImportedTool: Database.Statement;
+  };
+
+  /**
+   * Create the imported_tools table if it doesn't exist.
+   * Called by ToolCompatLayer.init().
+   */
+  ensureImportedToolsTable(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS imported_tools (
+        id TEXT PRIMARY KEY,
+        name TEXT UNIQUE NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        parameters TEXT NOT NULL DEFAULT '{}',
+        source_format TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+    `);
+    this._importedToolStmts = {
+      upsertImportedTool: this.db.prepare(`
+        INSERT OR REPLACE INTO imported_tools (id, name, description, parameters, source_format, created_at)
+        VALUES (@id, @name, @description, @parameters, @source_format, @created_at)
+      `),
+      getImportedTool: this.db.prepare(`
+        SELECT id, name, description, parameters, source_format, created_at
+        FROM imported_tools WHERE name = ?
+      `),
+      getAllImportedTools: this.db.prepare(`
+        SELECT id, name, description, parameters, source_format, created_at
+        FROM imported_tools ORDER BY created_at ASC
+      `),
+      deleteImportedTool: this.db.prepare(`DELETE FROM imported_tools WHERE name = ?`),
+    };
+  }
+
+  upsertImportedTool(record: {
+    id: string;
+    name: string;
+    description: string;
+    parameters: string;
+    source_format: string;
+    created_at: number;
+  }): void {
+    this._importedToolStmts!.upsertImportedTool.run(record);
+  }
+
+  getImportedTool(name: string): any {
+    return this._importedToolStmts!.getImportedTool.get(name);
+  }
+
+  getAllImportedTools(): any[] {
+    return this._importedToolStmts!.getAllImportedTools.all() as any[];
+  }
+
+  deleteImportedTool(name: string): void {
+    this._importedToolStmts!.deleteImportedTool.run(name);
   }
 
   // ---------------------------------------------------------------------------

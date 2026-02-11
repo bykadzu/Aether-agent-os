@@ -113,7 +113,7 @@ const SkeletonCard: React.FC = () => (
 
 /** Grid of skeleton cards displayed during the initial loading phase. */
 const SkeletonGrid: React.FC = () => (
-  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-8">
+  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-8">
     {Array.from({ length: 4 }).map((_, i) => (
       <SkeletonCard key={i} />
     ))}
@@ -502,36 +502,36 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({
       <div className="absolute inset-0 bg-gradient-to-br from-[#1a1b26] via-[#1a1b26] to-[#0f111a] -z-10"></div>
 
       {/* Top Metrics Bar */}
-      <div className="bg-[#0f111a] border-b border-white/5 px-8 py-3 flex items-center gap-6 text-[11px] z-10">
-        <div className="flex items-center gap-2 text-white/60">
+      <div className="bg-[#0f111a] border-b border-white/5 px-3 sm:px-8 py-3 flex items-center gap-3 sm:gap-6 text-[11px] z-10 overflow-x-auto">
+        <div className="flex items-center gap-2 text-white/60 shrink-0">
           <Bot size={14} className="text-indigo-400" />
           <span className="font-medium text-white">{agents.length}</span>
-          <span>Total</span>
+          <span className="hidden sm:inline">Total</span>
         </div>
-        <div className="w-px h-4 bg-white/10" />
-        <div className="flex items-center gap-2">
+        <div className="w-px h-4 bg-white/10 shrink-0" />
+        <div className="flex items-center gap-2 shrink-0">
           <Zap size={12} className="text-green-400" />
           <span className="text-green-400 font-medium">{activeCount}</span>
-          <span className="text-white/40">Active</span>
+          <span className="text-white/40 hidden sm:inline">Active</span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <Clock size={12} className="text-gray-500" />
           <span className="text-gray-400 font-medium">{idleCount}</span>
-          <span className="text-white/40">Idle</span>
+          <span className="text-white/40 hidden sm:inline">Idle</span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <Activity size={12} className="text-emerald-400" />
           <span className="text-emerald-400 font-medium">{completedCount}</span>
-          <span className="text-white/40">Done</span>
+          <span className="text-white/40 hidden sm:inline">Done</span>
         </div>
         {failedCount > 0 && (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <span className="text-red-400 font-medium">{failedCount}</span>
-            <span className="text-white/40">Failed</span>
+            <span className="text-white/40 hidden sm:inline">Failed</span>
           </div>
         )}
 
-        <div className="ml-auto flex items-center gap-6">
+        <div className="ml-auto flex items-center gap-6 hidden md:flex">
           {kernelMetrics && (
             <>
               <div className="flex items-center gap-2 text-white/40">
@@ -601,18 +601,18 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({
       </div>
 
       {/* Header */}
-      <div className="p-8 pb-4 flex items-center justify-between z-10">
+      <div className="p-4 sm:p-8 pb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between z-10 gap-3">
         <div>
-          <h1 className="text-3xl font-light text-white tracking-tight flex items-center gap-3">
+          <h1 className="text-xl sm:text-3xl font-light text-white tracking-tight flex items-center gap-3">
             Mission Control
-            <span className="text-sm font-normal text-gray-500 bg-white/10 px-2 py-0.5 rounded-full">
+            <span className="text-xs sm:text-sm font-normal text-gray-500 bg-white/10 px-2 py-0.5 rounded-full">
               {agents.length} Active
             </span>
           </h1>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
           {/* Filter Buttons */}
-          <div className="flex items-center bg-white/5 rounded-lg border border-white/5 p-0.5">
+          <div className="hidden sm:flex items-center bg-white/5 rounded-lg border border-white/5 p-0.5">
             {(['all', 'active', 'completed', 'failed'] as FilterMode[]).map((mode) => (
               <button
                 key={mode}
@@ -629,7 +629,7 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({
           </div>
 
           {/* View Mode Toggle */}
-          <div className="flex items-center bg-white/5 rounded-lg border border-white/5 p-0.5">
+          <div className="hidden sm:flex items-center bg-white/5 rounded-lg border border-white/5 p-0.5">
             <button
               onClick={() => setViewMode('grid')}
               className={`p-1.5 rounded-md transition-all ${viewMode === 'grid' ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'}`}
@@ -648,7 +648,7 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({
 
           <button
             onClick={() => setShowHistory(!showHistory)}
-            className={`px-4 py-2.5 rounded-xl flex items-center gap-2 transition-all font-medium border ${
+            className={`hidden sm:flex px-4 py-2.5 rounded-xl items-center gap-2 transition-all font-medium border ${
               showHistory
                 ? 'bg-white/10 border-white/20 text-white'
                 : 'bg-white/5 border-white/5 text-gray-400 hover:text-white hover:bg-white/10'
@@ -659,16 +659,17 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({
           </button>
           <button
             onClick={() => setShowNewAgentModal(true)}
-            className="bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-xl shadow-indigo-500/20 font-medium"
+            className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-xl shadow-indigo-500/20 font-medium text-sm sm:text-base"
           >
             <Plus size={18} />
-            Deploy Agent
+            <span className="hidden sm:inline">Deploy Agent</span>
+            <span className="sm:hidden">Deploy</span>
           </button>
         </div>
       </div>
 
       {/* Mission Control Content */}
-      <div className="flex-1 p-8 overflow-y-auto">
+      <div className="flex-1 p-4 sm:p-8 overflow-y-auto">
         {initialLoading && agents.length === 0 ? (
           /* Loading skeleton — shown only during the initial kernel handshake */
           <SkeletonGrid />
@@ -690,7 +691,7 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({
           </div>
         ) : viewMode === 'grid' ? (
           /* Grid View */
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-8">
             {filteredAgents.map((agent) => (
               <div
                 key={agent.id}
@@ -1020,7 +1021,7 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({
                   Choose a template or start from scratch
                 </p>
 
-                <div className="grid grid-cols-3 gap-3 mb-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4 max-h-[60vh] overflow-y-auto">
                   {templates.map((template) => (
                     <button
                       key={template.id}

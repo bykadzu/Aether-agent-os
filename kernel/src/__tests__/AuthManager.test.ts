@@ -341,6 +341,356 @@ describe('AuthManager', () => {
       expect((result as any).mfaRequired).toBeUndefined();
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Fine-Grained Permission Policies (v0.5 Phase 4)
+  // -------------------------------------------------------------------------
+
+  describe('grantPermission()', () => {
+    it('creates a policy and returns it with an id and created_at', async () => {
+      const user = await auth.createUser('policyuser', 'password123');
+      const policy = auth.grantPermission({
+        subject: `user:${user.id}`,
+        action: 'tool.run_command.execute',
+        resource: 'run_command',
+        effect: 'allow',
+        created_by: user.id,
+      });
+
+      expect(policy.id).toBeTruthy();
+      expect(policy.subject).toBe(`user:${user.id}`);
+      expect(policy.action).toBe('tool.run_command.execute');
+      expect(policy.resource).toBe('run_command');
+      expect(policy.effect).toBe('allow');
+      expect(policy.created_at).toBeGreaterThan(0);
+      expect(policy.created_by).toBe(user.id);
+    });
+
+    it('emits permission.granted event', async () => {
+      const handler = vi.fn();
+      bus.on('permission.granted', handler);
+      const user = await auth.createUser('policyuser', 'password123');
+      auth.grantPermission({
+        subject: `user:${user.id}`,
+        action: 'tool.test.execute',
+        resource: 'test',
+        effect: 'allow',
+      });
+      expect(handler).toHaveBeenCalledOnce();
+    });
+  });
+
+  describe('revokePermission()', () => {
+    it('removes a policy and returns true', async () => {
+      const user = await auth.createUser('policyuser', 'password123');
+      const policy = auth.grantPermission({
+        subject: `user:${user.id}`,
+        action: 'tool.run_command.execute',
+        resource: 'run_command',
+        effect: 'allow',
+      });
+
+      const result = auth.revokePermission(policy.id);
+      expect(result).toBe(true);
+
+      // Verify it's gone
+      const policies = auth.listPolicies(`user:${user.id}`);
+      expect(policies).toHaveLength(0);
+    });
+
+    it('returns false for non-existent policy', () => {
+      const result = auth.revokePermission('non-existent-id');
+      expect(result).toBe(false);
+    });
+
+    it('emits permission.revoked event', async () => {
+      const handler = vi.fn();
+      bus.on('permission.revoked', handler);
+      const user = await auth.createUser('policyuser', 'password123');
+      const policy = auth.grantPermission({
+        subject: `user:${user.id}`,
+        action: 'tool.test.execute',
+        resource: 'test',
+        effect: 'allow',
+      });
+      auth.revokePermission(policy.id);
+      expect(handler).toHaveBeenCalledOnce();
+    });
+  });
+
+  describe('checkPermission()', () => {
+    it('returns true when an allow policy matches', async () => {
+      const user = await auth.createUser('policyuser', 'password123');
+      auth.grantPermission({
+        subject: `user:${user.id}`,
+        action: 'tool.run_command.execute',
+        resource: 'run_command',
+        effect: 'allow',
+      });
+
+      const allowed = auth.checkPermission(user.id, 'tool.run_command.execute', 'run_command');
+      expect(allowed).toBe(true);
+    });
+
+    it('returns false when a deny policy matches (overrides allow)', async () => {
+      const user = await auth.createUser('policyuser', 'password123');
+      // Grant allow
+      auth.grantPermission({
+        subject: `user:${user.id}`,
+        action: 'tool.run_command.execute',
+        resource: 'run_command',
+        effect: 'allow',
+      });
+      // Grant deny (should override)
+      auth.grantPermission({
+        subject: `user:${user.id}`,
+        action: 'tool.run_command.execute',
+        resource: 'run_command',
+        effect: 'deny',
+      });
+
+      const allowed = auth.checkPermission(user.id, 'tool.run_command.execute', 'run_command');
+      expect(allowed).toBe(false);
+    });
+
+    it('returns false when no matching policy exists (deny-by-default) but policies exist for user', async () => {
+      const user = await auth.createUser('policyuser', 'password123');
+      // Grant a policy for a DIFFERENT action
+      auth.grantPermission({
+        subject: `user:${user.id}`,
+        action: 'tool.other.execute',
+        resource: 'other',
+        effect: 'allow',
+      });
+
+      // Check for a different action — no matching policy
+      const allowed = auth.checkPermission(user.id, 'tool.run_command.execute', 'run_command');
+      expect(allowed).toBe(false);
+    });
+
+    it('returns true (backward compat) when no policies exist for the user at all', async () => {
+      const user = await auth.createUser('policyuser', 'password123');
+      // No policies created at all
+      const allowed = auth.checkPermission(user.id, 'tool.run_command.execute', 'run_command');
+      expect(allowed).toBe(true);
+    });
+
+    it('admin users always return true', async () => {
+      const admin = await auth.createUser('adminuser', 'password123', 'Admin', 'admin');
+      // Even with a deny policy, admin bypasses
+      auth.grantPermission({
+        subject: `user:${admin.id}`,
+        action: 'tool.run_command.execute',
+        resource: 'run_command',
+        effect: 'deny',
+      });
+
+      const allowed = auth.checkPermission(admin.id, 'tool.run_command.execute', 'run_command');
+      expect(allowed).toBe(true);
+    });
+
+    it('returns false for non-existent user', () => {
+      const allowed = auth.checkPermission('non-existent-id', 'tool.test.execute', 'test');
+      expect(allowed).toBe(false);
+    });
+  });
+
+  describe('wildcard matching', () => {
+    it('tool.*.execute matches tool.run_command.execute', async () => {
+      const user = await auth.createUser('wildcarduser', 'password123');
+      auth.grantPermission({
+        subject: `user:${user.id}`,
+        action: 'tool.*.execute',
+        resource: '*',
+        effect: 'allow',
+      });
+
+      const allowed = auth.checkPermission(user.id, 'tool.run_command.execute', 'run_command');
+      expect(allowed).toBe(true);
+    });
+
+    it('llm.*.use matches llm.gemini.use', async () => {
+      const user = await auth.createUser('wildcarduser', 'password123');
+      auth.grantPermission({
+        subject: `user:${user.id}`,
+        action: 'llm.*.use',
+        resource: '*',
+        effect: 'allow',
+      });
+
+      const allowed = auth.checkPermission(user.id, 'llm.gemini.use', 'gemini');
+      expect(allowed).toBe(true);
+    });
+
+    it('wildcard deny overrides wildcard allow', async () => {
+      const user = await auth.createUser('wildcarduser', 'password123');
+      auth.grantPermission({
+        subject: `user:${user.id}`,
+        action: 'tool.*.execute',
+        resource: '*',
+        effect: 'allow',
+      });
+      auth.grantPermission({
+        subject: `user:${user.id}`,
+        action: 'tool.rm.execute',
+        resource: 'rm',
+        effect: 'deny',
+      });
+
+      // Other tools allowed
+      expect(auth.checkPermission(user.id, 'tool.ls.execute', 'ls')).toBe(true);
+      // rm denied
+      expect(auth.checkPermission(user.id, 'tool.rm.execute', 'rm')).toBe(false);
+    });
+  });
+
+  describe('role-based policies', () => {
+    it('role:member policy grants permission to org members', async () => {
+      const owner = await auth.createUser('orgowner', 'password123');
+      const member = await auth.createUser('orgmember', 'password123');
+
+      // Create org
+      const org = auth.createOrg('testorg', owner.id);
+
+      // Invite member
+      auth.inviteMember(org.id, member.id, 'member', owner.id);
+
+      // Grant permission to role:member
+      auth.grantPermission({
+        subject: 'role:member',
+        action: 'tool.read_file.execute',
+        resource: 'read_file',
+        effect: 'allow',
+      });
+
+      const allowed = auth.checkPermission(member.id, 'tool.read_file.execute', 'read_file');
+      expect(allowed).toBe(true);
+    });
+
+    it('role:viewer deny policy blocks viewer from action', async () => {
+      const owner = await auth.createUser('orgowner', 'password123');
+      const viewer = await auth.createUser('orgviewer', 'password123');
+
+      const org = auth.createOrg('testorg', owner.id);
+      auth.inviteMember(org.id, viewer.id, 'viewer', owner.id);
+
+      // Grant allow to role:viewer for some action
+      auth.grantPermission({
+        subject: 'role:viewer',
+        action: 'tool.*.execute',
+        resource: '*',
+        effect: 'allow',
+      });
+
+      // Deny a specific tool
+      auth.grantPermission({
+        subject: 'role:viewer',
+        action: 'tool.write_file.execute',
+        resource: 'write_file',
+        effect: 'deny',
+      });
+
+      expect(auth.checkPermission(viewer.id, 'tool.read_file.execute', 'read_file')).toBe(true);
+      expect(auth.checkPermission(viewer.id, 'tool.write_file.execute', 'write_file')).toBe(false);
+    });
+  });
+
+  describe('listPolicies()', () => {
+    it('returns all policies when no subject filter', async () => {
+      const user1 = await auth.createUser('user1', 'password123');
+      const user2 = await auth.createUser('user2', 'password123');
+
+      auth.grantPermission({
+        subject: `user:${user1.id}`,
+        action: 'tool.a.execute',
+        resource: 'a',
+        effect: 'allow',
+      });
+      auth.grantPermission({
+        subject: `user:${user2.id}`,
+        action: 'tool.b.execute',
+        resource: 'b',
+        effect: 'allow',
+      });
+
+      const all = auth.listPolicies();
+      expect(all.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('returns only matching policies when subject filter is provided', async () => {
+      const user1 = await auth.createUser('user1', 'password123');
+      const user2 = await auth.createUser('user2', 'password123');
+
+      auth.grantPermission({
+        subject: `user:${user1.id}`,
+        action: 'tool.a.execute',
+        resource: 'a',
+        effect: 'allow',
+      });
+      auth.grantPermission({
+        subject: `user:${user2.id}`,
+        action: 'tool.b.execute',
+        resource: 'b',
+        effect: 'allow',
+      });
+
+      const filtered = auth.listPolicies(`user:${user1.id}`);
+      expect(filtered).toHaveLength(1);
+      expect(filtered[0].subject).toBe(`user:${user1.id}`);
+    });
+  });
+
+  describe('convenience methods', () => {
+    it('canUseTool checks tool permission', async () => {
+      const user = await auth.createUser('tooluser', 'password123');
+      auth.grantPermission({
+        subject: `user:${user.id}`,
+        action: 'tool.run_command.execute',
+        resource: 'run_command',
+        effect: 'allow',
+      });
+
+      expect(auth.canUseTool(user.id, 'run_command')).toBe(true);
+    });
+
+    it('canUseLLM checks LLM provider permission', async () => {
+      const user = await auth.createUser('llmuser', 'password123');
+      auth.grantPermission({
+        subject: `user:${user.id}`,
+        action: 'llm.gemini.use',
+        resource: 'gemini',
+        effect: 'allow',
+      });
+
+      expect(auth.canUseLLM(user.id, 'gemini')).toBe(true);
+    });
+
+    it('canAccessPath checks filesystem path permission', async () => {
+      const user = await auth.createUser('fsuser', 'password123');
+      auth.grantPermission({
+        subject: `user:${user.id}`,
+        action: 'fs./home/agent_1.read',
+        resource: '/home/agent_1',
+        effect: 'allow',
+      });
+
+      expect(auth.canAccessPath(user.id, '/home/agent_1', 'read')).toBe(true);
+      // Write should be denied (no policy for write)
+      expect(auth.canAccessPath(user.id, '/home/agent_1', 'write')).toBe(false);
+    });
+
+    it('canUseTool returns false when denied', async () => {
+      const user = await auth.createUser('tooluser', 'password123');
+      auth.grantPermission({
+        subject: `user:${user.id}`,
+        action: 'tool.run_command.execute',
+        resource: 'run_command',
+        effect: 'deny',
+      });
+
+      expect(auth.canUseTool(user.id, 'run_command')).toBe(false);
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------

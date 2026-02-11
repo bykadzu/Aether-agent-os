@@ -2,14 +2,14 @@
 
 Consolidated checklist of all outstanding work, derived from NEXT_STEPS.md, FEATURES.md, all roadmaps, and the research documents. Organized by urgency and version target.
 
-**Last updated:** 2026-02-11 (v0.5 Phase 3 complete — Prometheus metrics, OpenTelemetry tracing, TLS enforcement, MFA/TOTP, webhook retry + DLQ, Helm chart)
+**Last updated:** 2026-02-11 (v0.5 Phase 4 complete — LangChain/OpenAI tool compat, fine-grained RBAC, PWA + responsive, bug fixes)
 
 ---
 
 ## Quick Wins (pre-v0.2, low effort / high impact)
 
 - [x] **Pre-commit hooks** — husky + lint-staged configured (eslint --fix + prettier on staged .ts/.tsx)
-- [ ] **Screenshots in README** — Add screenshots/GIFs of the UI to make the project more approachable. Capture: Mission Control grid, AgentVM with live terminal + plan tree, BrowserApp screencast, theme toggle, Memory Inspector, multi-workspace overview. Also add a "Current Status" badge/section at top (e.g., "v0.4.2 stable on Windows/macOS/Linux · v0.5 Phase 1 in progress") so visitors immediately understand maturity level. Highest-impact single task for contributor onboarding.
+- [x] **Screenshots in README** ✅ Added aetheros.jpeg + agentworking1.jpeg, shields.io badges (version, status, agents, license), v0.5 feature status table
 - [x] **Kernel boot banner** — Prints all 12 subsystems with status, port, FS root, cluster role on startup
 - [x] **Agent log export** — Download button in AgentVM control bar (JSON + plain text formats)
 - [x] **Loading skeleton for Mission Control** — Animated pulse skeleton cards during initial load
@@ -49,7 +49,7 @@ Consolidated checklist of all outstanding work, derived from NEXT_STEPS.md, FEAT
 
 **Infrastructure:**
 - [x] Production Dockerfile ✅ Dockerfile (kernel multi-stage), Dockerfile.ui (nginx), docker-compose.yml
-- [ ] Responsive/mobile layout (planned, may defer to v0.5)
+- [x] Responsive/mobile layout ✅ PWA support + responsive AgentDashboard, Dock, MenuBar, LoginScreen (v0.5 Phase 4)
 
 ---
 
@@ -197,9 +197,9 @@ Critical fixes to get agents actually running on Windows. These were identified 
 - [x] **Agent commands run on host** ✅ `run_command` now routes through `ContainerManager.exec()` when Docker container exists for the agent; falls back to child_process when Docker is unavailable. Lazy container creation supported.
 
 **Medium priority (usability):**
-- [ ] **ShortcutManager conflicts** — `Ctrl+1` through `Ctrl+9` keyboard shortcuts overwrite each other. *Fix: use workspace-specific or app-scoped shortcut registries; add conflict detection and logging.*
+- [x] **ShortcutManager conflicts** ✅ Scope-aware conflict detection, `setActiveScope()`, `getConflicts()`, cross-scope warnings — backward compatible
 - [ ] **Playwright not installed** — BrowserManager disabled; agents can't browse web. *Fix: add `npx playwright install --with-deps` to setup.sh or post-install script; add Dockerfile instruction.*
-- [ ] **Multiple WebSocket connections** — Browser sometimes opens 2+ connections (StrictMode, HMR). *Fix: implement session ID in connect handshake; reject duplicate connections or multiplex.*
+- [x] **Multiple WebSocket connections** ✅ Session ID per tab via sessionStorage, server-side session map closes old connections when same session reconnects (handles StrictMode + HMR)
 - [ ] **Agent home directory cleanup** — Spawned agent dirs under `C:\temp\aether\home\` not cleaned up on process exit. *Fix: hook into ProcessManager zombie→dead transition to rm -rf home dir (with safety checks, skip if snapshot exists).*
 
 ---
@@ -306,11 +306,14 @@ Full details in [ROADMAP-v0.5.md](./ROADMAP-v0.5.md).
 
 *Validation milestone: Deploy to cloud VM, Grafana dashboard shows all agent metrics, TLS terminates correctly, webhook failures retry and land in DLQ.*
 
-**Phase 4 — Ecosystem & Polish**
+**Phase 4 — Ecosystem & Polish** — **COMPLETE**
 > Focus: third-party integrations viable, mobile supervision possible.
-- Public OpenAPI + LangChain compatibility adapter
-- Fine-grained RBAC (per-tool/per-LLM)
-- PWA / responsiveness basics
+- [x] LangChain/OpenAI tool compatibility adapter ✅ ToolCompatLayer with import/export for LangChain + OpenAI function-calling formats, SQLite persistence, REST API, 32 tests
+- [x] Fine-grained RBAC (per-tool/per-LLM/per-directory) ✅ PermissionPolicy system with deny-overrides-allow, wildcard matching, role-based policies, convenience helpers (canUseTool/canUseLLM/canAccessPath), REST API, 52 tests
+- [x] PWA / responsiveness basics ✅ Web app manifest, service worker (cache-first static / network-only API), SVG icons, responsive AgentDashboard/Dock/MenuBar/LoginScreen
+- [x] ShortcutManager scope-aware conflict detection ✅ setActiveScope(), getConflicts(), cross-scope warnings
+- [x] WebSocket session deduplication ✅ Per-tab session ID, server-side old-connection eviction
+- [x] README screenshots + status badges ✅ aetheros.jpeg, agentworking1.jpeg, shields.io badges, v0.5 feature table
 
 *Validation milestone: External tool registered via LangChain adapter, mobile browser can view Mission Control and kill an agent.*
 
@@ -346,7 +349,7 @@ Full details in [ROADMAP-v0.5.md](./ROADMAP-v0.5.md).
 - [x] TLS everywhere (WebSocket + HTTP) ✅ HTTPS + WSS when TLS_CERT_PATH + TLS_KEY_PATH configured, auto-redirect HTTP→HTTPS
 - [x] MFA / TOTP support for user auth ✅ RFC 6238 TOTP with manual HMAC-SHA1, base32 secret encoding, setup/verify/enable flow, optional per-user
 - [ ] AppArmor/SELinux-style profiles for node-pty and Docker containers
-- [ ] Fine-grained RBAC expansion — per-tool, per-directory, per-LLM-provider permissions
+- [x] Fine-grained RBAC expansion — per-tool, per-directory, per-LLM-provider permissions ✅ PermissionPolicy system with deny-overrides-allow, wildcard matching, role-based policies, REST API (v0.5 Phase 4)
 - [x] Audit logging — every tool invocation logged to StateStore with caller, args, result hash ✅ AuditLogger subsystem with append-only audit_log table, sanitization, EventBus auto-logging, REST API, retention pruning
 - [ ] Secret management integration (HashiCorp Vault or native encrypted keyring)
 - [x] Rate limiting and circuit breakers on external integrations (GitHub, Slack, S3, Discord) ✅ In-memory sliding window rate limiter (120/min auth, 30/min unauth), HTTP 429 responses
@@ -372,8 +375,8 @@ Full details in [ROADMAP-v0.5.md](./ROADMAP-v0.5.md).
 
 ### Ecosystem & Interoperability
 - [ ] Publish OpenAPI spec publicly for third-party integrations
-- [ ] Compatibility layer for LangChain tools schema
-- [ ] OpenAI function calling format adapter for external tool registries
+- [x] Compatibility layer for LangChain tools schema ✅ ToolCompatLayer import/export (v0.5 Phase 4)
+- [x] OpenAI function calling format adapter for external tool registries ✅ ToolCompatLayer import/export (v0.5 Phase 4)
 - [x] Webhook retry with exponential backoff and dead letter queue ✅ WebhookManager retries (1s, 2s, 4s, 8s, 16s + jitter, 5 max), SQLite-backed DLQ, REST API for list/get/retry/purge
 
 ### Compliance & Governance
@@ -382,7 +385,7 @@ Full details in [ROADMAP-v0.5.md](./ROADMAP-v0.5.md).
 - [ ] Bias detection in agent outputs
 
 ### Mobile & Accessibility
-- [ ] PWA with responsive UI and push notifications
+- [x] PWA with responsive UI ✅ manifest.json, service worker, SVG icons, responsive components (v0.5 Phase 4). Push notifications deferred.
 - [ ] WCAG 2.1 AA compliance (screen reader, keyboard nav, high contrast)
 - [ ] Touch-friendly Mission Control for tablets
 
@@ -395,7 +398,7 @@ These items appear across multiple docs or were identified as gaps:
 | Item | Source | Notes |
 |------|--------|-------|
 | ~~Pre-commit hooks (husky)~~ | NEXT_STEPS.md | ✅ Done — husky + lint-staged configured |
-| Screenshots in README | NEXT_STEPS.md | High impact, low effort |
+| ~~Screenshots in README~~ | NEXT_STEPS.md | ✅ Done — badges, screenshots, status table in v0.5 Phase 4 |
 | ~~File-based memory MVP~~ | RESEARCH-openclaw-ideas.md | ✅ Done — full MemoryManager with FTS5 in v0.3 |
 | ~~Cron/scheduling detail~~ | RESEARCH-openclaw-ideas.md | ✅ Done — CronManager with cron parser + event triggers in v0.3 |
 | ~~Remote access~~ | RESEARCH-future-plans-summary.md | ✅ Done — RemoteAccessManager with SSH tunnels + Tailscale in v0.4 |

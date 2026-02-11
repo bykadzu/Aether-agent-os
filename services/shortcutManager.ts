@@ -6,24 +6,23 @@ export type ShortcutScope = 'global' | `app:${string}`;
 
 export interface ShortcutEntry {
   id: string;
-  combo: string;           // e.g. 'Cmd+K', 'Cmd+Shift+N', 'Alt+1'
+  combo: string; // e.g. 'Cmd+K', 'Cmd+Shift+N', 'Alt+1'
   handler: (e: KeyboardEvent) => void;
   description: string;
   scope: ShortcutScope;
-  group?: string;          // For overlay grouping: 'System', 'Window Management', etc.
+  group?: string; // For overlay grouping: 'System', 'Window Management', etc.
 }
 
 interface ParsedCombo {
-  mod: boolean;   // Cmd (Mac) or Ctrl (Win/Linux)
+  mod: boolean; // Cmd (Mac) or Ctrl (Win/Linux)
   shift: boolean;
   alt: boolean;
-  key: string;    // Lowercase key
+  key: string; // Lowercase key
 }
 
 // ── Platform detection ───────────────────────────────────────────────────────
 
-const isMac =
-  typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
+const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
 
 export function getModLabel(): string {
   return isMac ? '⌘' : 'Ctrl';
@@ -32,9 +31,7 @@ export function getModLabel(): string {
 // ── Combo parsing ────────────────────────────────────────────────────────────
 
 function parseCombo(combo: string): ParsedCombo {
-  const parts = combo
-    .split('+')
-    .map((p) => p.trim().toLowerCase());
+  const parts = combo.split('+').map((p) => p.trim().toLowerCase());
 
   return {
     mod: parts.includes('cmd') || parts.includes('ctrl'),
@@ -73,6 +70,7 @@ class ShortcutManager {
   private shortcuts = new Map<string, ShortcutEntry>();
   private listener: ((e: KeyboardEvent) => void) | null = null;
   private focusedAppId: string | null = null;
+  private activeScope: ShortcutScope = 'global';
 
   constructor() {
     this.attach();
@@ -88,12 +86,21 @@ class ShortcutManager {
     scope: ShortcutScope = 'global',
     group?: string,
   ): void {
-    // Conflict detection
+    // Conflict detection — check all existing shortcuts for same combo + scope
     const existing = this.findByComboAndScope(combo, scope);
     if (existing && existing.id !== id) {
+      const existingScope = existing.scope;
+      const newScope = scope;
       console.warn(
-        `[ShortcutManager] Combo "${combo}" (scope: ${scope}) conflicts with existing shortcut "${existing.id}". Overwriting.`,
+        `[ShortcutManager] Conflict: ${combo} already registered by ${existingScope}, overriding with ${newScope}`,
       );
+    }
+
+    // Also check for cross-scope conflicts on the same combo (informational)
+    const crossScope = this.findAllByCombo(combo).filter((e) => e.id !== id && e.scope !== scope);
+    if (crossScope.length > 0) {
+      const scopes = crossScope.map((e) => e.scope).join(', ');
+      console.warn(`[ShortcutManager] Note: ${combo} also registered in scope(s): ${scopes}`);
     }
 
     this.shortcuts.set(id, { id, combo, handler, description, scope, group });
@@ -105,6 +112,31 @@ class ShortcutManager {
 
   setFocusedApp(appId: string | null): void {
     this.focusedAppId = appId;
+    if (appId) {
+      this.activeScope = `app:${appId}`;
+    } else {
+      this.activeScope = 'global';
+    }
+  }
+
+  /**
+   * Set the active scope directly. Global shortcuts always fire;
+   * app-scoped shortcuts only fire when their scope matches the active scope.
+   */
+  setActiveScope(scope: ShortcutScope): void {
+    this.activeScope = scope;
+    if (scope === 'global') {
+      this.focusedAppId = null;
+    } else if (scope.startsWith('app:')) {
+      this.focusedAppId = scope.replace('app:', '');
+    }
+  }
+
+  /**
+   * Get the current active scope.
+   */
+  getActiveScope(): ShortcutScope {
+    return this.activeScope;
   }
 
   getAll(): ShortcutEntry[] {
@@ -114,10 +146,37 @@ class ShortcutManager {
   /** Return shortcuts that would be active right now (global + focused app). */
   getActive(): ShortcutEntry[] {
     return this.getAll().filter(
-      (s) =>
-        s.scope === 'global' ||
-        (this.focusedAppId && s.scope === `app:${this.focusedAppId}`),
+      (s) => s.scope === 'global' || (this.focusedAppId && s.scope === `app:${this.focusedAppId}`),
     );
+  }
+
+  /**
+   * Return a map of key combos that have multiple registrations.
+   * Key = normalized combo string, Value = array of scope strings that registered it.
+   * Useful for debugging shortcut conflicts.
+   */
+  getConflicts(): Map<string, string[]> {
+    const comboMap = new Map<string, Array<{ scope: string; id: string }>>();
+
+    for (const entry of this.shortcuts.values()) {
+      const parsed = parseCombo(entry.combo);
+      const normalizedKey = `${parsed.mod ? 'mod+' : ''}${parsed.shift ? 'shift+' : ''}${parsed.alt ? 'alt+' : ''}${parsed.key}`;
+      if (!comboMap.has(normalizedKey)) {
+        comboMap.set(normalizedKey, []);
+      }
+      comboMap.get(normalizedKey)!.push({ scope: entry.scope, id: entry.id });
+    }
+
+    const conflicts = new Map<string, string[]>();
+    for (const [combo, entries] of comboMap) {
+      if (entries.length > 1) {
+        conflicts.set(
+          combo,
+          entries.map((e) => `${e.id} (${e.scope})`),
+        );
+      }
+    }
+    return conflicts;
   }
 
   destroy(): void {
@@ -134,9 +193,7 @@ class ShortcutManager {
       // Don't intercept when typing in inputs/textareas/contenteditable
       const target = e.target as HTMLElement;
       const isInput =
-        target.tagName === 'INPUT' ||
-        target.tagName === 'TEXTAREA' ||
-        target.isContentEditable;
+        target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
 
       // Iterate from most recently registered to first (last wins)
       const entries = Array.from(this.shortcuts.values()).reverse();
@@ -165,10 +222,7 @@ class ShortcutManager {
     window.addEventListener('keydown', this.listener);
   }
 
-  private findByComboAndScope(
-    combo: string,
-    scope: ShortcutScope,
-  ): ShortcutEntry | undefined {
+  private findByComboAndScope(combo: string, scope: ShortcutScope): ShortcutEntry | undefined {
     const parsed = parseCombo(combo);
     for (const entry of this.shortcuts.values()) {
       if (entry.scope !== scope) continue;
@@ -183,6 +237,24 @@ class ShortcutManager {
       }
     }
     return undefined;
+  }
+
+  /** Find all shortcuts registered for the same combo (any scope). */
+  private findAllByCombo(combo: string): ShortcutEntry[] {
+    const parsed = parseCombo(combo);
+    const matches: ShortcutEntry[] = [];
+    for (const entry of this.shortcuts.values()) {
+      const entryParsed = parseCombo(entry.combo);
+      if (
+        entryParsed.mod === parsed.mod &&
+        entryParsed.shift === parsed.shift &&
+        entryParsed.alt === parsed.alt &&
+        entryParsed.key === parsed.key
+      ) {
+        matches.push(entry);
+      }
+    }
+    return matches;
   }
 }
 
@@ -218,9 +290,7 @@ export function useShortcut(
     group?: string;
   } = {},
 ): void {
-  const idRef = useRef(
-    options.id || `hook-${combo}-${Math.random().toString(36).slice(2, 8)}`,
-  );
+  const idRef = useRef(options.id || `hook-${combo}-${Math.random().toString(36).slice(2, 8)}`);
 
   useEffect(() => {
     const id = idRef.current;

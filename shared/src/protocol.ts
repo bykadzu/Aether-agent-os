@@ -220,6 +220,20 @@ export const ROLE_PERMISSIONS: Record<OrgRole, Permission[]> = {
   ],
 };
 
+// ---------------------------------------------------------------------------
+// Fine-grained Permission Policy (v0.5 Phase 4)
+// ---------------------------------------------------------------------------
+
+export interface PermissionPolicy {
+  id: string;
+  subject: string; // userId or roleId (e.g., 'user:abc123' or 'role:member')
+  action: string; // e.g., 'tool.run_command.execute', 'llm.gemini.use', 'fs./home/agent_1.read'
+  resource: string; // the resource path/name being controlled
+  effect: 'allow' | 'deny';
+  created_at: number;
+  created_by?: string; // userId who created this policy
+}
+
 export interface Organization {
   id: string;
   name: string;
@@ -1226,6 +1240,19 @@ export type KernelCommand =
   | { type: 'org.teams.addMember'; id: string; teamId: string; userId: string; role?: TeamRole }
   | { type: 'org.teams.removeMember'; id: string; teamId: string; userId: string }
 
+  // Permission Policy commands (v0.5 Phase 4)
+  | {
+      type: 'permission.grant';
+      id: string;
+      subject: string;
+      action: string;
+      resource: string;
+      effect: 'allow' | 'deny';
+    }
+  | { type: 'permission.revoke'; id: string; policyId: string }
+  | { type: 'permission.list'; id: string; subject?: string }
+  | { type: 'permission.check'; id: string; userId: string; action: string; resource: string }
+
   // Workspace (v0.5)
   | { type: 'workspace.list'; id: string }
   | { type: 'workspace.cleanup'; id: string; agentName: string }
@@ -1251,6 +1278,11 @@ export type KernelCommand =
         offset?: number;
       };
     }
+
+  // Tool Compatibility Layer (v0.5 Phase 4)
+  | { type: 'tools.import'; id: string; tools: any[]; format: 'langchain' | 'openai' }
+  | { type: 'tools.export'; id: string; format: 'langchain' | 'openai' }
+  | { type: 'tools.list'; id: string }
 
   // System
   | { type: 'kernel.status'; id: string }
@@ -1433,6 +1465,11 @@ type KernelEventBase =
   | { type: 'template.forked'; originalId: string; newId: string }
   | { type: 'template.marketplace.list'; templates: TemplateMarketplaceEntry[] }
 
+  // Permission Policy events (v0.5 Phase 4)
+  | { type: 'permission.granted'; policy: PermissionPolicy }
+  | { type: 'permission.revoked'; policyId: string }
+  | { type: 'permission.list'; policies: PermissionPolicy[] }
+
   // Organization events (v0.5)
   | { type: 'org.created'; org: Organization }
   | { type: 'org.deleted'; orgId: string }
@@ -1460,6 +1497,11 @@ type KernelEventBase =
 
   // Audit Logger events (v0.5)
   | { type: 'audit.entries'; entries: AuditEntryInfo[] }
+
+  // Tool Compatibility Layer events (v0.5 Phase 4)
+  | { type: 'tools.imported'; count: number; format: string; names: string[] }
+  | { type: 'tools.exported'; count: number; format: string }
+  | { type: 'tools.list'; tools: Array<{ name: string; source: string; description: string }> }
 
   // System events
   | { type: 'kernel.ready'; version: string; uptime: number }

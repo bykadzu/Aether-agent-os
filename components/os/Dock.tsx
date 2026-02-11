@@ -71,18 +71,19 @@ export const Dock: React.FC<DockProps> = ({ onAppClick, openApps }) => {
   ];
 
   return (
-    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-[1000]">
-      <div className="bg-glass-300 backdrop-blur-xl border border-white/20 px-4 py-3 rounded-3xl shadow-2xl flex items-end gap-4 transition-all hover:scale-105 duration-300">
+    <div className="absolute bottom-2 sm:bottom-4 left-1/2 -translate-x-1/2 z-[1000] max-w-[calc(100vw-1rem)] sm:max-w-none">
+      <div className="bg-glass-300 backdrop-blur-xl border border-white/20 px-2 sm:px-4 py-2 sm:py-3 rounded-2xl sm:rounded-3xl shadow-2xl flex items-end gap-1.5 sm:gap-4 transition-all hover:scale-105 duration-300 overflow-x-auto">
         {apps.map((app) => (
           <button
             key={app.id}
             onClick={() => onAppClick(app.id)}
-            className="group relative flex flex-col items-center gap-1 transition-all hover:-translate-y-2 duration-300"
+            className="group relative flex flex-col items-center gap-1 transition-all hover:-translate-y-2 duration-300 shrink-0"
           >
             <div
-              className={`w-12 h-12 rounded-2xl ${app.color} shadow-lg flex items-center justify-center border border-white/30 transition-transform active:scale-95`}
+              className={`w-9 h-9 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl ${app.color} shadow-lg flex items-center justify-center border border-white/30 transition-transform active:scale-95`}
             >
-              <app.icon size={24} />
+              <app.icon size={18} className="sm:hidden" />
+              <app.icon size={24} className="hidden sm:block" />
             </div>
             {openApps.some((id) => id.startsWith(app.id)) && (
               <div className="w-1 h-1 bg-black/40 rounded-full absolute -bottom-2"></div>
@@ -93,14 +94,15 @@ export const Dock: React.FC<DockProps> = ({ onAppClick, openApps }) => {
           </button>
         ))}
 
-        <div className="w-[1px] h-10 bg-white/20 mx-1"></div>
+        <div className="w-[1px] h-8 sm:h-10 bg-white/20 mx-0.5 sm:mx-1 shrink-0"></div>
 
         <button
           onClick={() => onAppClick(AppID.SETTINGS)}
-          className="group relative flex flex-col items-center gap-1 transition-all hover:-translate-y-2 duration-300"
+          className="group relative flex flex-col items-center gap-1 transition-all hover:-translate-y-2 duration-300 shrink-0"
         >
-          <div className="w-12 h-12 rounded-2xl bg-gray-200 text-gray-600 shadow-lg flex items-center justify-center border border-white/30 transition-transform active:scale-95">
-            <SettingsIcon size={24} />
+          <div className="w-9 h-9 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-gray-200 text-gray-600 shadow-lg flex items-center justify-center border border-white/30 transition-transform active:scale-95">
+            <SettingsIcon size={18} className="sm:hidden" />
+            <SettingsIcon size={24} className="hidden sm:block" />
           </div>
           {openApps.some((id) => id.startsWith(AppID.SETTINGS)) && (
             <div className="w-1 h-1 bg-black/40 rounded-full absolute -bottom-2"></div>

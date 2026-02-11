@@ -8,7 +8,12 @@ interface LoginScreenProps {
   error?: string | null;
 }
 
-export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, onRegister, registrationOpen = true, error: externalError }) => {
+export const LoginScreen: React.FC<LoginScreenProps> = ({
+  onLogin,
+  onRegister,
+  registrationOpen = true,
+  error: externalError,
+}) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -45,13 +50,21 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, onRegister, r
     try {
       let success: boolean;
       if (isRegister && onRegister) {
-        success = await onRegister(username.trim(), password, displayName.trim() || username.trim());
+        success = await onRegister(
+          username.trim(),
+          password,
+          displayName.trim() || username.trim(),
+        );
       } else {
         success = await onLogin(username.trim(), password);
       }
 
       if (!success) {
-        setError(isRegister ? 'Registration failed. Username may already exist.' : 'Invalid username or password.');
+        setError(
+          isRegister
+            ? 'Registration failed. Username may already exist.'
+            : 'Invalid username or password.',
+        );
         triggerShake();
       }
     } catch (err: any) {
@@ -76,7 +89,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, onRegister, r
 
       {/* Login card */}
       <div
-        className={`relative z-10 w-full max-w-sm mx-4 transition-transform ${
+        className={`relative z-10 w-full max-w-sm mx-auto px-4 transition-transform ${
           shake ? 'animate-[shake_0.5s_ease-in-out]' : ''
         }`}
       >
@@ -88,16 +101,22 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, onRegister, r
               <span className="text-3xl select-none">&#9678;</span>
             </div>
             <h1 className="text-white text-xl font-light tracking-wide">Aether OS</h1>
-            <p className="text-white/50 text-xs mt-1">{isRegister ? 'Create your account' : 'Sign in to continue'}</p>
+            <p className="text-white/50 text-xs mt-1">
+              {isRegister ? 'Create your account' : 'Sign in to continue'}
+            </p>
           </div>
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="px-8 pb-8 space-y-4">
             {/* Username */}
-            <div className={`relative transition-all duration-200 ${focusedField === 'username' ? 'scale-[1.02]' : ''}`}>
-              <div className={`flex items-center bg-white/10 rounded-xl border transition-colors ${
-                focusedField === 'username' ? 'border-indigo-400/50' : 'border-white/10'
-              }`}>
+            <div
+              className={`relative transition-all duration-200 ${focusedField === 'username' ? 'scale-[1.02]' : ''}`}
+            >
+              <div
+                className={`flex items-center bg-white/10 rounded-xl border transition-colors ${
+                  focusedField === 'username' ? 'border-indigo-400/50' : 'border-white/10'
+                }`}
+              >
                 <User size={16} className="ml-4 text-white/40 shrink-0" />
                 <input
                   ref={usernameRef}
@@ -116,10 +135,14 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, onRegister, r
 
             {/* Display Name (register only) */}
             {isRegister && (
-              <div className={`relative transition-all duration-200 ${focusedField === 'displayName' ? 'scale-[1.02]' : ''}`}>
-                <div className={`flex items-center bg-white/10 rounded-xl border transition-colors ${
-                  focusedField === 'displayName' ? 'border-indigo-400/50' : 'border-white/10'
-                }`}>
+              <div
+                className={`relative transition-all duration-200 ${focusedField === 'displayName' ? 'scale-[1.02]' : ''}`}
+              >
+                <div
+                  className={`flex items-center bg-white/10 rounded-xl border transition-colors ${
+                    focusedField === 'displayName' ? 'border-indigo-400/50' : 'border-white/10'
+                  }`}
+                >
                   <UserPlus size={16} className="ml-4 text-white/40 shrink-0" />
                   <input
                     type="text"
@@ -136,10 +159,14 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, onRegister, r
             )}
 
             {/* Password */}
-            <div className={`relative transition-all duration-200 ${focusedField === 'password' ? 'scale-[1.02]' : ''}`}>
-              <div className={`flex items-center bg-white/10 rounded-xl border transition-colors ${
-                focusedField === 'password' ? 'border-indigo-400/50' : 'border-white/10'
-              }`}>
+            <div
+              className={`relative transition-all duration-200 ${focusedField === 'password' ? 'scale-[1.02]' : ''}`}
+            >
+              <div
+                className={`flex items-center bg-white/10 rounded-xl border transition-colors ${
+                  focusedField === 'password' ? 'border-indigo-400/50' : 'border-white/10'
+                }`}
+              >
                 <Lock size={16} className="ml-4 text-white/40 shrink-0" />
                 <input
                   type="password"

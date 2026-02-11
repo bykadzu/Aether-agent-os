@@ -43,6 +43,7 @@ import { ResourceGovernor } from './ResourceGovernor.js';
 import { AuditLogger } from './AuditLogger.js';
 import { ModelRouter } from './ModelRouter.js';
 import { MetricsExporter } from './MetricsExporter.js';
+import { ToolCompatLayer } from './ToolCompatLayer.js';
 import {
   KernelCommand,
   KernelEvent,
@@ -80,6 +81,7 @@ export class Kernel {
   readonly audit: AuditLogger;
   readonly modelRouter: ModelRouter;
   readonly metrics: MetricsExporter;
+  readonly toolCompat: ToolCompatLayer;
 
   private startTime: number;
   private running = false;
@@ -109,6 +111,7 @@ export class Kernel {
     this.audit = new AuditLogger(this.bus, this.state);
     this.modelRouter = new ModelRouter();
     this.metrics = new MetricsExporter(this.bus, this.processes, this.resources);
+    this.toolCompat = new ToolCompatLayer(this.bus, this.state);
     this.snapshots = new SnapshotManager(
       this.bus,
       this.processes,
@@ -259,6 +262,10 @@ export class Kernel {
     // Initialize metrics exporter (subscribes to EventBus)
     this.metrics.init();
     console.log('[Kernel] Metrics exporter initialized');
+
+    // Initialize tool compatibility layer
+    await this.toolCompat.init();
+    console.log('[Kernel] Tool compatibility layer initialized');
 
     // Listen for process cleanup events to remove agent home directories
     this.bus.on('process.cleanup', async (data: { pid: number; uid: string; cwd: string }) => {
@@ -2083,11 +2090,102 @@ export class Kernel {
           break;
         }
 
+        // ----- Permission Policy Commands (v0.5 Phase 4) -----
+        case 'permission.grant': {
+          try {
+            const policy = this.auth.grantPermission({
+              subject: (cmd as any).subject,
+              action: (cmd as any).action,
+              resource: (cmd as any).resource,
+              effect: (cmd as any).effect,
+              created_by: user?.id,
+            });
+            events.push({ type: 'response.ok', id: cmd.id, data: policy });
+            events.push({ type: 'permission.granted', policy } as KernelEvent);
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        case 'permission.revoke': {
+          try {
+            const deleted = this.auth.revokePermission((cmd as any).policyId);
+            if (deleted) {
+              events.push({ type: 'response.ok', id: cmd.id });
+              events.push({
+                type: 'permission.revoked',
+                policyId: (cmd as any).policyId,
+              } as KernelEvent);
+            } else {
+              events.push({ type: 'response.error', id: cmd.id, error: 'Policy not found' });
+            }
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        case 'permission.list': {
+          const policies = this.auth.listPolicies((cmd as any).subject);
+          events.push({ type: 'response.ok', id: cmd.id, data: policies });
+          events.push({ type: 'permission.list', policies } as KernelEvent);
+          break;
+        }
+
+        case 'permission.check': {
+          const allowed = this.auth.checkPermission(
+            (cmd as any).userId,
+            (cmd as any).action,
+            (cmd as any).resource,
+          );
+          events.push({ type: 'response.ok', id: cmd.id, data: { allowed } });
+          break;
+        }
+
         // ----- Audit Logger Commands (v0.5) -----
         case 'audit.query': {
           const result = this.audit.query(cmd.filters || {});
           events.push({ type: 'response.ok', id: cmd.id, data: result });
           events.push({ type: 'audit.entries', entries: result.entries } as KernelEvent);
+          break;
+        }
+
+        // ----- Tool Compatibility Layer Commands (v0.5 Phase 4) -----
+        case 'tools.import': {
+          try {
+            const imported = this.toolCompat.importTools(cmd.tools, cmd.format);
+            events.push({ type: 'response.ok', id: cmd.id, data: imported });
+            events.push({
+              type: 'tools.imported',
+              count: imported.length,
+              format: cmd.format,
+              names: imported.map((t: any) => t.name),
+            } as KernelEvent);
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        case 'tools.export': {
+          const exported = this.toolCompat.exportTools(cmd.format);
+          events.push({ type: 'response.ok', id: cmd.id, data: exported });
+          events.push({
+            type: 'tools.exported',
+            count: exported.length,
+            format: cmd.format,
+          } as KernelEvent);
+          break;
+        }
+
+        case 'tools.list': {
+          const toolsList = this.toolCompat.listTools();
+          events.push({ type: 'response.ok', id: cmd.id, data: toolsList });
+          events.push({
+            type: 'tools.list',
+            tools: toolsList,
+          } as KernelEvent);
           break;
         }
 
@@ -2165,6 +2263,7 @@ export class Kernel {
       ['AuditLogger', true],
       ['ModelRouter', true],
       ['MetricsExporter', true],
+      ['ToolCompatLayer', true],
     ];
 
     const port = process.env.AETHER_PORT || String(DEFAULT_PORT);
@@ -2227,6 +2326,7 @@ export class Kernel {
     }
 
     await this.remoteAccess.shutdown();
+    this.toolCompat.shutdown();
     this.metrics.shutdown();
     this.audit.shutdown();
     this.modelRouter.shutdown();

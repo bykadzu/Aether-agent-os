@@ -1422,15 +1422,17 @@ const App: React.FC = () => {
           </span>
           <span className="hidden sm:inline opacity-70 hover:opacity-100 cursor-pointer">Help</span>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2 sm:gap-4">
           {/* Workspace Switcher */}
-          <WorkspaceSwitcher
-            currentWorkspace={currentWorkspace}
-            totalWorkspaces={totalWorkspaces}
-            windowCounts={workspaceWindowCounts}
-            onSwitch={(idx) => switchWorkspace(idx)}
-            onShowOverview={() => setShowWorkspaceOverview(true)}
-          />
+          <div className="hidden sm:block">
+            <WorkspaceSwitcher
+              currentWorkspace={currentWorkspace}
+              totalWorkspaces={totalWorkspaces}
+              windowCounts={workspaceWindowCounts}
+              onSwitch={(idx) => switchWorkspace(idx)}
+              onShowOverview={() => setShowWorkspaceOverview(true)}
+            />
+          </div>
           {/* Kernel Status Indicator */}
           <div
             className="flex items-center gap-1.5"
@@ -1443,7 +1445,9 @@ const App: React.FC = () => {
             <div
               className={`w-1.5 h-1.5 rounded-full ${kernel.connected ? 'bg-green-400' : 'bg-orange-400'}`}
             />
-            <span className="text-[10px] opacity-60">{kernel.connected ? 'Kernel' : 'Mock'}</span>
+            <span className="text-[10px] opacity-60 hidden sm:inline">
+              {kernel.connected ? 'Kernel' : 'Mock'}
+            </span>
           </div>
           <button
             onClick={(e) => {
@@ -1453,15 +1457,15 @@ const App: React.FC = () => {
             className="flex items-center gap-1 bg-white/10 hover:bg-white/20 px-2 py-0.5 rounded transition-colors"
           >
             <Search size={12} />
-            <span className="opacity-70">Search</span>
-            <div className="flex items-center text-[10px] opacity-50 ml-1">
+            <span className="opacity-70 hidden sm:inline">Search</span>
+            <div className="hidden sm:flex items-center text-[10px] opacity-50 ml-1">
               <Command size={10} />
               <span>K</span>
             </div>
           </button>
           {/* Cluster Status Badge */}
           {kernel.clusterInfo && kernel.clusterInfo.role !== 'standalone' && (
-            <div className="flex items-center gap-1 bg-white/5 px-2 py-0.5 rounded text-[10px]">
+            <div className="hidden md:flex items-center gap-1 bg-white/5 px-2 py-0.5 rounded text-[10px]">
               <Server size={10} className="text-indigo-400" />
               <span className="opacity-60">
                 {kernel.clusterInfo.role === 'hub'
@@ -1470,10 +1474,12 @@ const App: React.FC = () => {
               </span>
             </div>
           )}
-          <ThemeToggle />
+          <div className="hidden sm:block">
+            <ThemeToggle />
+          </div>
           <NotificationBell />
-          <Wifi size={14} />
-          <Battery size={14} />
+          <Wifi size={14} className="hidden sm:block" />
+          <Battery size={14} className="hidden sm:block" />
           <span>{time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
           {/* User Menu */}
           {authUser && (

@@ -3,15 +3,45 @@
 
 # Aether OS
 
-**A purpose-built operating system for AI agents.**
+**AI-Native Operating System for Autonomous Agents**
 
-Real processes. Real filesystems. Real terminals. Beautiful UI.
+![Version](https://img.shields.io/badge/version-v0.5-blue)
+![Status](https://img.shields.io/badge/status-Phase%204%20Complete-brightgreen)
+![Agents](https://img.shields.io/badge/agents-100%2B%20concurrent-purple)
+![License](https://img.shields.io/badge/license-MIT-green)
 
 [![CI](https://github.com/bykadzu/Aether-agent-os/actions/workflows/ci.yml/badge.svg)](https://github.com/bykadzu/Aether-agent-os/actions/workflows/ci.yml)
+
+A full-stack operating system that runs AI agents in isolated Docker containers with graphical Linux desktops, human VNC takeover, and a web-based Control Plane.
 
 [Getting Started](#getting-started) | [Architecture](#architecture) | [How It Works](#how-it-works) | [Roadmap](#roadmap)
 
 </div>
+
+---
+
+## Screenshots
+
+### Mission Control — Agent Management Dashboard
+![Aether OS Dashboard](aetheros.jpeg)
+
+### Agent Working — Live Terminal & Plan View
+![Agent Working](agentworking1.jpeg)
+
+## Current Status (v0.5)
+
+| Feature | Status |
+|---------|--------|
+| Docker Desktop Containers | Implemented |
+| VNC Human Takeover | Implemented |
+| 18+ Desktop Apps | Implemented |
+| Agent Memory (4-layer) | Implemented |
+| Prometheus Metrics | Implemented |
+| TLS + MFA/TOTP | Implemented |
+| Helm Chart | Implemented |
+| LangChain/OpenAI Tool Compat | Implemented |
+| Fine-grained RBAC | Implemented |
+| PWA Support | Implemented |
 
 ---
 
@@ -539,15 +569,14 @@ The host OS itself is a full desktop environment:
 - [x] Embeddable `<aether-agent>` Web Component with shadow DOM and dark/light themes
 - [x] OpenAPI 3.0 spec served at `/api/v1/openapi.json`
 
-### Up Next (v0.5 — Production & Scale)
-
-- [ ] Deployment & packaging (Docker, Compose, Helm, Electron, cloud templates)
-- [ ] Database evolution (PostgreSQL migration, event sourcing)
-- [ ] Scaling (stateless kernel, load balancer, auto-scaling)
-- [ ] Security hardening (TLS, MFA, capability-based permissions)
-- [ ] Observability (Prometheus, Grafana, OpenTelemetry)
-- [ ] Mobile (PWA, responsive UI, push notifications)
-- [ ] Accessibility (WCAG 2.1 AA, screen reader, keyboard nav)
+**v0.5 — Production & Scale:**
+- [x] Deployment & packaging (Docker, Compose, Helm chart)
+- [x] Security hardening (TLS, MFA/TOTP, capability-based permissions)
+- [x] Observability (Prometheus metrics, OpenTelemetry tracing)
+- [x] Resource governance, audit logging, context compaction, sandbox enforcement
+- [x] Event dedup, atomic snapshots, priority scheduling, model routing, WS batching
+- [x] Webhook retry + DLQ, shortcut conflict detection, WebSocket session dedup
+- [x] PWA support, lazy loading
 
 ## Snapshots (Agent Checkpoints)
 

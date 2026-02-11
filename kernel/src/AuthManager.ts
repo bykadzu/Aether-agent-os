@@ -22,6 +22,7 @@ import {
   Team,
   OrgMember,
   TeamMember,
+  PermissionPolicy,
 } from '@aether/shared';
 
 interface TokenPayload {
@@ -873,6 +874,177 @@ export class AuthManager {
   getUserRole(userId: string, orgId: string): OrgRole | null {
     const member = this.store.getOrgMember(orgId, userId);
     return member ? (member.role as OrgRole) : null;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Fine-Grained Permission Policies (v0.5 Phase 4)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Grant a permission policy. Returns the created PermissionPolicy.
+   */
+  grantPermission(policy: Omit<PermissionPolicy, 'id' | 'created_at'>): PermissionPolicy {
+    const id = crypto.randomUUID();
+    const now = Date.now();
+
+    const record = {
+      id,
+      subject: policy.subject,
+      action: policy.action,
+      resource: policy.resource,
+      effect: policy.effect,
+      created_at: now,
+      created_by: policy.created_by || null,
+    };
+
+    this.store.insertPermissionPolicy(record);
+
+    const result: PermissionPolicy = {
+      id,
+      subject: policy.subject,
+      action: policy.action,
+      resource: policy.resource,
+      effect: policy.effect,
+      created_at: now,
+      created_by: policy.created_by,
+    };
+
+    this.bus.emit('permission.granted', { policy: result });
+    return result;
+  }
+
+  /**
+   * Revoke a permission policy by ID.
+   */
+  revokePermission(policyId: string): boolean {
+    const deleted = this.store.deletePermissionPolicy(policyId);
+    if (deleted) {
+      this.bus.emit('permission.revoked', { policyId });
+    }
+    return deleted;
+  }
+
+  /**
+   * List permission policies, optionally filtered by subject.
+   */
+  listPolicies(subject?: string): PermissionPolicy[] {
+    let rows: any[];
+    if (subject) {
+      rows = this.store.getPermissionPoliciesForSubject(subject);
+    } else {
+      rows = this.store.getAllPermissionPolicies();
+    }
+    return rows.map((r: any) => ({
+      id: r.id,
+      subject: r.subject,
+      action: r.action,
+      resource: r.resource,
+      effect: r.effect as 'allow' | 'deny',
+      created_at: r.created_at,
+      created_by: r.created_by || undefined,
+    }));
+  }
+
+  /**
+   * Check if a user has a specific fine-grained permission.
+   *
+   * Algorithm (deny-by-default):
+   * 1. Collect all policies matching the user directly ('user:X') AND matching
+   *    any org roles the user has ('role:Y').
+   * 2. If any policy with effect='deny' matches action+resource -> false.
+   * 3. If any policy with effect='allow' matches action+resource -> true.
+   * 4. Otherwise -> false (deny-by-default).
+   *
+   * Backward compatibility: if no policies exist for a user at all, fall back
+   * to existing behavior (admin=allow everything, use ROLE_PERMISSIONS for org members).
+   */
+  checkPermission(userId: string, action: string, resource: string): boolean {
+    // System admin bypasses all fine-grained checks
+    const user = this.store.getUserById(userId);
+    if (!user) return false;
+    if (user.role === 'admin') return true;
+
+    // Collect all subjects this user maps to
+    const subjects: string[] = [`user:${userId}`];
+
+    // Add role-based subjects from all orgs the user belongs to
+    const userOrgs = this.store.getOrgsByUser(userId);
+    for (const org of userOrgs) {
+      const member = this.store.getOrgMember(org.id, userId);
+      if (member) {
+        subjects.push(`role:${member.role}`);
+      }
+    }
+
+    // Collect all matching policies across all subjects
+    const allPolicies: PermissionPolicy[] = [];
+    for (const subject of subjects) {
+      const policies = this.store.getPermissionPoliciesForSubject(subject);
+      allPolicies.push(...policies);
+    }
+
+    // If no policies exist at all for this user, fall back to existing behavior
+    if (allPolicies.length === 0) {
+      return true; // backward compat: no policies = allow (existing RBAC still applies)
+    }
+
+    // Filter to policies that match the action+resource (supporting wildcards)
+    const matchingPolicies = allPolicies.filter(
+      (p) => this.matchesPattern(p.action, action) && this.matchesPattern(p.resource, resource),
+    );
+
+    // Deny overrides allow
+    if (matchingPolicies.some((p) => p.effect === 'deny')) {
+      return false;
+    }
+
+    // Check for allow
+    if (matchingPolicies.some((p) => p.effect === 'allow')) {
+      return true;
+    }
+
+    // Deny by default
+    return false;
+  }
+
+  /**
+   * Convenience: check if a user can use a specific tool.
+   */
+  canUseTool(userId: string, toolName: string): boolean {
+    return this.checkPermission(userId, `tool.${toolName}.execute`, toolName);
+  }
+
+  /**
+   * Convenience: check if a user can use a specific LLM provider.
+   */
+  canUseLLM(userId: string, provider: string): boolean {
+    return this.checkPermission(userId, `llm.${provider}.use`, provider);
+  }
+
+  /**
+   * Convenience: check if a user can access a filesystem path.
+   */
+  canAccessPath(userId: string, filePath: string, mode: 'read' | 'write'): boolean {
+    return this.checkPermission(userId, `fs.${filePath}.${mode}`, filePath);
+  }
+
+  /**
+   * Match a pattern against a value, supporting '*' wildcards.
+   * e.g., 'tool.*.execute' matches 'tool.run_command.execute'
+   */
+  private matchesPattern(pattern: string, value: string): boolean {
+    if (pattern === '*') return true;
+    if (pattern === value) return true;
+
+    // Convert glob-style pattern to regex
+    // Escape regex special chars, then replace \* with [^.]* (match within dot-segments)
+    const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regexStr = '^' + escaped.replace(/\\\*/g, '[^.]*') + '$';
+    try {
+      return new RegExp(regexStr).test(value);
+    } catch {
+      return pattern === value;
+    }
   }
 
   // ---------------------------------------------------------------------------

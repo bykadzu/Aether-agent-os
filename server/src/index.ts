@@ -199,6 +199,9 @@ function isPublicPath(pathname: string, method: string): boolean {
   if (pathname === '/api/v1/integrations/slack/events' && method === 'POST') return true;
   if (pathname === '/embed/aether-embed.js') return true;
   if (pathname === '/metrics') return true;
+  if (pathname === '/manifest.json') return true;
+  if (pathname === '/sw.js') return true;
+  if (pathname.startsWith('/icons/')) return true;
   return false;
 }
 
@@ -391,6 +394,87 @@ const requestHandler = async (req: IncomingMessage, res: ServerResponse) => {
     } catch {
       res.writeHead(404, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Embed bundle not found. Run: cd embed && npm run build' }));
+    }
+    return;
+  }
+
+  // ----- PWA Static Files (public, no auth required) -----
+
+  if (url.pathname === '/manifest.json') {
+    const manifestPath = nodePath.join(
+      nodePath.dirname(new URL(import.meta.url).pathname),
+      '../../public/manifest.json',
+    );
+    const normalizedPath =
+      process.platform === 'win32' ? manifestPath.replace(/^\/([A-Z]:)/i, '$1') : manifestPath;
+    try {
+      const content = nodeFs.readFileSync(normalizedPath, 'utf-8');
+      res.writeHead(200, {
+        'Content-Type': 'application/manifest+json',
+        'Cache-Control': 'public, max-age=86400',
+      });
+      res.end(content);
+    } catch {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'manifest.json not found' }));
+    }
+    return;
+  }
+
+  if (url.pathname === '/sw.js') {
+    const swPath = nodePath.join(
+      nodePath.dirname(new URL(import.meta.url).pathname),
+      '../../public/sw.js',
+    );
+    const normalizedPath =
+      process.platform === 'win32' ? swPath.replace(/^\/([A-Z]:)/i, '$1') : swPath;
+    try {
+      const content = nodeFs.readFileSync(normalizedPath, 'utf-8');
+      res.writeHead(200, {
+        'Content-Type': 'application/javascript',
+        'Service-Worker-Allowed': '/',
+        'Cache-Control': 'no-cache',
+      });
+      res.end(content);
+    } catch {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'sw.js not found' }));
+    }
+    return;
+  }
+
+  if (url.pathname.startsWith('/icons/')) {
+    const iconFile = url.pathname.replace(/^\/icons\//, '');
+    // Prevent path traversal
+    if (iconFile.includes('..') || iconFile.includes('/')) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Forbidden' }));
+      return;
+    }
+    const iconPath = nodePath.join(
+      nodePath.dirname(new URL(import.meta.url).pathname),
+      '../../public/icons',
+      iconFile,
+    );
+    const normalizedPath =
+      process.platform === 'win32' ? iconPath.replace(/^\/([A-Z]:)/i, '$1') : iconPath;
+    try {
+      const content = nodeFs.readFileSync(normalizedPath);
+      const ext = nodePath.extname(iconFile).toLowerCase();
+      const contentType =
+        ext === '.svg'
+          ? 'image/svg+xml'
+          : ext === '.png'
+            ? 'image/png'
+            : 'application/octet-stream';
+      res.writeHead(200, {
+        'Content-Type': contentType,
+        'Cache-Control': 'public, max-age=604800',
+      });
+      res.end(content);
+    } catch {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Icon not found' }));
     }
     return;
   }
@@ -1236,7 +1320,13 @@ const wss = new WebSocketServer({
 interface AuthenticatedClient {
   ws: WebSocket;
   user: UserInfo | null;
+  sessionId?: string;
 }
+
+/** Map of session ID -> WebSocket for deduplicating connections from the same browser tab.
+ *  When a new connection arrives with a session ID that already exists (e.g. HMR reload),
+ *  the old connection is closed gracefully so only one connection per tab is active. */
+const sessionMap = new Map<string, WebSocket>();
 
 // ---------------------------------------------------------------------------
 // WebSocket Event Batching
@@ -1309,17 +1399,32 @@ wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
   // Authenticate via query param token
   const url = new URL(req.url || '/', `http://localhost:${PORT}`);
   const token = url.searchParams.get('token');
+  const sessionId = url.searchParams.get('session') || undefined;
   let user: UserInfo | null = null;
 
   if (token) {
     user = kernel.auth.validateToken(token);
   }
 
-  clients.set(ws, { ws, user });
+  // Session dedup: if a connection with the same session ID already exists,
+  // close the OLD connection (the new one replaces it). This handles HMR
+  // reconnects and React StrictMode double-mounts gracefully.
+  if (sessionId) {
+    const existingWs = sessionMap.get(sessionId);
+    if (existingWs && existingWs !== ws && existingWs.readyState !== WebSocket.CLOSED) {
+      console.log(`[Server] Closing stale connection for session ${sessionId}`);
+      destroyBuffer(existingWs);
+      clients.delete(existingWs);
+      existingWs.close(4000, 'Superseded by new connection from same session');
+    }
+    sessionMap.set(sessionId, ws);
+  }
+
+  clients.set(ws, { ws, user, sessionId });
   initBuffer(ws);
   kernel.metrics.setWsConnections(clients.size);
   console.log(
-    `[Server] Client connected (${clients.size} total)${user ? ` as ${user.username}` : ' (unauthenticated)'}`,
+    `[Server] Client connected (${clients.size} total)${user ? ` as ${user.username}` : ' (unauthenticated)'}${sessionId ? ` session=${sessionId.substring(0, 8)}...` : ''}`,
   );
 
   // Send kernel ready event (immediate — initial handshake)
@@ -1412,6 +1517,11 @@ wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
 
   ws.on('close', (code, reason) => {
     destroyBuffer(ws);
+    // Clean up session map only if this ws is still the active one for the session
+    const clientInfo = clients.get(ws);
+    if (clientInfo?.sessionId && sessionMap.get(clientInfo.sessionId) === ws) {
+      sessionMap.delete(clientInfo.sessionId);
+    }
     clients.delete(ws);
     kernel.metrics.setWsConnections(clients.size);
     console.log(
@@ -1422,6 +1532,10 @@ wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
   ws.on('error', (err) => {
     console.error('[Server] WebSocket error:', err.message);
     destroyBuffer(ws);
+    const clientInfo = clients.get(ws);
+    if (clientInfo?.sessionId && sessionMap.get(clientInfo.sessionId) === ws) {
+      sessionMap.delete(clientInfo.sessionId);
+    }
     clients.delete(ws);
     kernel.metrics.setWsConnections(clients.size);
   });

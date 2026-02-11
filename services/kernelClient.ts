@@ -132,6 +132,23 @@ interface PendingRequest {
   timeout: ReturnType<typeof setTimeout>;
 }
 
+/** Get or create a stable session ID for this browser tab.
+ *  Uses sessionStorage so the ID persists across HMR/page reloads
+ *  but is unique per tab. */
+function getSessionId(): string {
+  const STORAGE_KEY = 'aether_ws_session_id';
+  let id = sessionStorage.getItem(STORAGE_KEY);
+  if (!id) {
+    // crypto.randomUUID is available in all modern browsers; fallback for older ones
+    id =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : 'sess_' + Math.random().toString(36).substring(2) + Date.now().toString(36);
+    sessionStorage.setItem(STORAGE_KEY, id);
+  }
+  return id;
+}
+
 export class KernelClient {
   private ws: WebSocket | null = null;
   private url: string;
@@ -144,9 +161,11 @@ export class KernelClient {
   private _version: string = '';
   private _token: string | null = null;
   private _currentUser: UserInfo | null = null;
+  private _sessionId: string;
 
   constructor(url?: string) {
     this.url = url || DEFAULT_WS_URL;
+    this._sessionId = getSessionId();
   }
 
   // -----------------------------------------------------------------------
@@ -161,7 +180,12 @@ export class KernelClient {
       return;
 
     try {
-      const wsUrl = this._token ? `${this.url}?token=${encodeURIComponent(this._token)}` : this.url;
+      // Build WS URL with session ID (for server-side dedup) and optional auth token
+      const separator = this.url.includes('?') ? '&' : '?';
+      let wsUrl = `${this.url}${separator}session=${encodeURIComponent(this._sessionId)}`;
+      if (this._token) {
+        wsUrl += `&token=${encodeURIComponent(this._token)}`;
+      }
       this.ws = new WebSocket(wsUrl);
 
       this.ws.onopen = () => {
