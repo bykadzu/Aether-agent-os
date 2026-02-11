@@ -53,6 +53,8 @@ export interface Webhook {
   failure_count: number;
 }
 
+export type DeliveryStatus = 'pending' | 'delivering' | 'delivered' | 'failed';
+
 export interface WebhookLog {
   id: number;
   webhook_id: string;
@@ -62,7 +64,19 @@ export interface WebhookLog {
   response_body?: string;
   duration_ms?: number;
   success: boolean;
+  delivery_status: DeliveryStatus;
   created_at: number;
+}
+
+export interface DlqEntry {
+  id: string;
+  webhook_id: string;
+  event_type: string;
+  payload: string;
+  error: string | null;
+  attempts: number;
+  created_at: number;
+  retried_at: number | null;
 }
 
 export interface InboundWebhook {
@@ -253,6 +267,7 @@ export class WebhookManager {
     return rows.map((row) => ({
       ...row,
       success: Boolean(row.success),
+      delivery_status: (row.success ? 'delivered' : 'failed') as DeliveryStatus,
     }));
   }
 
@@ -373,8 +388,119 @@ export class WebhookManager {
   // Delivery (internal)
   // ---------------------------------------------------------------------------
 
+  // ---------------------------------------------------------------------------
+  // Dead Letter Queue (DLQ)
+  // ---------------------------------------------------------------------------
+
   /**
-   * Deliver a webhook with retry logic and logging.
+   * List DLQ entries.
+   */
+  getDlqEntries(limit: number = 50, offset: number = 0): DlqEntry[] {
+    return this.state.getDlqEntries(limit, offset) as DlqEntry[];
+  }
+
+  /**
+   * Get a single DLQ entry by ID.
+   */
+  getDlqEntry(id: string): DlqEntry | null {
+    const entry = this.state.getDlqEntry(id);
+    return entry ? (entry as DlqEntry) : null;
+  }
+
+  /**
+   * Retry delivery of a DLQ entry.
+   * Returns true if delivery succeeded, false otherwise.
+   */
+  async retryDlqEntry(id: string): Promise<boolean> {
+    const entry = this.state.getDlqEntry(id);
+    if (!entry) return false;
+
+    const webhook = this.getWebhook(entry.webhook_id);
+    if (!webhook) return false;
+
+    // Parse the stored payload to extract the event
+    let event: { type: string; [key: string]: any };
+    try {
+      const parsed = JSON.parse(entry.payload);
+      event = { type: entry.event_type, ...parsed.data };
+    } catch {
+      event = { type: entry.event_type };
+    }
+
+    // Attempt single delivery (no retries for DLQ retry)
+    const body = entry.payload;
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...webhook.headers,
+    };
+    if (webhook.secret) {
+      headers['X-Aether-Signature'] = signPayload(body, webhook.secret);
+    }
+
+    const startTime = Date.now();
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), webhook.timeout_ms);
+      const response = await fetch(webhook.url, {
+        method: 'POST',
+        headers,
+        body,
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
+      if (response.ok) {
+        this.state.updateDlqRetried(id, Date.now());
+        this.bus.emit('webhook.dlq.retried', { dlqId: id, success: true });
+        return true;
+      }
+    } catch {
+      // delivery failed again
+    }
+
+    this.state.updateDlqRetried(id, Date.now());
+    this.bus.emit('webhook.dlq.retried', { dlqId: id, success: false });
+    return false;
+  }
+
+  /**
+   * Purge a single DLQ entry.
+   */
+  purgeDlqEntry(id: string): boolean {
+    const deleted = this.state.deleteDlqEntry(id);
+    if (deleted) {
+      this.bus.emit('webhook.dlq.purged', { dlqId: id, count: 1 });
+    }
+    return deleted;
+  }
+
+  /**
+   * Purge all DLQ entries. Returns the number of entries removed.
+   */
+  purgeDlq(): number {
+    const count = this.state.deleteAllDlqEntries();
+    if (count > 0) {
+      this.bus.emit('webhook.dlq.purged', { count });
+    }
+    return count;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Delivery (internal)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Compute exponential backoff delay with jitter.
+   * Formula: min(baseDelay * 2^attempt, maxDelay) + random jitter (0-1s)
+   */
+  computeBackoffDelay(attempt: number, baseDelay: number = 1000, maxDelay: number = 16000): number {
+    const delay = Math.min(baseDelay * Math.pow(2, attempt), maxDelay);
+    const jitter = Math.random() * 1000;
+    return delay + jitter;
+  }
+
+  /**
+   * Deliver a webhook with exponential backoff retry and DLQ.
    */
   private async deliverWebhook(
     webhook: Webhook,
@@ -398,14 +524,17 @@ export class WebhookManager {
 
     const maxAttempts = webhook.retry_count + 1;
     let lastError: string | undefined;
+    let deliveryStatus: DeliveryStatus = 'pending';
+    const deliveryStartTime = Date.now();
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       if (attempt > 0) {
-        // Exponential backoff: 1s, 4s, 16s
-        const delayMs = Math.pow(4, attempt - 1) * 1000;
+        // Exponential backoff: 1s, 2s, 4s, 8s, 16s with jitter
+        const delayMs = this.computeBackoffDelay(attempt - 1);
         await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
 
+      deliveryStatus = 'delivering';
       const startTime = Date.now();
       try {
         const controller = new AbortController();
@@ -424,6 +553,8 @@ export class WebhookManager {
         const responseBody = await response.text().catch(() => '');
         const success = response.ok;
 
+        deliveryStatus = success ? 'delivered' : 'failed';
+
         this.state.insertWebhookLog({
           webhook_id: webhook.id,
           event_type: event.type,
@@ -437,6 +568,13 @@ export class WebhookManager {
 
         if (success) {
           this.state.updateWebhookTriggered(webhook.id, Date.now());
+          this.bus.emit('webhook.delivery', {
+            webhookId: webhook.id,
+            eventType: event.type,
+            status: 'delivered',
+            attempts: attempt + 1,
+            durationMs: Date.now() - deliveryStartTime,
+          });
           this.bus.emit('webhook.fired', {
             webhookId: webhook.id,
             eventType: event.type,
@@ -449,6 +587,7 @@ export class WebhookManager {
       } catch (err: any) {
         const durationMs = Date.now() - startTime;
         lastError = err.message || String(err);
+        deliveryStatus = 'failed';
 
         this.state.insertWebhookLog({
           webhook_id: webhook.id,
@@ -463,8 +602,32 @@ export class WebhookManager {
       }
     }
 
-    // All retries exhausted
+    // All retries exhausted — move to DLQ
+    const dlqId = crypto.randomUUID();
+    this.state.insertDlqEntry({
+      id: dlqId,
+      webhook_id: webhook.id,
+      event_type: event.type,
+      payload: body,
+      error: lastError || 'Unknown error',
+      attempts: maxAttempts,
+      created_at: Date.now(),
+      retried_at: null,
+    });
+
     this.state.incrementWebhookFailure(webhook.id);
+    this.bus.emit('webhook.delivery', {
+      webhookId: webhook.id,
+      eventType: event.type,
+      status: 'dlq',
+      attempts: maxAttempts,
+      durationMs: Date.now() - deliveryStartTime,
+    });
+    this.bus.emit('webhook.dlq.added', {
+      dlqId,
+      webhookId: webhook.id,
+      eventType: event.type,
+    });
     this.bus.emit('webhook.failed', {
       webhookId: webhook.id,
       eventType: event.type,

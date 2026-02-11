@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "aether-os.fullname" . }}-kernel
+  labels:
+    {{- include "aether-os.kernelLabels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.kernel.replicas }}
+  selector:
+    matchLabels:
+      {{- include "aether-os.kernelSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "aether-os.kernelSelectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: kernel
+          image: "{{ .Values.kernel.image.repository }}:{{ .Values.kernel.image.tag }}"
+          imagePullPolicy: {{ .Values.kernel.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.kernel.port }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "aether-os.fullname" . }}-config
+          {{- if or .Values.secrets.aetherSecret .Values.secrets.geminiApiKey .Values.secrets.openaiApiKey .Values.secrets.anthropicApiKey }}
+            - secretRef:
+                name: {{ include "aether-os.fullname" . }}-secrets
+          {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 5
+          resources:
+            {{- toYaml .Values.kernel.resources | nindent 12 }}
+          volumeMounts:
+            {{- if .Values.persistence.enabled }}
+            - name: aether-data
+              mountPath: /data/.aether
+            {{- end }}
+            {{- if .Values.docker.socketMount }}
+            - name: docker-socket
+              mountPath: /var/run/docker.sock
+            {{- end }}
+      volumes:
+        {{- if .Values.persistence.enabled }}
+        - name: aether-data
+          persistentVolumeClaim:
+            claimName: {{ include "aether-os.fullname" . }}-data
+        {{- end }}
+        {{- if .Values.docker.socketMount }}
+        - name: docker-socket
+          hostPath:
+            path: /var/run/docker.sock
+            type: Socket
+        {{- end }}

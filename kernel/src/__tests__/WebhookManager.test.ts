@@ -625,6 +625,263 @@ describe('WebhookManager', () => {
   // Persistence
   // ---------------------------------------------------------------------------
 
+  // ---------------------------------------------------------------------------
+  // Exponential Backoff
+  // ---------------------------------------------------------------------------
+
+  describe('exponential backoff', () => {
+    it('computes backoff delays with base 1s doubling pattern', () => {
+      // Seed Math.random to return 0 for deterministic jitter
+      const origRandom = Math.random;
+      Math.random = () => 0;
+
+      try {
+        // attempt 0 => min(1000*2^0, 16000) + 0 = 1000
+        expect(webhooks.computeBackoffDelay(0)).toBe(1000);
+        // attempt 1 => min(1000*2^1, 16000) + 0 = 2000
+        expect(webhooks.computeBackoffDelay(1)).toBe(2000);
+        // attempt 2 => min(1000*2^2, 16000) + 0 = 4000
+        expect(webhooks.computeBackoffDelay(2)).toBe(4000);
+        // attempt 3 => min(1000*2^3, 16000) + 0 = 8000
+        expect(webhooks.computeBackoffDelay(3)).toBe(8000);
+        // attempt 4 => min(1000*2^4, 16000) + 0 = 16000
+        expect(webhooks.computeBackoffDelay(4)).toBe(16000);
+        // attempt 5 => min(1000*2^5, 16000) + 0 = 16000 (capped)
+        expect(webhooks.computeBackoffDelay(5)).toBe(16000);
+      } finally {
+        Math.random = origRandom;
+      }
+    });
+
+    it('adds jitter (0-1s) to backoff delay', () => {
+      const origRandom = Math.random;
+      Math.random = () => 0.5;
+
+      try {
+        // attempt 0 => 1000 + 500 = 1500
+        expect(webhooks.computeBackoffDelay(0)).toBe(1500);
+      } finally {
+        Math.random = origRandom;
+      }
+    });
+
+    it('jitter adds randomness to delays', () => {
+      const delays = new Set<number>();
+      for (let i = 0; i < 10; i++) {
+        delays.add(webhooks.computeBackoffDelay(0));
+      }
+      // With real Math.random, very unlikely all 10 are identical
+      expect(delays.size).toBeGreaterThan(1);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Dead Letter Queue (DLQ)
+  // ---------------------------------------------------------------------------
+
+  describe('Dead Letter Queue', () => {
+    it('failed delivery after max retries goes to DLQ', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const mockFetch = vi.fn(async () => {
+        throw new Error('Connection refused');
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const dlqEvents: any[] = [];
+      bus.on('webhook.dlq.added', (data: any) => dlqEvents.push(data));
+
+      const id = webhooks.register('DLQ Hook', 'https://example.com/hook', ['test.*'], {
+        retry_count: 1, // 2 attempts total
+      });
+
+      await webhooks.fire({ type: 'test.event' });
+
+      expect(dlqEvents).toHaveLength(1);
+      expect(dlqEvents[0].webhookId).toBe(id);
+      expect(dlqEvents[0].eventType).toBe('test.event');
+      expect(dlqEvents[0].dlqId).toBeDefined();
+
+      // Verify the DLQ entry exists
+      const entries = webhooks.getDlqEntries();
+      expect(entries).toHaveLength(1);
+      expect(entries[0].webhook_id).toBe(id);
+      expect(entries[0].event_type).toBe('test.event');
+      expect(entries[0].error).toContain('Connection refused');
+      expect(entries[0].attempts).toBe(2);
+      vi.useRealTimers();
+    });
+
+    it('successful delivery does NOT go to DLQ', async () => {
+      const mockFetch = vi.fn(async () => new Response('ok', { status: 200 }));
+      vi.stubGlobal('fetch', mockFetch);
+
+      webhooks.register('Success Hook', 'https://example.com/hook', ['test.*'], {
+        retry_count: 0,
+      });
+
+      await webhooks.fire({ type: 'test.event' });
+
+      const entries = webhooks.getDlqEntries();
+      expect(entries).toHaveLength(0);
+    });
+
+    it('getDlqEntries returns entries', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const mockFetch = vi.fn(async () => {
+        throw new Error('fail');
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      webhooks.register('DLQ1', 'https://example.com/1', ['test.*'], { retry_count: 0 });
+      webhooks.register('DLQ2', 'https://example.com/2', ['test.*'], { retry_count: 0 });
+
+      await webhooks.fire({ type: 'test.event' });
+
+      const entries = webhooks.getDlqEntries();
+      expect(entries).toHaveLength(2);
+      vi.useRealTimers();
+    });
+
+    it('getDlqEntry returns a single entry', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const mockFetch = vi.fn(async () => {
+        throw new Error('fail');
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const dlqEvents: any[] = [];
+      bus.on('webhook.dlq.added', (data: any) => dlqEvents.push(data));
+
+      webhooks.register('DLQ Single', 'https://example.com/hook', ['test.*'], {
+        retry_count: 0,
+      });
+
+      await webhooks.fire({ type: 'test.event' });
+
+      const entry = webhooks.getDlqEntry(dlqEvents[0].dlqId);
+      expect(entry).not.toBeNull();
+      expect(entry!.event_type).toBe('test.event');
+      vi.useRealTimers();
+    });
+
+    it('DLQ retry re-attempts delivery', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      let callCount = 0;
+      const mockFetch = vi.fn(async () => {
+        callCount++;
+        if (callCount <= 1) {
+          throw new Error('fail');
+        }
+        return new Response('ok', { status: 200 });
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const dlqEvents: any[] = [];
+      bus.on('webhook.dlq.added', (data: any) => dlqEvents.push(data));
+
+      webhooks.register('DLQ Retry', 'https://example.com/hook', ['test.*'], {
+        retry_count: 0,
+      });
+
+      await webhooks.fire({ type: 'test.event' });
+      expect(dlqEvents).toHaveLength(1);
+
+      // Now retry the DLQ entry - fetch will succeed this time
+      const success = await webhooks.retryDlqEntry(dlqEvents[0].dlqId);
+      expect(success).toBe(true);
+      vi.useRealTimers();
+    });
+
+    it('DLQ purge removes a single entry', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const mockFetch = vi.fn(async () => {
+        throw new Error('fail');
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const dlqEvents: any[] = [];
+      bus.on('webhook.dlq.added', (data: any) => dlqEvents.push(data));
+
+      webhooks.register('DLQ Purge', 'https://example.com/hook', ['test.*'], {
+        retry_count: 0,
+      });
+
+      await webhooks.fire({ type: 'test.event' });
+      expect(dlqEvents).toHaveLength(1);
+
+      const purged = webhooks.purgeDlqEntry(dlqEvents[0].dlqId);
+      expect(purged).toBe(true);
+
+      const entries = webhooks.getDlqEntries();
+      expect(entries).toHaveLength(0);
+      vi.useRealTimers();
+    });
+
+    it('DLQ purge all removes all entries', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const mockFetch = vi.fn(async () => {
+        throw new Error('fail');
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      webhooks.register('DLQ A', 'https://example.com/1', ['test.*'], { retry_count: 0 });
+      webhooks.register('DLQ B', 'https://example.com/2', ['test.*'], { retry_count: 0 });
+
+      await webhooks.fire({ type: 'test.event' });
+
+      expect(webhooks.getDlqEntries()).toHaveLength(2);
+
+      const count = webhooks.purgeDlq();
+      expect(count).toBe(2);
+
+      expect(webhooks.getDlqEntries()).toHaveLength(0);
+      vi.useRealTimers();
+    });
+
+    it('emits webhook.delivery audit event on success', async () => {
+      const mockFetch = vi.fn(async () => new Response('ok', { status: 200 }));
+      vi.stubGlobal('fetch', mockFetch);
+
+      const deliveryEvents: any[] = [];
+      bus.on('webhook.delivery', (data: any) => deliveryEvents.push(data));
+
+      const id = webhooks.register('Audit Hook', 'https://example.com/hook', ['test.*'], {
+        retry_count: 0,
+      });
+
+      await webhooks.fire({ type: 'test.event' });
+
+      expect(deliveryEvents).toHaveLength(1);
+      expect(deliveryEvents[0].webhookId).toBe(id);
+      expect(deliveryEvents[0].status).toBe('delivered');
+      expect(deliveryEvents[0].attempts).toBe(1);
+      expect(deliveryEvents[0].durationMs).toBeGreaterThanOrEqual(0);
+    });
+
+    it('emits webhook.delivery audit event with dlq status on failure', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const mockFetch = vi.fn(async () => {
+        throw new Error('fail');
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const deliveryEvents: any[] = [];
+      bus.on('webhook.delivery', (data: any) => deliveryEvents.push(data));
+
+      const id = webhooks.register('DLQ Audit', 'https://example.com/hook', ['test.*'], {
+        retry_count: 0,
+      });
+
+      await webhooks.fire({ type: 'test.event' });
+
+      expect(deliveryEvents).toHaveLength(1);
+      expect(deliveryEvents[0].webhookId).toBe(id);
+      expect(deliveryEvents[0].status).toBe('dlq');
+      expect(deliveryEvents[0].attempts).toBe(1);
+      vi.useRealTimers();
+    });
+  });
+
   describe('persistence', () => {
     it('webhooks survive store close and reopen', () => {
       const id = webhooks.register('Persistent', 'https://example.com/hook', ['agent.*'], {

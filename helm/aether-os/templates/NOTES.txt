@@ -1,0 +1,33 @@
+Aether OS has been deployed successfully!
+
+{{- if .Values.ingress.enabled }}
+
+1. Access the application at:
+{{- range .Values.ingress.hosts }}
+   http{{ if $.Values.tls.enabled }}s{{ end }}://{{ .host }}
+{{- end }}
+
+{{- else }}
+
+1. Get the application URL by running:
+
+   # UI service
+   export UI_POD=$(kubectl get pods -l "app.kubernetes.io/name={{ include "aether-os.name" . }},app.kubernetes.io/component=ui" -o jsonpath="{.items[0].metadata.name}")
+   kubectl port-forward $UI_POD 8080:{{ .Values.ui.port }}
+   echo "UI available at: http://localhost:8080"
+
+   # Kernel service
+   export KERNEL_POD=$(kubectl get pods -l "app.kubernetes.io/name={{ include "aether-os.name" . }},app.kubernetes.io/component=kernel" -o jsonpath="{.items[0].metadata.name}")
+   kubectl port-forward $KERNEL_POD 3001:{{ .Values.kernel.port }}
+   echo "Kernel API available at: http://localhost:3001"
+
+{{- end }}
+
+2. Check the health endpoint:
+   curl http://localhost:3001/health
+
+3. View kernel logs:
+   kubectl logs -l "app.kubernetes.io/name={{ include "aether-os.name" . }},app.kubernetes.io/component=kernel" -f
+
+4. View UI logs:
+   kubectl logs -l "app.kubernetes.io/name={{ include "aether-os.name" . }},app.kubernetes.io/component=ui" -f

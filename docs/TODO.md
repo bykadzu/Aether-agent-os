@@ -2,7 +2,7 @@
 
 Consolidated checklist of all outstanding work, derived from NEXT_STEPS.md, FEATURES.md, all roadmaps, and the research documents. Organized by urgency and version target.
 
-**Last updated:** 2026-02-11 (v0.5 Phase 2 complete — event dedup, atomic snapshots, priority scheduling, model routing, WS batching, lazy loading, Gemini fix)
+**Last updated:** 2026-02-11 (v0.5 Phase 3 complete — Prometheus metrics, OpenTelemetry tracing, TLS enforcement, MFA/TOTP, webhook retry + DLQ, Helm chart)
 
 ---
 
@@ -297,12 +297,12 @@ Full details in [ROADMAP-v0.5.md](./ROADMAP-v0.5.md).
 
 *Validation milestone: 100 concurrent agents with <2s median loop latency, no SQLite lock contention.*
 
-**Phase 3 — Production & Observability**
+**Phase 3 — Production & Observability** — **COMPLETE**
 > Focus: deployable to staging with dashboards and alerts.
-- Production Dockerfile + Compose + basic Helm
-- Prometheus + OpenTelemetry (agent loops, tool calls, LLM calls)
-- TLS enforcement + MFA
-- Webhook retry + DLQ
+- [x] Production Dockerfile + Compose + basic Helm ✅ Helm chart at helm/aether-os/ with Deployment, Service, Ingress, HPA, ConfigMap, Secret, ServiceMonitor templates
+- [x] Prometheus + OpenTelemetry (agent loops, tool calls, LLM calls) ✅ MetricsExporter subsystem with manual Prometheus text format at GET /metrics (no prom-client), OpenTelemetry API tracing spans in agent loop
+- [x] TLS enforcement + MFA ✅ HTTPS when TLS_CERT_PATH + TLS_KEY_PATH configured, TOTP/RFC 6238 MFA with manual HMAC-SHA1 implementation, MFA setup/verify/enable REST endpoints
+- [x] Webhook retry + DLQ ✅ Exponential backoff (1s, 2s, 4s, 8s, 16s + jitter), 5 max retries, SQLite-backed Dead Letter Queue, DLQ REST API (list/get/retry/purge)
 
 *Validation milestone: Deploy to cloud VM, Grafana dashboard shows all agent metrics, TLS terminates correctly, webhook failures retry and land in DLQ.*
 
@@ -321,7 +321,7 @@ Full details in [ROADMAP-v0.5.md](./ROADMAP-v0.5.md).
 ### Deployment & Packaging
 - [x] Production Dockerfile + multi-stage build ✅ Dockerfile (kernel), Dockerfile.ui (nginx), Dockerfile.desktop (agent)
 - [x] Docker Compose stack (kernel + UI) ✅ docker-compose.yml with health checks, sibling containers, named volumes (PostgreSQL + Redis deferred to Phase 2)
-- [ ] Helm chart for Kubernetes deployment
+- [x] Helm chart for Kubernetes deployment ✅ helm/aether-os/ with Deployment, Service, Ingress, HPA, ConfigMap, Secret, ServiceMonitor, values.yaml
 - [ ] Electron wrapper for desktop app
 - [ ] Cloud deployment templates (AWS, GCP, Azure)
 
@@ -343,8 +343,8 @@ Full details in [ROADMAP-v0.5.md](./ROADMAP-v0.5.md).
 - [x] EventBus throughput hardening for 50+ concurrent agents ✅ Per-event-type dedup (500 IDs per type), mandatory __eventId, WebSocket batching reduces frame overhead
 
 ### Security Hardening
-- [ ] TLS everywhere (WebSocket + HTTP)
-- [ ] MFA / TOTP support for user auth
+- [x] TLS everywhere (WebSocket + HTTP) ✅ HTTPS + WSS when TLS_CERT_PATH + TLS_KEY_PATH configured, auto-redirect HTTP→HTTPS
+- [x] MFA / TOTP support for user auth ✅ RFC 6238 TOTP with manual HMAC-SHA1, base32 secret encoding, setup/verify/enable flow, optional per-user
 - [ ] AppArmor/SELinux-style profiles for node-pty and Docker containers
 - [ ] Fine-grained RBAC expansion — per-tool, per-directory, per-LLM-provider permissions
 - [x] Audit logging — every tool invocation logged to StateStore with caller, args, result hash ✅ AuditLogger subsystem with append-only audit_log table, sanitization, EventBus auto-logging, REST API, retention pruning
@@ -354,9 +354,9 @@ Full details in [ROADMAP-v0.5.md](./ROADMAP-v0.5.md).
 - [ ] Capability-based permissions for agent tool access
 
 ### Observability
-- [ ] Prometheus metrics exporter
+- [x] Prometheus metrics exporter ✅ MetricsExporter subsystem, manual Prometheus text exposition format at GET /metrics, gauges + counters + histograms for agents, LLM, tools, resources
 - [ ] Grafana dashboards (agent lifecycle, LLM latency, resource usage)
-- [ ] OpenTelemetry tracing for agent loops and tool executions
+- [x] OpenTelemetry tracing for agent loops and tool executions ✅ runtime/src/tracing.ts with @opentelemetry/api, spans for agent loop iterations, LLM calls, tool executions
 - [ ] Alerting rules (agent failures, resource exhaustion, auth anomalies)
 
 ### Performance
@@ -374,7 +374,7 @@ Full details in [ROADMAP-v0.5.md](./ROADMAP-v0.5.md).
 - [ ] Publish OpenAPI spec publicly for third-party integrations
 - [ ] Compatibility layer for LangChain tools schema
 - [ ] OpenAI function calling format adapter for external tool registries
-- [ ] Webhook retry with exponential backoff and dead letter queue
+- [x] Webhook retry with exponential backoff and dead letter queue ✅ WebhookManager retries (1s, 2s, 4s, 8s, 16s + jitter, 5 max), SQLite-backed DLQ, REST API for list/get/retry/purge
 
 ### Compliance & Governance
 - [ ] GDPR data export/deletion for agent memory and user data

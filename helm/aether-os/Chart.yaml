@@ -1,0 +1,14 @@
+apiVersion: v2
+name: aether-os
+description: Aether OS — AI-native operating system with multi-agent orchestration
+type: application
+version: 0.5.0
+appVersion: "0.5.0"
+keywords:
+  - ai
+  - agents
+  - orchestration
+  - llm
+home: https://github.com/aether-os/aether-os
+maintainers:
+  - name: Aether OS Team

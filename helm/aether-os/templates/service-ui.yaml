@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "aether-os.fullname" . }}-ui
+  labels:
+    {{- include "aether-os.uiLabels" . | nindent 4 }}
+spec:
+  {{- if not .Values.ingress.enabled }}
+  type: LoadBalancer
+  {{- else }}
+  type: ClusterIP
+  {{- end }}
+  ports:
+    - port: {{ .Values.ui.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "aether-os.uiSelectorLabels" . | nindent 4 }}

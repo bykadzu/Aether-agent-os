@@ -32,6 +32,73 @@ interface TokenPayload {
   exp: number; // expiry (ms)
 }
 
+interface MfaTokenPayload {
+  sub: string; // userId
+  purpose: 'mfa';
+  iat: number;
+  exp: number;
+}
+
+// ---------------------------------------------------------------------------
+// Base32 encoding/decoding (RFC 4648) — no external dependencies
+// ---------------------------------------------------------------------------
+
+const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+
+function base32Encode(buf: Buffer): string {
+  let bits = 0;
+  let value = 0;
+  let output = '';
+  for (let i = 0; i < buf.length; i++) {
+    value = (value << 8) | buf[i];
+    bits += 8;
+    while (bits >= 5) {
+      output += BASE32_ALPHABET[(value >>> (bits - 5)) & 0x1f];
+      bits -= 5;
+    }
+  }
+  if (bits > 0) {
+    output += BASE32_ALPHABET[(value << (5 - bits)) & 0x1f];
+  }
+  return output;
+}
+
+function base32Decode(encoded: string): Buffer {
+  const stripped = encoded.replace(/=+$/, '').toUpperCase();
+  let bits = 0;
+  let value = 0;
+  const bytes: number[] = [];
+  for (let i = 0; i < stripped.length; i++) {
+    const idx = BASE32_ALPHABET.indexOf(stripped[i]);
+    if (idx === -1) continue;
+    value = (value << 5) | idx;
+    bits += 5;
+    if (bits >= 8) {
+      bytes.push((value >>> (bits - 8)) & 0xff);
+      bits -= 8;
+    }
+  }
+  return Buffer.from(bytes);
+}
+
+// ---------------------------------------------------------------------------
+// TOTP (RFC 6238) — pure Node.js crypto
+// ---------------------------------------------------------------------------
+
+function generateTOTP(secret: Buffer, time: number = Math.floor(Date.now() / 30000)): string {
+  const timeBuffer = Buffer.alloc(8);
+  timeBuffer.writeBigUInt64BE(BigInt(time));
+  const hmac = crypto.createHmac('sha1', secret).update(timeBuffer).digest();
+  const offset = hmac[hmac.length - 1] & 0x0f;
+  const code =
+    (((hmac[offset] & 0x7f) << 24) |
+      (hmac[offset + 1] << 16) |
+      (hmac[offset + 2] << 8) |
+      hmac[offset + 3]) %
+    1000000;
+  return code.toString().padStart(6, '0');
+}
+
 export class AuthManager {
   private bus: EventBus;
   private store: StateStore;
@@ -200,11 +267,16 @@ export class AuthManager {
 
   /**
    * Authenticate a user. Returns token and user info, or null on failure.
+   * If MFA is enabled, returns { mfaRequired, mfaToken } instead.
    */
   async authenticateUser(
     username: string,
     password: string,
-  ): Promise<{ user: UserInfo; token: string } | null> {
+  ): Promise<
+    | { user: UserInfo; token: string; mfaRequired?: false }
+    | { mfaRequired: true; mfaToken: string }
+    | null
+  > {
     const record = this.store.getUserByUsername(username);
     if (!record) {
       this.bus.emit('auth.failure', { reason: 'Invalid credentials' });
@@ -214,6 +286,19 @@ export class AuthManager {
     if (!this.verifyPassword(password, record.passwordHash)) {
       this.bus.emit('auth.failure', { reason: 'Invalid credentials' });
       return null;
+    }
+
+    // Check if MFA is enabled
+    if (this.isMfaEnabled(record.id)) {
+      const now = Date.now();
+      const mfaPayload: MfaTokenPayload = {
+        sub: record.id,
+        purpose: 'mfa',
+        iat: now,
+        exp: now + 5 * 60 * 1000, // 5 minutes
+      };
+      const mfaToken = this.createToken(mfaPayload as any);
+      return { mfaRequired: true, mfaToken };
     }
 
     // Update last login
@@ -296,6 +381,118 @@ export class AuthManager {
    */
   isRegistrationOpen(): boolean {
     return process.env.AETHER_REGISTRATION_OPEN !== 'false';
+  }
+
+  // ---------------------------------------------------------------------------
+  // MFA / TOTP (v0.5 Phase 3)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Generate a TOTP secret for MFA setup. Returns base32 secret and otpauth URI.
+   */
+  setupMfa(userId: string): { secret: string; otpauthUri: string } {
+    const user = this.store.getUserById(userId);
+    if (!user) throw new Error('User not found');
+
+    const secretBytes = crypto.randomBytes(20);
+    const secret = base32Encode(secretBytes);
+
+    // Store the secret (not yet enabled)
+    this.store.setUserMfaSecret(userId, secret);
+
+    const otpauthUri = `otpauth://totp/AetherOS:${encodeURIComponent(user.username)}?secret=${secret}&issuer=AetherOS&algorithm=SHA1&digits=6&period=30`;
+
+    return { secret, otpauthUri };
+  }
+
+  /**
+   * Verify a 6-digit TOTP code against the stored secret (allows +/- 1 time window).
+   */
+  verifyMfaCode(userId: string, code: string): boolean {
+    const mfa = this.store.getUserMfa(userId);
+    if (!mfa?.mfaSecret) return false;
+
+    const secretBuf = base32Decode(mfa.mfaSecret);
+    const now = Math.floor(Date.now() / 30000);
+
+    // Check current window and +/- 1 for clock drift
+    for (let offset = -1; offset <= 1; offset++) {
+      if (generateTOTP(secretBuf, now + offset) === code) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Enable MFA for a user after verifying a code.
+   */
+  enableMfa(userId: string, code: string): boolean {
+    if (!this.verifyMfaCode(userId, code)) return false;
+    this.store.enableUserMfa(userId);
+    this.bus.emit('auth.mfa.enabled', { userId });
+    return true;
+  }
+
+  /**
+   * Disable MFA for a user.
+   */
+  disableMfa(userId: string): void {
+    this.store.disableUserMfa(userId);
+    this.bus.emit('auth.mfa.disabled', { userId });
+  }
+
+  /**
+   * Check if MFA is enabled for a user.
+   */
+  isMfaEnabled(userId: string): boolean {
+    const mfa = this.store.getUserMfa(userId);
+    return mfa?.mfaEnabled === 1;
+  }
+
+  /**
+   * Complete MFA login: verify the mfaToken and TOTP code, then issue a full JWT.
+   */
+  authenticateMfa(mfaToken: string, code: string): { user: UserInfo; token: string } | null {
+    // Verify the short-lived MFA token
+    const payload = this.verifyToken(mfaToken);
+    if (!payload) return null;
+    if ((payload as any).purpose !== 'mfa') return null;
+
+    const userId = payload.sub;
+
+    // Verify the TOTP code
+    if (!this.verifyMfaCode(userId, code)) return null;
+
+    // Load user record
+    const record = this.store.getUserById(userId);
+    if (!record) return null;
+
+    // Update last login
+    this.store.updateUserLogin(record.id);
+
+    // Issue the full JWT
+    const now = Date.now();
+    const fullPayload: TokenPayload = {
+      sub: record.id,
+      username: record.username,
+      role: record.role as 'admin' | 'user',
+      iat: now,
+      exp: now + AUTH_TOKEN_EXPIRY,
+    };
+
+    const token = this.createToken(fullPayload);
+
+    const user: UserInfo = {
+      id: record.id,
+      username: record.username,
+      displayName: record.displayName,
+      role: record.role as 'admin' | 'user',
+      mfaEnabled: true,
+    };
+
+    this.bus.emit('auth.success', { user, token });
+    return { user, token };
   }
 
   // ---------------------------------------------------------------------------

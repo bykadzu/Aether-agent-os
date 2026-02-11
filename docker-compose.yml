@@ -22,9 +22,16 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - aether-data:/root/.aether
+      # TLS certificates (optional):
+      # - ./certs/fullchain.pem:/etc/aether/tls/fullchain.pem:ro
+      # - ./certs/privkey.pem:/etc/aether/tls/privkey.pem:ro
     environment:
       - NODE_ENV=production
       - AETHER_FS_ROOT=/root/.aether
+      # TLS (uncomment and set paths to enable HTTPS):
+      # - AETHER_TLS_CERT=/etc/aether/tls/fullchain.pem
+      # - AETHER_TLS_KEY=/etc/aether/tls/privkey.pem
+      # - AETHER_TLS_REDIRECT=true
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:3001/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]

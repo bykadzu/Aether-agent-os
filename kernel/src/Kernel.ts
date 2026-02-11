@@ -42,6 +42,7 @@ import { RemoteAccessManager } from './RemoteAccessManager.js';
 import { ResourceGovernor } from './ResourceGovernor.js';
 import { AuditLogger } from './AuditLogger.js';
 import { ModelRouter } from './ModelRouter.js';
+import { MetricsExporter } from './MetricsExporter.js';
 import {
   KernelCommand,
   KernelEvent,
@@ -78,6 +79,7 @@ export class Kernel {
   readonly resources: ResourceGovernor;
   readonly audit: AuditLogger;
   readonly modelRouter: ModelRouter;
+  readonly metrics: MetricsExporter;
 
   private startTime: number;
   private running = false;
@@ -106,6 +108,7 @@ export class Kernel {
     this.resources = new ResourceGovernor(this.bus, this.processes);
     this.audit = new AuditLogger(this.bus, this.state);
     this.modelRouter = new ModelRouter();
+    this.metrics = new MetricsExporter(this.bus, this.processes, this.resources);
     this.snapshots = new SnapshotManager(
       this.bus,
       this.processes,
@@ -252,6 +255,10 @@ export class Kernel {
 
     // Model router is ready (stateless, no async init needed)
     console.log('[Kernel] Model router initialized');
+
+    // Initialize metrics exporter (subscribes to EventBus)
+    this.metrics.init();
+    console.log('[Kernel] Metrics exporter initialized');
 
     // Listen for process cleanup events to remove agent home directories
     this.bus.on('process.cleanup', async (data: { pid: number; uid: string; cwd: string }) => {
@@ -1433,6 +1440,30 @@ export class Kernel {
           break;
         }
 
+        // ----- Webhook DLQ Commands (v0.5 Phase 3) -----
+        case 'webhook.dlq.list': {
+          const dlqEntries = this.webhooks.getDlqEntries(cmd.limit, cmd.offset);
+          events.push({ type: 'response.ok', id: cmd.id, data: dlqEntries });
+          break;
+        }
+
+        case 'webhook.dlq.retry': {
+          const retrySuccess = await this.webhooks.retryDlqEntry(cmd.dlqId);
+          events.push({ type: 'response.ok', id: cmd.id, data: { success: retrySuccess } });
+          break;
+        }
+
+        case 'webhook.dlq.purge': {
+          if (cmd.dlqId) {
+            const purged = this.webhooks.purgeDlqEntry(cmd.dlqId);
+            events.push({ type: 'response.ok', id: cmd.id, data: { purged: purged ? 1 : 0 } });
+          } else {
+            const purgedCount = this.webhooks.purgeDlq();
+            events.push({ type: 'response.ok', id: cmd.id, data: { purged: purgedCount } });
+          }
+          break;
+        }
+
         // ----- Plugin Registry Commands (v0.4 Wave 2) -----
         case 'plugin.registry.install': {
           try {
@@ -2133,6 +2164,7 @@ export class Kernel {
       ['ResourceGovernor', true],
       ['AuditLogger', true],
       ['ModelRouter', true],
+      ['MetricsExporter', true],
     ];
 
     const port = process.env.AETHER_PORT || String(DEFAULT_PORT);
@@ -2195,6 +2227,7 @@ export class Kernel {
     }
 
     await this.remoteAccess.shutdown();
+    this.metrics.shutdown();
     this.audit.shutdown();
     this.modelRouter.shutdown();
     this.resources.shutdown();

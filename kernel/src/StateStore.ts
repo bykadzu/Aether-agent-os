@@ -149,6 +149,14 @@ export class StateStore {
     getInboundWebhooksByOwner: Database.Statement;
     updateInboundWebhookTriggered: Database.Statement;
     deleteInboundWebhook: Database.Statement;
+    // Webhook DLQ statements (v0.5 Phase 3)
+    insertDlqEntry: Database.Statement;
+    getDlqEntry: Database.Statement;
+    getDlqEntries: Database.Statement;
+    getDlqCount: Database.Statement;
+    deleteDlqEntry: Database.Statement;
+    deleteAllDlqEntries: Database.Statement;
+    updateDlqRetried: Database.Statement;
     // Plugin registry statements (v0.4 Wave 2)
     insertPlugin: Database.Statement;
     getPlugin: Database.Statement;
@@ -211,6 +219,11 @@ export class StateStore {
     insertAuditLog: Database.Statement;
     countAuditLog: Database.Statement;
     pruneAuditLog: Database.Statement;
+    // MFA statements (v0.5 Phase 3)
+    getUserMfa: Database.Statement;
+    setUserMfa: Database.Statement;
+    enableUserMfa: Database.Statement;
+    disableUserMfa: Database.Statement;
   };
 
   private _persistenceDisabled = false;
@@ -527,6 +540,21 @@ export class StateStore {
 
       CREATE INDEX IF NOT EXISTS idx_inbound_webhooks_token ON inbound_webhooks(token);
 
+      -- Webhook Dead Letter Queue (v0.5 Phase 3)
+      CREATE TABLE IF NOT EXISTS webhook_dlq (
+        id TEXT PRIMARY KEY,
+        webhook_id TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        error TEXT,
+        attempts INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        retried_at INTEGER
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_webhook_dlq_webhook ON webhook_dlq(webhook_id);
+      CREATE INDEX IF NOT EXISTS idx_webhook_dlq_created ON webhook_dlq(created_at);
+
       -- Plugin registry table (v0.4 Wave 2)
       CREATE TABLE IF NOT EXISTS plugin_registry (
         id TEXT PRIMARY KEY,
@@ -707,6 +735,19 @@ export class StateStore {
       CREATE INDEX IF NOT EXISTS idx_audit_event_type ON audit_log(event_type);
       CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_log(actor_pid, actor_uid);
     `);
+
+    // v0.5 Phase 3: Add MFA columns to users table
+    this.migrateAddColumn('users', 'mfa_secret', 'TEXT');
+    this.migrateAddColumn('users', 'mfa_enabled', 'INTEGER DEFAULT 0');
+  }
+
+  /** Safely add a column if it does not already exist. */
+  private migrateAddColumn(table: string, column: string, type: string): void {
+    const cols = this.db.pragma(`table_info(${table})`) as Array<{ name: string }>;
+    if (!cols || cols.length === 0) return; // table doesn't exist yet
+    if (!cols.some((c) => c.name === column)) {
+      this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -1081,6 +1122,25 @@ export class StateStore {
         UPDATE inbound_webhooks SET last_triggered = ?, trigger_count = trigger_count + 1 WHERE id = ?
       `),
       deleteInboundWebhook: this.db.prepare(`DELETE FROM inbound_webhooks WHERE id = ?`),
+      // Webhook DLQ statements (v0.5 Phase 3)
+      insertDlqEntry: this.db.prepare(`
+        INSERT INTO webhook_dlq (id, webhook_id, event_type, payload, error, attempts, created_at, retried_at)
+        VALUES (@id, @webhook_id, @event_type, @payload, @error, @attempts, @created_at, @retried_at)
+      `),
+      getDlqEntry: this.db.prepare(`
+        SELECT id, webhook_id, event_type, payload, error, attempts, created_at, retried_at
+        FROM webhook_dlq WHERE id = ?
+      `),
+      getDlqEntries: this.db.prepare(`
+        SELECT id, webhook_id, event_type, payload, error, attempts, created_at, retried_at
+        FROM webhook_dlq ORDER BY created_at DESC LIMIT ? OFFSET ?
+      `),
+      getDlqCount: this.db.prepare(`SELECT COUNT(*) as count FROM webhook_dlq`),
+      deleteDlqEntry: this.db.prepare(`DELETE FROM webhook_dlq WHERE id = ?`),
+      deleteAllDlqEntries: this.db.prepare(`DELETE FROM webhook_dlq`),
+      updateDlqRetried: this.db.prepare(`
+        UPDATE webhook_dlq SET retried_at = ? WHERE id = ?
+      `),
       // Plugin registry statements (v0.4 Wave 2)
       insertPlugin: this.db.prepare(`
         INSERT OR REPLACE INTO plugin_registry (id, manifest, installed_at, updated_at, enabled, install_source, owner_uid, download_count, rating_avg, rating_count)
@@ -1268,6 +1328,15 @@ export class StateStore {
       `),
       countAuditLog: this.db.prepare(`SELECT COUNT(*) as count FROM audit_log`),
       pruneAuditLog: this.db.prepare(`DELETE FROM audit_log WHERE timestamp < ?`),
+      // MFA (v0.5 Phase 3)
+      getUserMfa: this.db.prepare(
+        `SELECT mfa_secret as mfaSecret, mfa_enabled as mfaEnabled FROM users WHERE id = ?`,
+      ),
+      setUserMfa: this.db.prepare(`UPDATE users SET mfa_secret = ? WHERE id = ?`),
+      enableUserMfa: this.db.prepare(`UPDATE users SET mfa_enabled = 1 WHERE id = ?`),
+      disableUserMfa: this.db.prepare(
+        `UPDATE users SET mfa_enabled = 0, mfa_secret = NULL WHERE id = ?`,
+      ),
     };
   }
 
@@ -1648,6 +1717,26 @@ export class StateStore {
 
   updateUserPasswordHash(id: string, passwordHash: string): void {
     this.db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(passwordHash, id);
+  }
+
+  // ---------------------------------------------------------------------------
+  // MFA (v0.5 Phase 3)
+  // ---------------------------------------------------------------------------
+
+  getUserMfa(id: string): { mfaSecret: string | null; mfaEnabled: number } | undefined {
+    return this.stmts.getUserMfa.get(id) as any;
+  }
+
+  setUserMfaSecret(id: string, secret: string): void {
+    this.stmts.setUserMfa.run(secret, id);
+  }
+
+  enableUserMfa(id: string): void {
+    this.stmts.enableUserMfa.run(id);
+  }
+
+  disableUserMfa(id: string): void {
+    this.stmts.disableUserMfa.run(id);
   }
 
   // ---------------------------------------------------------------------------
@@ -2092,6 +2181,49 @@ export class StateStore {
 
   deleteInboundWebhook(id: string): void {
     this.stmts.deleteInboundWebhook.run(id);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Webhook DLQ (v0.5 Phase 3)
+  // ---------------------------------------------------------------------------
+
+  insertDlqEntry(record: {
+    id: string;
+    webhook_id: string;
+    event_type: string;
+    payload: string;
+    error: string | null;
+    attempts: number;
+    created_at: number;
+    retried_at: number | null;
+  }): void {
+    this.stmts.insertDlqEntry.run(record);
+  }
+
+  getDlqEntry(id: string): any | undefined {
+    return this.stmts.getDlqEntry.get(id);
+  }
+
+  getDlqEntries(limit: number = 50, offset: number = 0): any[] {
+    return this.stmts.getDlqEntries.all(limit, offset) as any[];
+  }
+
+  getDlqCount(): number {
+    return (this.stmts.getDlqCount.get() as any).count;
+  }
+
+  deleteDlqEntry(id: string): boolean {
+    const result = this.stmts.deleteDlqEntry.run(id);
+    return result.changes > 0;
+  }
+
+  deleteAllDlqEntries(): number {
+    const result = this.stmts.deleteAllDlqEntries.run();
+    return result.changes;
+  }
+
+  updateDlqRetried(id: string, retriedAt: number): void {
+    this.stmts.updateDlqRetried.run(retriedAt, id);
   }
 
   // ---------------------------------------------------------------------------

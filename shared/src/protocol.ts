@@ -74,6 +74,7 @@ export interface UserInfo {
   username: string;
   displayName: string;
   role: 'admin' | 'user';
+  mfaEnabled?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -1110,6 +1111,9 @@ export type KernelCommand =
     }
   | { type: 'webhook.inbound.delete'; id: string; inboundId: string }
   | { type: 'webhook.inbound.list'; id: string; owner_uid?: string }
+  | { type: 'webhook.dlq.list'; id: string; limit?: number; offset?: number }
+  | { type: 'webhook.dlq.retry'; id: string; dlqId: string }
+  | { type: 'webhook.dlq.purge'; id: string; dlqId?: string }
 
   // App commands (v0.4)
   | {
@@ -1393,6 +1397,9 @@ type KernelEventBase =
   | { type: 'webhook.inbound.triggered'; inboundId: string; pid: number }
   | { type: 'webhook.inbound.created'; inboundId: string; name: string; token: string }
   | { type: 'webhook.inbound.deleted'; inboundId: string }
+  | { type: 'webhook.dlq.added'; dlqId: string; webhookId: string; eventType: string }
+  | { type: 'webhook.dlq.retried'; dlqId: string; success: boolean }
+  | { type: 'webhook.dlq.purged'; dlqId?: string; count: number }
 
   // App events (v0.4)
   | { type: 'app.installed'; app: InstalledApp }

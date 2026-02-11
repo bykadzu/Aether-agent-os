@@ -20,7 +20,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 dotenv.config({ path: resolve(__dirname, '../../.env') });
 
-import { createServer, IncomingMessage, ServerResponse } from 'node:http';
+import { createServer as createHttpServer, IncomingMessage, ServerResponse } from 'node:http';
+import { createServer as createHttpsServer } from 'node:https';
 import * as os from 'node:os';
 import * as nodePath from 'node:path';
 import * as nodeFs from 'node:fs';
@@ -41,6 +42,15 @@ import {
 import { createV1Router } from './routes/v1.js';
 
 const PORT = parseInt(process.env.AETHER_PORT || String(DEFAULT_PORT), 10);
+
+// ---------------------------------------------------------------------------
+// TLS Configuration
+// ---------------------------------------------------------------------------
+
+const TLS_CERT_PATH = process.env.AETHER_TLS_CERT;
+const TLS_KEY_PATH = process.env.AETHER_TLS_KEY;
+const TLS_REDIRECT = process.env.AETHER_TLS_REDIRECT === 'true';
+const TLS_ENABLED = !!(TLS_CERT_PATH && TLS_KEY_PATH);
 
 // ---------------------------------------------------------------------------
 // Rate Limiting — in-memory sliding window
@@ -183,10 +193,12 @@ function isPublicPath(pathname: string, method: string): boolean {
   if (pathname === '/health') return true;
   if (pathname === '/api/auth/login' && method === 'POST') return true;
   if (pathname === '/api/auth/register' && method === 'POST') return true;
+  if (pathname === '/api/auth/mfa/login' && method === 'POST') return true;
   // Slack webhook endpoints are verified by Slack signing secret, not user auth
   if (pathname === '/api/v1/integrations/slack/commands' && method === 'POST') return true;
   if (pathname === '/api/v1/integrations/slack/events' && method === 'POST') return true;
   if (pathname === '/embed/aether-embed.js') return true;
+  if (pathname === '/metrics') return true;
   return false;
 }
 
@@ -209,10 +221,10 @@ const v1Handler = createV1Router(
 );
 
 // ---------------------------------------------------------------------------
-// HTTP Server
+// HTTP Server (with optional TLS)
 // ---------------------------------------------------------------------------
 
-const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+const requestHandler = async (req: IncomingMessage, res: ServerResponse) => {
   // CORS headers for Vite dev server
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
@@ -246,6 +258,16 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
     return;
   }
 
+  // Prometheus metrics endpoint (public, no auth)
+  if (url.pathname === '/metrics') {
+    const metricsText = kernel.metrics.getMetricsText();
+    res.writeHead(200, {
+      'Content-Type': 'text/plain; version=0.0.4; charset=utf-8',
+    });
+    res.end(metricsText);
+    return;
+  }
+
   // ----- Rate Limiting (exempt: health, OPTIONS) -----
   {
     const user = authenticateRequest(req);
@@ -265,10 +287,39 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
       const result = await kernel.auth.authenticateUser(username, password);
       if (result) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ token: result.token, user: result.user }));
+        if ('mfaRequired' in result && result.mfaRequired) {
+          res.end(JSON.stringify({ mfaRequired: true, mfaToken: result.mfaToken }));
+        } else {
+          res.end(JSON.stringify({ token: (result as any).token, user: (result as any).user }));
+        }
       } else {
         res.writeHead(401, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Invalid credentials' }));
+      }
+    } catch (err: any) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
+  // MFA Login (public endpoint)
+  if (url.pathname === '/api/auth/mfa/login' && req.method === 'POST') {
+    const body = await readBody(req);
+    try {
+      const { mfaToken, code } = JSON.parse(body);
+      if (!mfaToken || !code) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'mfaToken and code are required' }));
+        return;
+      }
+      const result = kernel.auth.authenticateMfa(mfaToken, code);
+      if (result) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ token: result.token, user: result.user }));
+      } else {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid MFA code or token' }));
       }
     } catch (err: any) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -353,6 +404,63 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
         error: 'Authentication required. Provide a Bearer token or aether_token cookie.',
       }),
     );
+    return;
+  }
+
+  // ----- MFA Endpoints (authenticated) -----
+
+  if (url.pathname === '/api/auth/mfa/setup' && req.method === 'POST') {
+    try {
+      const result = kernel.auth.setupMfa(user.id);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(result));
+    } catch (err: any) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
+  if (url.pathname === '/api/auth/mfa/verify' && req.method === 'POST') {
+    const body = await readBody(req);
+    try {
+      const { code } = JSON.parse(body);
+      if (!code) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'code is required' }));
+        return;
+      }
+      const valid = kernel.auth.verifyMfaCode(user.id, code);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ valid }));
+    } catch (err: any) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
+  if (url.pathname === '/api/auth/mfa/enable' && req.method === 'POST') {
+    const body = await readBody(req);
+    try {
+      const { code } = JSON.parse(body);
+      if (!code) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'code is required' }));
+        return;
+      }
+      const success = kernel.auth.enableMfa(user.id, code);
+      if (success) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ enabled: true }));
+      } else {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid TOTP code' }));
+      }
+    } catch (err: any) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
     return;
   }
 
@@ -1089,7 +1197,31 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
   // 404
   res.writeHead(404, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ error: 'Not found' }));
-});
+};
+
+// Create the primary server (HTTPS if TLS configured, otherwise HTTP)
+const httpServer = TLS_ENABLED
+  ? createHttpsServer(
+      {
+        cert: nodeFs.readFileSync(TLS_CERT_PATH!),
+        key: nodeFs.readFileSync(TLS_KEY_PATH!),
+      },
+      requestHandler,
+    )
+  : createHttpServer(requestHandler);
+
+// Optional: HTTP-to-HTTPS redirect server
+if (TLS_ENABLED && TLS_REDIRECT) {
+  const redirectServer = createHttpServer((req, res) => {
+    const host = (req.headers.host || 'localhost').replace(/:.*/, '');
+    const location = `https://${host}:${PORT}${req.url || '/'}`;
+    res.writeHead(301, { Location: location });
+    res.end();
+  });
+  redirectServer.listen(80, '0.0.0.0', () => {
+    console.log('[TLS] HTTP->HTTPS redirect server listening on port 80');
+  });
+}
 
 // ---------------------------------------------------------------------------
 // WebSocket Server (UI clients)
@@ -1185,6 +1317,7 @@ wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
 
   clients.set(ws, { ws, user });
   initBuffer(ws);
+  kernel.metrics.setWsConnections(clients.size);
   console.log(
     `[Server] Client connected (${clients.size} total)${user ? ` as ${user.username}` : ' (unauthenticated)'}`,
   );
@@ -1280,6 +1413,7 @@ wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
   ws.on('close', (code, reason) => {
     destroyBuffer(ws);
     clients.delete(ws);
+    kernel.metrics.setWsConnections(clients.size);
     console.log(
       `[Server] Client disconnected (${clients.size} total) code=${code} reason=${reason?.toString() || ''}`,
     );
@@ -1289,6 +1423,7 @@ wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
     console.error('[Server] WebSocket error:', err.message);
     destroyBuffer(ws);
     clients.delete(ws);
+    kernel.metrics.setWsConnections(clients.size);
   });
 });
 
@@ -1559,13 +1694,17 @@ httpServer.on('upgrade', (request, socket, head) => {
 
 httpServer.listen(PORT, '0.0.0.0', () => {
   const clusterRole = kernel.cluster.getRole();
+  const httpProto = TLS_ENABLED ? 'HTTPS' : 'HTTP';
+  const wsProto = TLS_ENABLED ? 'WSS' : 'WS';
+  const httpUrl = `${httpProto.toLowerCase()}://0.0.0.0:${PORT}`;
+  const wsUrl = `${wsProto.toLowerCase()}://0.0.0.0:${PORT}`;
   console.log('');
   console.log('  ╔══════════════════════════════════════╗');
   console.log('  ║         Aether OS Kernel Server       ║');
   console.log('  ╠══════════════════════════════════════╣');
   console.log(`  ║  Version:    ${AETHER_VERSION.padEnd(24)}║`);
-  console.log(`  ║  HTTP:       http://0.0.0.0:${String(PORT).padEnd(10)}║`);
-  console.log(`  ║  WebSocket:  ws://0.0.0.0:${String(PORT).padEnd(11)}║`);
+  console.log(`  ║  ${httpProto.padEnd(11)}  ${httpUrl.padEnd(24)}║`);
+  console.log(`  ║  ${wsProto.padEnd(11)}  ${wsUrl.padEnd(24)}║`);
   console.log(`  ║  Path:       ${DEFAULT_WS_PATH.padEnd(24)}║`);
   console.log(
     `  ║  Docker:     ${(kernel.containers.isDockerAvailable() ? 'Available' : 'Unavailable').padEnd(24)}║`,
@@ -1575,6 +1714,7 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   );
   console.log(`  ║  SQLite:     ${'Enabled'.padEnd(24)}║`);
   console.log(`  ║  Auth:       ${'Enabled'.padEnd(24)}║`);
+  console.log(`  ║  TLS:        ${(TLS_ENABLED ? 'Enabled' : 'Disabled').padEnd(24)}║`);
   console.log(`  ║  Cluster:    ${clusterRole.padEnd(24)}║`);
   console.log('  ╚══════════════════════════════════════╝');
   console.log('');

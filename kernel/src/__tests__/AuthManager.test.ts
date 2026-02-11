@@ -183,4 +183,203 @@ describe('AuthManager', () => {
       expect(() => auth.deleteUser('nonexistent')).toThrow('User not found');
     });
   });
+
+  // -------------------------------------------------------------------------
+  // MFA / TOTP (v0.5 Phase 3)
+  // -------------------------------------------------------------------------
+
+  describe('MFA setup and TOTP verification', () => {
+    it('setupMfa returns a base32 secret and otpauth URI', async () => {
+      const user = await auth.createUser('mfauser', 'password123');
+      const mfa = auth.setupMfa(user.id);
+
+      expect(mfa.secret).toBeTruthy();
+      // base32 characters only
+      expect(mfa.secret).toMatch(/^[A-Z2-7]+$/);
+      expect(mfa.otpauthUri).toContain('otpauth://totp/AetherOS:mfauser');
+      expect(mfa.otpauthUri).toContain(`secret=${mfa.secret}`);
+    });
+
+    it('verifyMfaCode succeeds with correct TOTP code', async () => {
+      const user = await auth.createUser('mfauser', 'password123');
+      const mfa = auth.setupMfa(user.id);
+
+      // Manually generate a valid code from the secret
+      const secretBuf = base32DecodeForTest(mfa.secret);
+      const code = generateTOTPForTest(secretBuf);
+
+      expect(auth.verifyMfaCode(user.id, code)).toBe(true);
+    });
+
+    it('verifyMfaCode fails with wrong code', async () => {
+      const user = await auth.createUser('mfauser', 'password123');
+      auth.setupMfa(user.id);
+
+      expect(auth.verifyMfaCode(user.id, '000000')).toBe(false);
+    });
+
+    it('verifyMfaCode allows +/- 1 time window', async () => {
+      const user = await auth.createUser('mfauser', 'password123');
+      const mfa = auth.setupMfa(user.id);
+
+      const secretBuf = base32DecodeForTest(mfa.secret);
+      const now = Math.floor(Date.now() / 30000);
+
+      // Code from previous window
+      const prevCode = generateTOTPForTest(secretBuf, now - 1);
+      expect(auth.verifyMfaCode(user.id, prevCode)).toBe(true);
+
+      // Code from next window
+      const nextCode = generateTOTPForTest(secretBuf, now + 1);
+      expect(auth.verifyMfaCode(user.id, nextCode)).toBe(true);
+    });
+  });
+
+  describe('MFA enable/disable flow', () => {
+    it('enableMfa succeeds with valid code', async () => {
+      const user = await auth.createUser('mfauser', 'password123');
+      const mfa = auth.setupMfa(user.id);
+
+      const secretBuf = base32DecodeForTest(mfa.secret);
+      const code = generateTOTPForTest(secretBuf);
+
+      expect(auth.enableMfa(user.id, code)).toBe(true);
+      expect(auth.isMfaEnabled(user.id)).toBe(true);
+    });
+
+    it('enableMfa fails with invalid code', async () => {
+      const user = await auth.createUser('mfauser', 'password123');
+      auth.setupMfa(user.id);
+
+      expect(auth.enableMfa(user.id, '000000')).toBe(false);
+      expect(auth.isMfaEnabled(user.id)).toBe(false);
+    });
+
+    it('disableMfa clears MFA state', async () => {
+      const user = await auth.createUser('mfauser', 'password123');
+      const mfa = auth.setupMfa(user.id);
+
+      const secretBuf = base32DecodeForTest(mfa.secret);
+      const code = generateTOTPForTest(secretBuf);
+      auth.enableMfa(user.id, code);
+      expect(auth.isMfaEnabled(user.id)).toBe(true);
+
+      auth.disableMfa(user.id);
+      expect(auth.isMfaEnabled(user.id)).toBe(false);
+    });
+  });
+
+  describe('Login with MFA enabled', () => {
+    it('returns mfaRequired when MFA is enabled', async () => {
+      const user = await auth.createUser('mfauser', 'password123');
+      const mfa = auth.setupMfa(user.id);
+      const secretBuf = base32DecodeForTest(mfa.secret);
+      const code = generateTOTPForTest(secretBuf);
+      auth.enableMfa(user.id, code);
+
+      const result = await auth.authenticateUser('mfauser', 'password123');
+      expect(result).not.toBeNull();
+      expect((result as any).mfaRequired).toBe(true);
+      expect((result as any).mfaToken).toBeTruthy();
+      // Should NOT contain user or full token
+      expect((result as any).user).toBeUndefined();
+    });
+
+    it('authenticateMfa succeeds with valid mfaToken and code', async () => {
+      const user = await auth.createUser('mfauser', 'password123');
+      const mfa = auth.setupMfa(user.id);
+      const secretBuf = base32DecodeForTest(mfa.secret);
+      const setupCode = generateTOTPForTest(secretBuf);
+      auth.enableMfa(user.id, setupCode);
+
+      // Login to get mfaToken
+      const loginResult = await auth.authenticateUser('mfauser', 'password123');
+      const mfaToken = (loginResult as any).mfaToken;
+
+      // Generate a fresh TOTP code
+      const loginCode = generateTOTPForTest(secretBuf);
+      const mfaResult = auth.authenticateMfa(mfaToken, loginCode);
+
+      expect(mfaResult).not.toBeNull();
+      expect(mfaResult!.user.username).toBe('mfauser');
+      expect(mfaResult!.token).toBeTruthy();
+      expect(mfaResult!.token.split('.')).toHaveLength(3);
+    });
+
+    it('authenticateMfa fails with invalid code', async () => {
+      const user = await auth.createUser('mfauser', 'password123');
+      const mfa = auth.setupMfa(user.id);
+      const secretBuf = base32DecodeForTest(mfa.secret);
+      const setupCode = generateTOTPForTest(secretBuf);
+      auth.enableMfa(user.id, setupCode);
+
+      const loginResult = await auth.authenticateUser('mfauser', 'password123');
+      const mfaToken = (loginResult as any).mfaToken;
+
+      const mfaResult = auth.authenticateMfa(mfaToken, '000000');
+      expect(mfaResult).toBeNull();
+    });
+
+    it('authenticateMfa fails with invalid mfaToken', async () => {
+      const user = await auth.createUser('mfauser', 'password123');
+      const mfa = auth.setupMfa(user.id);
+      const secretBuf = base32DecodeForTest(mfa.secret);
+      const setupCode = generateTOTPForTest(secretBuf);
+      auth.enableMfa(user.id, setupCode);
+
+      const code = generateTOTPForTest(secretBuf);
+      const mfaResult = auth.authenticateMfa('invalid.token.here', code);
+      expect(mfaResult).toBeNull();
+    });
+
+    it('login without MFA still returns user and token', async () => {
+      await auth.createUser('normaluser', 'password123');
+      const result = await auth.authenticateUser('normaluser', 'password123');
+      expect(result).not.toBeNull();
+      expect((result as any).user).toBeDefined();
+      expect((result as any).token).toBeDefined();
+      expect((result as any).mfaRequired).toBeUndefined();
+    });
+  });
 });
+
+// ---------------------------------------------------------------------------
+// Test helpers: re-implement base32 decode and TOTP generation for tests
+// ---------------------------------------------------------------------------
+
+const BASE32_ALPHABET_TEST = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+
+function base32DecodeForTest(encoded: string): Buffer {
+  const stripped = encoded.replace(/=+$/, '').toUpperCase();
+  let bits = 0;
+  let value = 0;
+  const bytes: number[] = [];
+  for (let i = 0; i < stripped.length; i++) {
+    const idx = BASE32_ALPHABET_TEST.indexOf(stripped[i]);
+    if (idx === -1) continue;
+    value = (value << 5) | idx;
+    bits += 5;
+    if (bits >= 8) {
+      bytes.push((value >>> (bits - 8)) & 0xff);
+      bits -= 8;
+    }
+  }
+  return Buffer.from(bytes);
+}
+
+function generateTOTPForTest(
+  secret: Buffer,
+  time: number = Math.floor(Date.now() / 30000),
+): string {
+  const timeBuffer = Buffer.alloc(8);
+  timeBuffer.writeBigUInt64BE(BigInt(time));
+  const hmac = crypto.createHmac('sha1', secret).update(timeBuffer).digest();
+  const offset = hmac[hmac.length - 1] & 0x0f;
+  const code =
+    (((hmac[offset] & 0x7f) << 24) |
+      (hmac[offset + 1] << 16) |
+      (hmac[offset + 2] << 8) |
+      hmac[offset + 3]) %
+    1000000;
+  return code.toString().padStart(6, '0');
+}
