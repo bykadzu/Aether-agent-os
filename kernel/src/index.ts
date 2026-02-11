@@ -20,6 +20,8 @@ export { IntegrationManager } from './IntegrationManager.js';
 export { TemplateManager } from './TemplateManager.js';
 export { SkillManager } from './SkillManager.js';
 export { RemoteAccessManager } from './RemoteAccessManager.js';
+export { ResourceGovernor } from './ResourceGovernor.js';
+export { AuditLogger } from './AuditLogger.js';
 export {
   SlackIntegration,
   verifySlackSignature,

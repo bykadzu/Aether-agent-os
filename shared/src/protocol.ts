@@ -1166,6 +1166,28 @@ export type KernelCommand =
   | { type: 'workspace.list'; id: string }
   | { type: 'workspace.cleanup'; id: string; agentName: string }
 
+  // Resource Governor (v0.5)
+  | { type: 'resource.getQuota'; id: string; pid: number }
+  | { type: 'resource.setQuota'; id: string; pid: number; quota: Partial<ResourceQuota> }
+  | { type: 'resource.getUsage'; id: string; pid: number }
+  | { type: 'resource.getSummary'; id: string }
+
+  // Audit Logger (v0.5)
+  | {
+      type: 'audit.query';
+      id: string;
+      filters?: {
+        pid?: number;
+        uid?: string;
+        action?: string;
+        event_type?: string;
+        startTime?: number;
+        endTime?: number;
+        limit?: number;
+        offset?: number;
+      };
+    }
+
   // System
   | { type: 'kernel.status'; id: string }
   | { type: 'kernel.shutdown'; id: string };
@@ -1359,6 +1381,14 @@ export type KernelEvent =
   // LLM events
   | { type: 'llm.list'; providers: LLMProviderInfo[] }
 
+  // Resource Governor events (v0.5)
+  | { type: 'resource.exceeded'; pid: number; reason: string; usage: AgentUsage }
+  | { type: 'resource.usage'; pid: number; usage: AgentUsage }
+  | { type: 'resource.quota'; pid: number; quota: ResourceQuota }
+
+  // Audit Logger events (v0.5)
+  | { type: 'audit.entries'; entries: AuditEntryInfo[] }
+
   // System events
   | { type: 'kernel.ready'; version: string; uptime: number }
   | {
@@ -1368,6 +1398,51 @@ export type KernelEvent =
       memoryMB: number;
       containerCount?: number;
     };
+
+// ---------------------------------------------------------------------------
+// Resource Governor Types (v0.5)
+// ---------------------------------------------------------------------------
+
+export interface AgentUsage {
+  pid: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalSteps: number;
+  startedAt: number;
+  estimatedCostUSD: number;
+  provider: string;
+}
+
+export interface ResourceQuota {
+  maxTokensPerSession: number;
+  maxTokensPerDay: number;
+  maxSteps: number;
+  maxWallClockMs: number;
+}
+
+export interface QuotaCheckResult {
+  allowed: boolean;
+  reason?: string;
+  usage: AgentUsage;
+}
+
+// ---------------------------------------------------------------------------
+// Audit Logger Types (v0.5)
+// ---------------------------------------------------------------------------
+
+export interface AuditEntryInfo {
+  id: number;
+  timestamp: number;
+  event_type: string;
+  actor_pid: number | null;
+  actor_uid: string | null;
+  action: string;
+  target: string | null;
+  args_sanitized: string | null;
+  result_hash: string | null;
+  metadata: string | null;
+  created_at: number;
+}
 
 // ---------------------------------------------------------------------------
 // Plugin Types

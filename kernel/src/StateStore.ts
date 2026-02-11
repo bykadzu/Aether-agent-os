@@ -207,6 +207,10 @@ export class StateStore {
     getKV: Database.Statement;
     setKV: Database.Statement;
     deleteKV: Database.Statement;
+    // Audit log statements (v0.5)
+    insertAuditLog: Database.Statement;
+    countAuditLog: Database.Statement;
+    pruneAuditLog: Database.Statement;
   };
 
   private _persistenceDisabled = false;
@@ -683,6 +687,25 @@ export class StateStore {
         last_active INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       );
+
+      -- Audit log table (v0.5 Audit Logger)
+      CREATE TABLE IF NOT EXISTS audit_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp INTEGER NOT NULL,
+        event_type TEXT NOT NULL,
+        actor_pid INTEGER,
+        actor_uid TEXT,
+        action TEXT NOT NULL,
+        target TEXT,
+        args_sanitized TEXT,
+        result_hash TEXT,
+        metadata TEXT,
+        created_at INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
+      CREATE INDEX IF NOT EXISTS idx_audit_event_type ON audit_log(event_type);
+      CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_log(actor_pid, actor_uid);
     `);
   }
 
@@ -1238,6 +1261,13 @@ export class StateStore {
         INSERT OR REPLACE INTO kv_store (key, value, updated_at) VALUES (?, ?, ?)
       `),
       deleteKV: this.db.prepare(`DELETE FROM kv_store WHERE key = ?`),
+      // Audit log statements (v0.5)
+      insertAuditLog: this.db.prepare(`
+        INSERT INTO audit_log (timestamp, event_type, actor_pid, actor_uid, action, target, args_sanitized, result_hash, metadata, created_at)
+        VALUES (@timestamp, @event_type, @actor_pid, @actor_uid, @action, @target, @args_sanitized, @result_hash, @metadata, @timestamp)
+      `),
+      countAuditLog: this.db.prepare(`SELECT COUNT(*) as count FROM audit_log`),
+      pruneAuditLog: this.db.prepare(`DELETE FROM audit_log WHERE timestamp < ?`),
     };
   }
 
@@ -2483,6 +2513,86 @@ export class StateStore {
 
   deleteKV(key: string): void {
     this.stmts.deleteKV.run(key);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Audit Log (v0.5)
+  // ---------------------------------------------------------------------------
+
+  insertAuditLog(entry: {
+    timestamp: number;
+    event_type: string;
+    actor_pid: number | null;
+    actor_uid: string | null;
+    action: string;
+    target: string | null;
+    args_sanitized: string | null;
+    result_hash: string | null;
+    metadata: string | null;
+  }): void {
+    this.stmts.insertAuditLog.run(entry);
+  }
+
+  queryAuditLog(
+    filters: {
+      pid?: number;
+      uid?: string;
+      action?: string;
+      event_type?: string;
+      startTime?: number;
+      endTime?: number;
+    },
+    limit: number,
+    offset: number,
+  ): { entries: any[]; total: number } {
+    const conditions: string[] = [];
+    const params: any[] = [];
+
+    if (filters.pid !== undefined) {
+      conditions.push('actor_pid = ?');
+      params.push(filters.pid);
+    }
+    if (filters.uid !== undefined) {
+      conditions.push('actor_uid = ?');
+      params.push(filters.uid);
+    }
+    if (filters.action !== undefined) {
+      conditions.push('action = ?');
+      params.push(filters.action);
+    }
+    if (filters.event_type !== undefined) {
+      conditions.push('event_type = ?');
+      params.push(filters.event_type);
+    }
+    if (filters.startTime !== undefined) {
+      conditions.push('timestamp >= ?');
+      params.push(filters.startTime);
+    }
+    if (filters.endTime !== undefined) {
+      conditions.push('timestamp <= ?');
+      params.push(filters.endTime);
+    }
+
+    const where = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
+
+    const countRow = this.db
+      .prepare(`SELECT COUNT(*) as count FROM audit_log ${where}`)
+      .get(...params) as { count: number };
+    const total = countRow.count;
+
+    const entries = this.db
+      .prepare(
+        `SELECT id, timestamp, event_type, actor_pid, actor_uid, action, target, args_sanitized, result_hash, metadata, created_at
+         FROM audit_log ${where} ORDER BY timestamp DESC LIMIT ? OFFSET ?`,
+      )
+      .all(...params, limit, offset);
+
+    return { entries, total };
+  }
+
+  pruneAuditLog(cutoffTimestamp: number): number {
+    const result = this.stmts.pruneAuditLog.run(cutoffTimestamp);
+    return result.changes;
   }
 
   // ---------------------------------------------------------------------------

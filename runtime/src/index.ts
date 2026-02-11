@@ -1,4 +1,4 @@
-export { runAgentLoop } from './AgentLoop.js';
+export { runAgentLoop, estimateTokens, estimateHistoryTokens, shouldCompact } from './AgentLoop.js';
 export { createToolSet, getToolsForAgent } from './tools.js';
 export type { ToolDefinition, ToolResult, ToolContext } from './tools.js';
 
@@ -53,6 +53,10 @@ export type {
   StatusUpdate,
   KnowledgeShare,
 } from './collaboration.js';
+
+// Prompt injection guards (v0.5)
+export { detectInjection } from './guards.js';
+export type { InjectionResult } from './guards.js';
 
 // Agent templates
 export { AGENT_TEMPLATES, getTemplate, getTemplatesByCategory } from './templates.js';

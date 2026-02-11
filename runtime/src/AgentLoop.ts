@@ -22,6 +22,9 @@ import {
   MemoryRecord,
   AGENT_STEP_INTERVAL,
   DEFAULT_AGENT_MAX_STEPS,
+  CONTEXT_COMPACTION_STEP_INTERVAL,
+  CONTEXT_COMPACTION_TOKEN_THRESHOLD,
+  CONTEXT_COMPACTION_KEEP_RECENT,
 } from '@aether/shared';
 import type { AgentProfile } from '@aether/shared';
 import {
@@ -35,6 +38,7 @@ import { getProviderFromModelString, getProvider, GeminiProvider } from './llm/i
 import type { LLMProvider, ChatMessage, ToolDefinition as LLMToolDef } from './llm/index.js';
 import { runReflection } from './reflection.js';
 import { getActivePlan, renderPlanAsMarkdown } from './planner.js';
+import { detectInjection } from './guards.js';
 
 interface AgentState {
   step: number;
@@ -176,10 +180,7 @@ export async function runAgentLoop(
 
     try {
       // Context compaction: summarize old history when it grows too large
-      if (
-        state.history.length > 20 ||
-        (state.step > 0 && state.step % 15 === 0 && state.history.length > 12)
-      ) {
+      if (shouldCompact(state)) {
         await compactHistory(state, provider, kernel, pid);
       }
 
@@ -227,6 +228,23 @@ export async function runAgentLoop(
           state.step++;
           continue;
         }
+      }
+
+      // Prompt injection guard: scan tool args before execution
+      const argsStr = JSON.stringify(decision.args);
+      const injectionCheck = detectInjection(argsStr);
+      if (!injectionCheck.safe) {
+        const blockMsg = `Injection blocked: ${injectionCheck.reason}`;
+        console.warn(`[AgentLoop] ${blockMsg} (PID ${pid}, tool ${decision.tool})`);
+        kernel.bus.emit('agent.injectionBlocked', {
+          pid,
+          tool: decision.tool,
+          reason: injectionCheck.reason,
+        });
+        state.history.push({ role: 'tool', content: blockMsg, timestamp: Date.now() });
+        state.lastObservation = blockMsg;
+        state.step++;
+        continue;
       }
 
       kernel.processes.setState(pid, 'running', 'executing');
@@ -359,10 +377,7 @@ export async function runAgentLoop(
         continue;
       }
       try {
-        if (
-          state.history.length > 20 ||
-          (state.step > 0 && state.step % 15 === 0 && state.history.length > 12)
-        ) {
+        if (shouldCompact(state)) {
           await compactHistory(state, provider, kernel, pid);
         }
         kernel.processes.setState(pid, 'running', 'thinking');
@@ -805,8 +820,56 @@ function getHeuristicAction(state: AgentState, config: AgentConfig): LLMDecision
 // Context Compaction
 // ---------------------------------------------------------------------------
 
-const COMPACTION_KEEP_RECENT = 10;
-const COMPACTION_FALLBACK_KEEP = 15;
+/**
+ * Estimate token count for a string using the chars/4 heuristic.
+ */
+export function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
+/**
+ * Estimate total tokens across all history entries.
+ */
+export function estimateHistoryTokens(history: AgentMessage[]): number {
+  let total = 0;
+  for (const entry of history) {
+    total += estimateTokens(entry.content);
+  }
+  return total;
+}
+
+/**
+ * Determine whether compaction should trigger based on step interval or token threshold.
+ */
+export function shouldCompact(state: AgentState): boolean {
+  // Must have enough entries to compact (system prompt + keep_recent + at least 1 old)
+  if (state.history.length <= CONTEXT_COMPACTION_KEEP_RECENT + 1) return false;
+
+  // Trigger on step interval
+  if (state.step > 0 && state.step % CONTEXT_COMPACTION_STEP_INTERVAL === 0) return true;
+
+  // Trigger on token threshold
+  if (estimateHistoryTokens(state.history) > CONTEXT_COMPACTION_TOKEN_THRESHOLD) return true;
+
+  return false;
+}
+
+/**
+ * Try to resolve a cheap/fast model for summarization to save costs.
+ * Falls back to null if no cheap model is available.
+ */
+function getCheapProvider(): LLMProvider | null {
+  const cheapModels = ['gemini:gemini-2.5-flash', 'openai:gpt-4o-mini'];
+  for (const modelStr of cheapModels) {
+    try {
+      const provider = getProviderFromModelString(modelStr);
+      if (provider && provider.isAvailable()) return provider;
+    } catch {
+      // Skip unavailable providers
+    }
+  }
+  return null;
+}
 
 async function compactHistory(
   state: AgentState,
@@ -814,17 +877,21 @@ async function compactHistory(
   kernel: Kernel,
   pid: PID,
 ): Promise<void> {
-  if (state.history.length <= COMPACTION_KEEP_RECENT + 1) return;
+  if (state.history.length <= CONTEXT_COMPACTION_KEEP_RECENT + 1) return;
+
+  const entriesBefore = state.history.length;
 
   // Keep system prompt (index 0) and last N entries
   const systemPrompt = state.history[0];
-  const oldEntries = state.history.slice(1, state.history.length - COMPACTION_KEEP_RECENT);
-  const recentEntries = state.history.slice(state.history.length - COMPACTION_KEEP_RECENT);
+  const oldEntries = state.history.slice(1, state.history.length - CONTEXT_COMPACTION_KEEP_RECENT);
+  const recentEntries = state.history.slice(state.history.length - CONTEXT_COMPACTION_KEEP_RECENT);
 
   if (oldEntries.length === 0) return;
 
-  // Try to summarize using the LLM provider
-  if (provider && provider.isAvailable()) {
+  // Try to use a cheap model first, fall back to the agent's primary provider
+  const summarizer = getCheapProvider() || provider;
+
+  if (summarizer && summarizer.isAvailable()) {
     try {
       const summaryText = oldEntries
         .map((e) => `[${e.role}] ${e.content.substring(0, 300)}`)
@@ -842,7 +909,7 @@ async function compactHistory(
         },
       ];
 
-      const response = await provider.chat(summaryMessages, []);
+      const response = await summarizer.chat(summaryMessages, []);
       const summary = response.content || 'Previous work completed (summary unavailable).';
 
       state.history = [
@@ -858,20 +925,34 @@ async function compactHistory(
       console.log(
         `[AgentLoop] Compacted history for PID ${pid}: ${oldEntries.length} entries → 1 summary`,
       );
+
+      kernel.bus.emit('agent.contextCompacted', {
+        pid,
+        entriesCompacted: oldEntries.length,
+        newHistorySize: state.history.length,
+        method: 'llm' as const,
+      });
       return;
     } catch (err) {
       console.warn(`[AgentLoop] History summarization failed for PID ${pid}, using fallback:`, err);
     }
   }
 
-  // Fallback: if summarization fails, keep more recent entries
+  // Fallback: if summarization fails, keep system prompt + last KEEP_RECENT entries
   state.history = [
     systemPrompt,
-    ...state.history.slice(state.history.length - COMPACTION_FALLBACK_KEEP),
+    ...state.history.slice(state.history.length - CONTEXT_COMPACTION_KEEP_RECENT),
   ];
   console.log(
-    `[AgentLoop] Compacted history for PID ${pid} (fallback): kept last ${COMPACTION_FALLBACK_KEEP} entries`,
+    `[AgentLoop] Compacted history for PID ${pid} (fallback): kept last ${CONTEXT_COMPACTION_KEEP_RECENT} entries`,
   );
+
+  kernel.bus.emit('agent.contextCompacted', {
+    pid,
+    entriesCompacted: entriesBefore - state.history.length,
+    newHistorySize: state.history.length,
+    method: 'fallback' as const,
+  });
 }
 
 // ---------------------------------------------------------------------------

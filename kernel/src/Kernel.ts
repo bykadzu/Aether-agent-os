@@ -39,6 +39,8 @@ import { IntegrationManager } from './IntegrationManager.js';
 import { TemplateManager } from './TemplateManager.js';
 import { SkillManager } from './SkillManager.js';
 import { RemoteAccessManager } from './RemoteAccessManager.js';
+import { ResourceGovernor } from './ResourceGovernor.js';
+import { AuditLogger } from './AuditLogger.js';
 import {
   KernelCommand,
   KernelEvent,
@@ -72,6 +74,8 @@ export class Kernel {
   readonly templateMarketplace: TemplateManager;
   readonly skills: SkillManager;
   readonly remoteAccess: RemoteAccessManager;
+  readonly resources: ResourceGovernor;
+  readonly audit: AuditLogger;
 
   private startTime: number;
   private running = false;
@@ -98,6 +102,8 @@ export class Kernel {
     this.templateMarketplace = new TemplateManager(this.bus, this.state);
     this.skills = new SkillManager(this.bus, this.state);
     this.remoteAccess = new RemoteAccessManager(this.bus, this.state);
+    this.resources = new ResourceGovernor(this.bus, this.processes);
+    this.audit = new AuditLogger(this.bus, this.state);
     this.startTime = Date.now();
   }
 
@@ -227,6 +233,12 @@ export class Kernel {
     // Initialize remote access manager
     await this.remoteAccess.init();
     console.log('[Kernel] Remote access manager initialized');
+
+    // Resource governor is ready (no async init needed)
+    console.log('[Kernel] Resource governor initialized');
+
+    // Audit logger is ready (subscribed to EventBus, prune timer started)
+    console.log('[Kernel] Audit logger initialized');
 
     // Listen for process cleanup events to remove agent home directories
     this.bus.on('process.cleanup', async (data: { pid: number; uid: string; cwd: string }) => {
@@ -1953,6 +1965,50 @@ export class Kernel {
           break;
         }
 
+        // ----- Resource Governor Commands (v0.5) -----
+        case 'resource.getQuota': {
+          const quota = this.resources.getQuota(cmd.pid);
+          events.push({ type: 'response.ok', id: cmd.id, data: quota });
+          events.push({ type: 'resource.quota', pid: cmd.pid, quota } as KernelEvent);
+          break;
+        }
+
+        case 'resource.setQuota': {
+          const quota = this.resources.setQuota(cmd.pid, cmd.quota);
+          events.push({ type: 'response.ok', id: cmd.id, data: quota });
+          events.push({ type: 'resource.quota', pid: cmd.pid, quota } as KernelEvent);
+          break;
+        }
+
+        case 'resource.getUsage': {
+          const usage = this.resources.getUsage(cmd.pid);
+          if (usage) {
+            events.push({ type: 'response.ok', id: cmd.id, data: usage });
+            events.push({ type: 'resource.usage', pid: cmd.pid, usage } as KernelEvent);
+          } else {
+            events.push({
+              type: 'response.error',
+              id: cmd.id,
+              error: `No usage data for PID ${cmd.pid}`,
+            });
+          }
+          break;
+        }
+
+        case 'resource.getSummary': {
+          const summary = this.resources.getSummary();
+          events.push({ type: 'response.ok', id: cmd.id, data: summary });
+          break;
+        }
+
+        // ----- Audit Logger Commands (v0.5) -----
+        case 'audit.query': {
+          const result = this.audit.query(cmd.filters || {});
+          events.push({ type: 'response.ok', id: cmd.id, data: result });
+          events.push({ type: 'audit.entries', entries: result.entries } as KernelEvent);
+          break;
+        }
+
         default:
           events.push({
             type: 'response.error',
@@ -2023,6 +2079,8 @@ export class Kernel {
       ['TemplateMktplace', true],
       ['SkillManager', true],
       ['RemoteAccessMgr', true],
+      ['ResourceGovernor', true],
+      ['AuditLogger', true],
     ];
 
     const port = process.env.AETHER_PORT || String(DEFAULT_PORT);
@@ -2085,6 +2143,8 @@ export class Kernel {
     }
 
     await this.remoteAccess.shutdown();
+    this.audit.shutdown();
+    this.resources.shutdown();
     this.skills.shutdown();
     this.webhooks.shutdown();
     this.apps.shutdown();

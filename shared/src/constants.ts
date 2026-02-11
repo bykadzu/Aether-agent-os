@@ -66,6 +66,15 @@ export const CLUSTER_HEARTBEAT_INTERVAL = 10_000; // 10 seconds
 export const CLUSTER_HEARTBEAT_TIMEOUT = 35_000; // 3.5 missed = offline
 export const CLUSTER_DEFAULT_CAPACITY = 16; // Max agents per node
 
+// Context compaction
+export const CONTEXT_COMPACTION_STEP_INTERVAL = 10; // Compact every N steps
+export const CONTEXT_COMPACTION_TOKEN_THRESHOLD = 30_000; // Compact when estimated tokens exceed this
+export const CONTEXT_COMPACTION_KEEP_RECENT = 8; // How many recent entries to preserve after compaction
+
+// Audit Logger
+export const AUDIT_RETENTION_DAYS = 30;
+export const AUDIT_DEFAULT_PAGE_SIZE = 50;
+
 // Agent roles
 export const AGENT_ROLES = [
   'Researcher',
@@ -78,6 +87,17 @@ export const AGENT_ROLES = [
 ] as const;
 
 export type AgentRole = (typeof AGENT_ROLES)[number];
+
+// Resource Governor defaults (v0.5)
+export const DEFAULT_MAX_TOKENS_PER_SESSION = 500_000;
+export const DEFAULT_MAX_TOKENS_PER_DAY = 2_000_000;
+export const DEFAULT_MAX_STEPS = 200;
+export const DEFAULT_MAX_WALL_CLOCK_MS = 3_600_000; // 1 hour
+
+// Rate limiting
+export const RATE_LIMIT_REQUESTS_PER_MIN = 120; // Authenticated users
+export const RATE_LIMIT_REQUESTS_UNAUTH_PER_MIN = 30; // Unauthenticated users
+export const RATE_LIMIT_AGENT_TOOLS_PER_MIN = 60; // Per-agent tool executions
 
 // Event deduplication
 let _eventCounter = 0;

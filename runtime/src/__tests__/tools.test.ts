@@ -339,12 +339,76 @@ describe('Tools', () => {
   // Shell Execution
   // -------------------------------------------------------------------
   describe('run_command', () => {
-    it('executes via PTY.exec', async () => {
+    it('routes through Docker container when available', async () => {
+      mockKernel.containers.isDockerAvailable.mockReturnValue(true);
+      mockKernel.containers.get.mockReturnValue({
+        containerId: 'abc123',
+        pid: 1,
+        image: 'ubuntu:22.04',
+        status: 'running',
+      });
+      mockKernel.containers.exec.mockResolvedValue('docker output');
+
       const tool = tools.find((t) => t.name === 'run_command')!;
       const result = await tool.execute({ command: 'ls -la' }, ctx);
 
       expect(result.success).toBe(true);
-      expect(result.output).toBe('shell output');
+      expect(result.output).toBe('docker output');
+      expect(mockKernel.containers.exec).toHaveBeenCalledWith(1, 'ls -la');
+    });
+
+    it('falls back to child_process when Docker is unavailable', async () => {
+      mockKernel.containers.isDockerAvailable.mockReturnValue(false);
+      // Add processes.get mock for the child_process fallback path
+      (mockKernel.processes as any).get = vi.fn(() => ({
+        info: { cwd: '/tmp', env: {} },
+      }));
+      (mockKernel.fs as any).getRealRoot = vi.fn(() => '/mock/root');
+
+      const tool = tools.find((t) => t.name === 'run_command')!;
+      // This will attempt child_process.exec which may fail in test env,
+      // but the important thing is it does NOT call containers.exec
+      await tool.execute({ command: 'echo test' }, ctx);
+
+      expect(mockKernel.containers.exec).not.toHaveBeenCalled();
+    });
+
+    it('returns error for missing command argument', async () => {
+      const tool = tools.find((t) => t.name === 'run_command')!;
+      const result = await tool.execute({}, ctx);
+
+      expect(result.success).toBe(false);
+      expect(result.output).toContain('"command" argument is required');
+    });
+
+    it('lazy-creates sandbox container when Docker is available but no container exists', async () => {
+      mockKernel.containers.isDockerAvailable.mockReturnValue(true);
+      // First call returns null (no container), second call returns the new one
+      mockKernel.containers.get.mockReturnValueOnce(undefined).mockReturnValueOnce({
+        containerId: 'new123',
+        pid: 1,
+        image: 'ubuntu:22.04',
+        status: 'running',
+      });
+      (mockKernel.containers as any).create = vi.fn().mockResolvedValue({
+        containerId: 'new123',
+        pid: 1,
+      });
+      mockKernel.containers.exec.mockResolvedValue('sandbox output');
+      (mockKernel.processes as any).get = vi.fn(() => ({
+        info: { cwd: '/home/agent_1', env: {} },
+      }));
+      (mockKernel.fs as any).getRealRoot = vi.fn(() => '/mock/root');
+
+      const tool = tools.find((t) => t.name === 'run_command')!;
+      const result = await tool.execute({ command: 'whoami' }, ctx);
+
+      expect(result.success).toBe(true);
+      expect(result.output).toBe('sandbox output');
+      expect((mockKernel.containers as any).create).toHaveBeenCalledWith(
+        1,
+        expect.stringContaining('/mock/root'),
+      );
     });
   });
 

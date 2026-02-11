@@ -35,10 +35,82 @@ import {
   DEFAULT_WS_PATH,
   AETHER_VERSION,
   AETHER_ROOT,
+  RATE_LIMIT_REQUESTS_PER_MIN,
+  RATE_LIMIT_REQUESTS_UNAUTH_PER_MIN,
 } from '@aether/shared';
 import { createV1Router } from './routes/v1.js';
 
 const PORT = parseInt(process.env.AETHER_PORT || String(DEFAULT_PORT), 10);
+
+// ---------------------------------------------------------------------------
+// Rate Limiting — in-memory sliding window
+// ---------------------------------------------------------------------------
+
+interface RateLimitEntry {
+  timestamps: number[];
+}
+
+const rateLimitStore = new Map<string, RateLimitEntry>();
+
+// Clean up stale entries every 60 seconds
+setInterval(() => {
+  const cutoff = Date.now() - 60_000;
+  for (const [key, entry] of rateLimitStore) {
+    entry.timestamps = entry.timestamps.filter((t) => t > cutoff);
+    if (entry.timestamps.length === 0) {
+      rateLimitStore.delete(key);
+    }
+  }
+}, 60_000);
+
+/**
+ * Check rate limit for a given key. Returns { allowed, retryAfterMs }.
+ * Uses a sliding window of 1 minute.
+ */
+export function checkRateLimit(
+  key: string,
+  maxRequests: number,
+): { allowed: boolean; retryAfterMs?: number } {
+  const now = Date.now();
+  const windowMs = 60_000;
+  const cutoff = now - windowMs;
+
+  let entry = rateLimitStore.get(key);
+  if (!entry) {
+    entry = { timestamps: [] };
+    rateLimitStore.set(key, entry);
+  }
+
+  // Prune old timestamps
+  entry.timestamps = entry.timestamps.filter((t) => t > cutoff);
+
+  if (entry.timestamps.length >= maxRequests) {
+    const oldestInWindow = entry.timestamps[0];
+    const retryAfterMs = oldestInWindow + windowMs - now;
+    return { allowed: false, retryAfterMs: Math.max(1000, retryAfterMs) };
+  }
+
+  entry.timestamps.push(now);
+  return { allowed: true };
+}
+
+/** Apply rate limiting to an HTTP request. Returns true if request was blocked. */
+function applyRateLimit(req: IncomingMessage, res: ServerResponse, user: UserInfo | null): boolean {
+  const identifier = user ? `user:${user.id}` : `ip:${req.socket.remoteAddress || 'unknown'}`;
+  const limit = user ? RATE_LIMIT_REQUESTS_PER_MIN : RATE_LIMIT_REQUESTS_UNAUTH_PER_MIN;
+
+  const result = checkRateLimit(identifier, limit);
+  if (!result.allowed) {
+    const retryAfterSec = Math.ceil((result.retryAfterMs || 1000) / 1000);
+    res.writeHead(429, {
+      'Content-Type': 'application/json',
+      'Retry-After': String(retryAfterSec),
+    });
+    res.end(JSON.stringify({ error: 'Too many requests', retryAfter: retryAfterSec }));
+    return true;
+  }
+  return false;
+}
 
 // ---------------------------------------------------------------------------
 // MIME type mapping for raw file serving
@@ -172,6 +244,12 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
       }),
     );
     return;
+  }
+
+  // ----- Rate Limiting (exempt: health, OPTIONS) -----
+  {
+    const user = authenticateRequest(req);
+    if (applyRateLimit(req, res, user)) return;
   }
 
   // Login
@@ -1223,6 +1301,7 @@ const BROADCAST_EVENTS = [
   'agent.progress',
   'agent.file_created',
   'agent.browsing',
+  'agent.injectionBlocked',
   'ipc.message',
   'ipc.delivered',
   'container.created',
