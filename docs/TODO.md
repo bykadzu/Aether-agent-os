@@ -48,7 +48,7 @@ Consolidated checklist of all outstanding work, derived from NEXT_STEPS.md, FEAT
 - [ ] Input sanitization audit on all kernel command parameters
 
 **Infrastructure:**
-- [ ] Production Dockerfile (not started)
+- [x] Production Dockerfile ✅ Dockerfile (kernel multi-stage), Dockerfile.ui (nginx), docker-compose.yml
 - [ ] Responsive/mobile layout (planned, may defer to v0.5)
 
 ---
@@ -258,11 +258,11 @@ Aether OS is a **two-layer system**:
 - `PTYManager` attaches terminal sessions to container shells
 
 **What's missing (v0.5 scope):**
-- [ ] **Container desktop image** — Pre-built `aether-desktop` Docker image with XFCE4, Firefox, VS Code Server, dev tools
-- [ ] **Persistent home directories** — Mount `~/.aether/workspaces/{pid}:/home/aether` in containers
-- [ ] **VNC quality + input** — Clipboard sync, dynamic resize (`xrandr`), bandwidth-adaptive quality
-- [ ] **Docker Compose packaging** — One-command `docker compose up` with kernel + UI + dynamic containers
-- [ ] **Agent desktop integration** — GUI app launching via tools, human takeover UX, shared state indicators
+- [x] **Container desktop image** — Pre-built `aether-desktop` Docker image with XFCE4, Firefox, VS Code Server, dev tools ✅ Dockerfile.desktop + docker/entrypoint.sh
+- [x] **Persistent home directories** — Mount `~/.aether/workspaces/{agentName}:/home/aether` in containers ✅ ContainerManager workspace methods, Kernel spawn flow updated
+- [x] **VNC quality + input** — Clipboard sync, dynamic resize (`xrandr`), bandwidth-adaptive quality ✅ VNCViewer clipboard sync, quality selector, ResizeObserver, VNCManager.resizeDisplay()
+- [x] **Docker Compose packaging** — One-command `docker compose up` with kernel + UI + dynamic containers ✅ Dockerfile, Dockerfile.ui, docker-compose.yml, nginx.conf, .dockerignore
+- [ ] **Agent desktop integration** — GUI app launching via tools, human takeover UX, shared state indicators (partial: "Take Over Desktop" button added to AgentDashboard)
 
 **Competitive position (as of Feb 2026):**
 - No other project combines: visual containerized Linux desktops + human VNC takeover + web Control Plane
@@ -319,8 +319,8 @@ Full details in [ROADMAP-v0.5.md](./ROADMAP-v0.5.md).
 ### Detailed Breakdown
 
 ### Deployment & Packaging
-- [ ] Production Dockerfile + multi-stage build
-- [ ] Docker Compose stack (kernel + UI + PostgreSQL + Redis)
+- [x] Production Dockerfile + multi-stage build ✅ Dockerfile (kernel), Dockerfile.ui (nginx), Dockerfile.desktop (agent)
+- [x] Docker Compose stack (kernel + UI) ✅ docker-compose.yml with health checks, sibling containers, named volumes (PostgreSQL + Redis deferred to Phase 2)
 - [ ] Helm chart for Kubernetes deployment
 - [ ] Electron wrapper for desktop app
 - [ ] Cloud deployment templates (AWS, GCP, Azure)

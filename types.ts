@@ -94,6 +94,7 @@ export interface Agent {
   ttyId?: string; // Terminal session ID (set when using real kernel)
   isWaiting?: boolean;
   githubSync?: boolean;
+  vncWsUrl?: string; // WebSocket URL for VNC when agent has a graphical desktop
 }
 
 // Runtime mode - determines if we use mock or real kernel

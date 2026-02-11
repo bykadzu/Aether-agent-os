@@ -11,6 +11,8 @@
  */
 
 import { execFile, execFileSync, ChildProcess, spawn } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { EventBus } from './EventBus.js';
 import {
   PID,
@@ -20,6 +22,7 @@ import {
   GPUInfo,
   GPUStats,
   GPUAllocation,
+  AETHER_ROOT,
   DEFAULT_CONTAINER_IMAGE,
   DEFAULT_GRAPHICAL_IMAGE,
   DEFAULT_CONTAINER_MEMORY_MB,
@@ -37,9 +40,57 @@ export class ContainerManager {
   private detectedGPUs: GPUInfo[] = [];
   private gpuAllocations = new Map<PID, GPUAllocation>();
   private nextVncOffset = 0;
+  private workspacesRoot: string;
 
   constructor(bus: EventBus) {
     this.bus = bus;
+    this.workspacesRoot = path.join(AETHER_ROOT, 'workspaces');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Workspace Methods
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Create a persistent workspace directory for an agent.
+   * Returns the absolute path to the workspace.
+   */
+  createWorkspace(agentName: string): string {
+    const workspacePath = path.join(this.workspacesRoot, agentName);
+    fs.mkdirSync(workspacePath, { recursive: true });
+    return workspacePath;
+  }
+
+  /**
+   * List all existing workspace directory names.
+   */
+  listWorkspaces(): string[] {
+    try {
+      const entries = fs.readdirSync(this.workspacesRoot, { withFileTypes: true });
+      return entries.filter((e) => e.isDirectory()).map((e) => e.name);
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Remove a workspace directory. Only removes if it exists under the workspaces root.
+   * Returns true if removed, false otherwise.
+   */
+  cleanupWorkspace(agentName: string): boolean {
+    const workspacePath = path.join(this.workspacesRoot, agentName);
+    // Safety: ensure the resolved path is actually under the workspaces root
+    const resolved = path.resolve(workspacePath);
+    const resolvedRoot = path.resolve(this.workspacesRoot);
+    if (!resolved.startsWith(resolvedRoot + path.sep) || resolved === resolvedRoot) {
+      return false;
+    }
+    try {
+      fs.rmSync(workspacePath, { recursive: true, force: true });
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -149,20 +200,20 @@ export class ContainerManager {
       `${memoryMB}m`,
       '--cpus',
       String(cpuLimit),
-      // Mount the agent's home directory
+      // Mount the agent's persistent workspace
       '-v',
-      `${hostVolumePath}:/home/agent:rw`,
+      `${hostVolumePath}:/home/aether:rw`,
       '-w',
-      '/home/agent',
+      '/home/aether',
       // Environment
       '-e',
       `AETHER_PID=${pid}`,
       '-e',
       'TERM=xterm-256color',
       '-e',
-      'HOME=/home/agent',
+      'HOME=/home/aether',
       '-e',
-      'USER=agent',
+      'USER=aether',
     ];
 
     // Graphical container: expose VNC port and set DISPLAY

@@ -757,10 +757,25 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({
                       <p className="text-xs text-gray-400 mt-1 line-clamp-1">{agent.goal}</p>
                     </div>
                   </div>
-                  <div
-                    className={`text-[10px] font-bold px-2 py-1 rounded-md uppercase tracking-wide border ${getStatusStyles(agent.status)}`}
-                  >
-                    {agent.phase || agent.status}
+                  <div className="flex items-center gap-2">
+                    {agent.vncWsUrl && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOpenVM(agent.id);
+                        }}
+                        className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/20 rounded-md transition-colors"
+                        title="Take Over Desktop"
+                      >
+                        <Monitor size={10} />
+                        Desktop
+                      </button>
+                    )}
+                    <div
+                      className={`text-[10px] font-bold px-2 py-1 rounded-md uppercase tracking-wide border ${getStatusStyles(agent.status)}`}
+                    >
+                      {agent.phase || agent.status}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -828,6 +843,18 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({
                   {agent.progress}
                 </div>
                 <div className="col-span-1 flex items-center gap-1">
+                  {agent.vncWsUrl && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onOpenVM(agent.id);
+                      }}
+                      className="p-1 rounded hover:bg-indigo-500/20 text-gray-500 hover:text-indigo-400 transition-colors"
+                      title="Take Over Desktop"
+                    >
+                      <Monitor size={12} />
+                    </button>
+                  )}
                   <button
                     onClick={(e) => handleDetach(e, agent.id)}
                     className="p-1 rounded hover:bg-white/10 text-gray-500 hover:text-white transition-colors"

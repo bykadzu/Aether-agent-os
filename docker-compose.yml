@@ -1,0 +1,49 @@
+# =============================================================================
+# Aether OS — Docker Compose (Full Stack)
+#
+# Usage:
+#   docker compose up --build        # Build and start everything
+#   docker compose up -d             # Start in background
+#   docker compose down              # Stop and remove containers
+#   docker compose logs -f           # Follow logs
+#
+# The kernel creates sibling Docker containers for agents, so it needs
+# the host Docker socket mounted.
+# =============================================================================
+
+services:
+  aether-kernel:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aether-kernel
+    ports:
+      - "3001:3001"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - aether-data:/root/.aether
+    environment:
+      - NODE_ENV=production
+      - AETHER_FS_ROOT=/root/.aether
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3001/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  aether-ui:
+    build:
+      context: .
+      dockerfile: Dockerfile.ui
+    container_name: aether-ui
+    ports:
+      - "4747:80"
+    depends_on:
+      aether-kernel:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  aether-data:

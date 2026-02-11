@@ -227,6 +227,7 @@ const App: React.FC = () => {
         progress: proc.progress.step,
         ttyId: proc.ttyId,
         isWaiting: false,
+        vncWsUrl: proc.vncInfo ? `ws://localhost:${proc.vncInfo.wsPort}` : undefined,
       }),
     );
   }, [kernel.processes]);

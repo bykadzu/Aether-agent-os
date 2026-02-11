@@ -12,11 +12,12 @@
 import { createServer, Server as NetServer, Socket } from 'node:net';
 import { EventBus } from './EventBus.js';
 import { PID } from '@aether/shared';
+import type { ContainerManager } from './ContainerManager.js';
 
 interface ProxyInfo {
   pid: PID;
-  vncPort: number;     // Target TCP port (container's VNC)
-  wsPort: number;      // WebSocket proxy port for browser
+  vncPort: number; // Target TCP port (container's VNC)
+  wsPort: number; // WebSocket proxy port for browser
   server: NetServer;
   connections: Set<Socket>;
 }
@@ -25,9 +26,18 @@ export class VNCManager {
   private proxies = new Map<PID, ProxyInfo>();
   private bus: EventBus;
   private nextWsPort = 6080;
+  private containerManager: ContainerManager | null = null;
 
-  constructor(bus: EventBus) {
+  constructor(bus: EventBus, containerManager?: ContainerManager) {
     this.bus = bus;
+    this.containerManager = containerManager ?? null;
+  }
+
+  /**
+   * Set or replace the ContainerManager reference.
+   */
+  setContainerManager(cm: ContainerManager): void {
+    this.containerManager = cm;
   }
 
   /**
@@ -100,7 +110,9 @@ export class VNCManager {
           display: ':99',
         });
 
-        console.log(`[VNCManager] Proxy started for PID ${pid}: ws://0.0.0.0:${wsPort} → tcp://127.0.0.1:${vncPort}`);
+        console.log(
+          `[VNCManager] Proxy started for PID ${pid}: ws://0.0.0.0:${wsPort} → tcp://127.0.0.1:${vncPort}`,
+        );
         resolve({ wsPort });
       });
 
@@ -143,6 +155,31 @@ export class VNCManager {
     const proxy = this.proxies.get(pid);
     if (!proxy) return null;
     return { wsPort: proxy.wsPort };
+  }
+
+  /**
+   * Resize the virtual display for a graphical container via xrandr.
+   * Requires a ContainerManager reference to exec inside the container.
+   */
+  async resizeDisplay(pid: PID, width: number, height: number): Promise<void> {
+    if (!this.containerManager) {
+      console.warn('[VNCManager] Cannot resize display: no ContainerManager set');
+      return;
+    }
+
+    try {
+      const modeName = `${width}x${height}`;
+      await this.containerManager.execGraphical(
+        pid,
+        `xrandr --output default --mode ${modeName} 2>/dev/null || ` +
+          `(xrandr --newmode "${modeName}" 0 ${width} 0 0 0 ${height} 0 0 0 2>/dev/null; ` +
+          `xrandr --addmode default "${modeName}" 2>/dev/null; ` +
+          `xrandr --output default --mode "${modeName}" 2>/dev/null) || true`,
+      );
+      console.log(`[VNCManager] Display resized to ${modeName} for PID ${pid}`);
+    } catch (err: any) {
+      console.warn(`[VNCManager] Failed to resize display for PID ${pid}: ${err.message}`);
+    }
   }
 
   /**

@@ -1162,6 +1162,10 @@ export type KernelCommand =
   | { type: 'org.teams.addMember'; id: string; teamId: string; userId: string; role?: TeamRole }
   | { type: 'org.teams.removeMember'; id: string; teamId: string; userId: string }
 
+  // Workspace (v0.5)
+  | { type: 'workspace.list'; id: string }
+  | { type: 'workspace.cleanup'; id: string; agentName: string }
+
   // System
   | { type: 'kernel.status'; id: string }
   | { type: 'kernel.shutdown'; id: string };
@@ -1344,6 +1348,10 @@ export type KernelEvent =
   | { type: 'org.member.updated'; orgId: string; userId: string; role: OrgRole }
   | { type: 'org.team.created'; team: Team }
   | { type: 'org.team.deleted'; teamId: string }
+
+  // Workspace events (v0.5)
+  | { type: 'workspace.list'; workspaces: string[] }
+  | { type: 'workspace.cleaned'; agentName: string; success: boolean }
 
   // Collaboration events (v0.3 Wave 4)
   | { type: 'collaboration.message'; protocol: string; fromPid: PID; toPid: PID }

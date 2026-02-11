@@ -1,0 +1,71 @@
+# Aether Desktop Container
+# Ubuntu 24.04 with XFCE4, VNC, and development tools for agent graphical sessions.
+# Image: aether-desktop:latest
+
+FROM ubuntu:24.04
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+# ---------- System packages (single layer, clean up aggressively) ----------
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # X11 / VNC
+    xvfb \
+    x11vnc \
+    dbus-x11 \
+    # XFCE desktop (minimal)
+    xfce4 \
+    xfce4-terminal \
+    # Browser
+    firefox \
+    # Dev essentials
+    python3.12 \
+    git \
+    curl \
+    wget \
+    ca-certificates \
+    gnupg \
+    sudo \
+    locales \
+    # Misc utilities
+    xdg-utils \
+    procps \
+    net-tools \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/* /usr/share/doc/* /usr/share/man/* /usr/share/info/* \
+    /usr/share/lintian /var/log/*
+
+# ---------- Locale ----------
+RUN sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && locale-gen
+
+# ---------- Node.js 22 (NodeSource) ----------
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/*
+
+# ---------- code-server (VS Code in the browser) ----------
+RUN curl -fsSL https://code-server.dev/install.sh | sh \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/* /tmp/* /root/.cache
+
+# ---------- Non-root user ----------
+RUN useradd -m -s /bin/bash -G sudo aether \
+    && echo "aether ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/aether
+
+# ---------- Environment ----------
+ENV DISPLAY=:99
+ENV LANG=en_US.UTF-8
+ENV LANGUAGE=en_US:en
+ENV LC_ALL=en_US.UTF-8
+ENV HOME=/home/aether
+ENV USER=aether
+
+# ---------- Entrypoint ----------
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN sed -i 's/\r$//' /usr/local/bin/entrypoint.sh && chmod +x /usr/local/bin/entrypoint.sh
+
+USER aether
+WORKDIR /home/aether
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["tail", "-f", "/dev/null"]

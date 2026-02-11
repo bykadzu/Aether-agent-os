@@ -305,8 +305,10 @@ export class Kernel {
           const sandbox = cmd.config.sandbox;
           let vncWsPort: number | undefined;
           if (sandbox?.type === 'container' && this.containers.isDockerAvailable()) {
-            const hostVolume = this.fs.getRealRoot() + proc.info.cwd;
-            const containerInfo = await this.containers.create(pid, hostVolume, sandbox);
+            // Create persistent workspace based on agent role/name
+            const workspaceName = cmd.config.role.toLowerCase().replace(/\s+/g, '-') + `-${pid}`;
+            const workspacePath = this.containers.createWorkspace(workspaceName);
+            const containerInfo = await this.containers.create(pid, workspacePath, sandbox);
             if (containerInfo) {
               proc.info.containerId = containerInfo.containerId;
               proc.info.containerStatus = 'running';
@@ -1767,6 +1769,38 @@ export class Kernel {
             events.push({ type: 'response.ok', id: cmd.id });
           } catch (err: any) {
             events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        // ----- Workspace Commands (v0.5) -----
+        case 'workspace.list': {
+          const workspaces = this.containers.listWorkspaces();
+          events.push({
+            type: 'response.ok',
+            id: cmd.id,
+            data: workspaces,
+          });
+          events.push({
+            type: 'workspace.list',
+            workspaces,
+          } as KernelEvent);
+          break;
+        }
+
+        case 'workspace.cleanup': {
+          const success = this.containers.cleanupWorkspace(cmd.agentName);
+          events.push({
+            type: success ? 'response.ok' : 'response.error',
+            id: cmd.id,
+            ...(success ? {} : { error: `Failed to cleanup workspace: ${cmd.agentName}` }),
+          } as KernelEvent);
+          if (success) {
+            events.push({
+              type: 'workspace.cleaned',
+              agentName: cmd.agentName,
+              success: true,
+            } as KernelEvent);
           }
           break;
         }
