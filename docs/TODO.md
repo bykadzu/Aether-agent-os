@@ -2,14 +2,14 @@
 
 Consolidated checklist of all outstanding work, derived from NEXT_STEPS.md, FEATURES.md, all roadmaps, and the research documents. Organized by urgency and version target.
 
-**Last updated:** 2026-02-11 (v0.4 complete, v0.4.1 hotfix sprint — agent execution working on Windows)
+**Last updated:** 2026-02-11 (v0.4.2 complete — frontier models updated, v0.5 roadmap expanded)
 
 ---
 
 ## Quick Wins (pre-v0.2, low effort / high impact)
 
 - [x] **Pre-commit hooks** — husky + lint-staged configured (eslint --fix + prettier on staged .ts/.tsx)
-- [ ] **Screenshots in README** — Add screenshots/GIFs of the UI to make the project more approachable
+- [ ] **Screenshots in README** — Add screenshots/GIFs of the UI to make the project more approachable. Capture: Mission Control grid, AgentVM with live terminal + plan tree, BrowserApp screencast, theme toggle, Memory Inspector, multi-workspace overview. Highest-impact single task for contributor onboarding.
 - [x] **Kernel boot banner** — Prints all 12 subsystems with status, port, FS root, cluster role on startup
 - [x] **Agent log export** — Download button in AgentVM control bar (JSON + plain text formats)
 - [x] **Loading skeleton for Mission Control** — Animated pulse skeleton cards during initial load
@@ -188,16 +188,19 @@ Critical fixes to get agents actually running on Windows. These were identified 
 - [x] **Duplicate log entries (4x)** — Interleaved events bypassed consecutive-only dedup. Improved `appendLog` to check last N entries of same type
 - [x] **Long-running command FAIL** — Graphical apps (Pygame) timed out and reported FAIL. Now returns partial success with stdout if process was killed
 
-### Known Issues (Still Open)
+### Known Issues (Still Open) — Prioritized
 
-- [ ] **Gemini empty args on first call** — LLM sometimes returns empty JSON args before figuring out the correct format. The guards help but the root cause is in the Gemini response schema
-- [ ] **Duplicate events at source** — Events still emit 2-3x through EventBus wildcard + server broadcast chain. Client-side dedup mitigates but a proper fix needs event IDs or server-side dedup
-- [ ] **ShortcutManager conflicts** — `Ctrl+1` through `Ctrl+9` keyboard shortcuts overwrite each other
-- [ ] **Agent commands run on host** — No sandboxing yet; `run_command` executes directly on the host OS. Should use Docker containers when available
-- [ ] **Playwright not installed** — BrowserManager disabled; agents can't browse web. Need `npx playwright install`
-- [ ] **Multiple WebSocket connections** — Browser sometimes opens 2+ connections (StrictMode, HMR). Should enforce single connection per session
-- [ ] **Context compaction** — Long-running agents hit LLM context limits. No compaction/summarization yet
-- [ ] **Agent home directory cleanup** — Spawned agent dirs under `C:\temp\aether\home\` not cleaned up on process exit
+**High priority (reliability blockers):**
+- [ ] **Gemini empty args on first call** — LLM sometimes returns empty JSON args before figuring out the correct format. The guards help but the root cause is in the Gemini response schema. *Fix: add few-shot examples to system prompt showing correct tool call format; add retry-with-guidance loop in GeminiProvider when args parse as empty.*
+- [ ] **Duplicate events at source** — Events still emit 2-3x through EventBus wildcard + server broadcast chain. Client-side dedup mitigates but a proper fix needs event IDs or server-side dedup. *Fix: add UUIDv7 event IDs in EventBus.emit(); enforce dedup server-side before WebSocket broadcast.*
+- [ ] **Context compaction** — Long-running agents hit LLM context limits. No compaction/summarization yet. *Fix: implement periodic summarization (every N steps or on token threshold) using a cheap model (e.g., gemini-3-flash or gpt-4o-mini) to compress episodic history. Critical for extended autonomy.*
+- [ ] **Agent commands run on host** — No sandboxing yet; `run_command` executes directly on the host OS. Should use Docker containers when available. *Fix: activate ContainerManager for run_command when Docker is available; fall back to child_process only when Docker is unavailable.*
+
+**Medium priority (usability):**
+- [ ] **ShortcutManager conflicts** — `Ctrl+1` through `Ctrl+9` keyboard shortcuts overwrite each other. *Fix: use workspace-specific or app-scoped shortcut registries; add conflict detection and logging.*
+- [ ] **Playwright not installed** — BrowserManager disabled; agents can't browse web. *Fix: add `npx playwright install --with-deps` to setup.sh or post-install script; add Dockerfile instruction.*
+- [ ] **Multiple WebSocket connections** — Browser sometimes opens 2+ connections (StrictMode, HMR). *Fix: implement session ID in connect handshake; reject duplicate connections or multiplex.*
+- [ ] **Agent home directory cleanup** — Spawned agent dirs under `C:\temp\aether\home\` not cleaned up on process exit. *Fix: hook into ProcessManager zombie→dead transition to rm -rf home dir (with safety checks, skip if snapshot exists).*
 
 ---
 
@@ -212,6 +215,48 @@ Critical fixes to get agents actually running on Windows. These were identified 
 ## v0.5 — Production, Scale & Beyond
 
 Full details in [ROADMAP-v0.5.md](./ROADMAP-v0.5.md).
+
+### Recommended Execution Phases
+
+**Phase 1 — Foundation & Safety** (target: 2-4 weeks)
+> Focus: survive 50+ agents without host compromise or runaway costs.
+- Resource governance: quotas, token budgets, runaway detection, basic cost tracking
+- Security basics: audit logging schema + append, rate limiting middleware, prompt injection guards
+- Database: PostgreSQL migration (core tables: agents, memory, events, audits) with SQLite read fallback during transition
+- Reliable snapshots: atomic capture (state + fs delta + memory dump)
+- Context compaction: periodic summarization for long-running agents (moved up from v0.4.1 known issues)
+
+*Validation milestone: Spawn 50 cron-scheduled agents → observe resource enforcement → kill 3 runaways → verify audit logs → restore from snapshot.*
+
+**Phase 2 — Scale & Performance** (can parallelize with Phase 1)
+> Focus: median loop latency down 30-50%, support 100+ concurrent agents.
+- Redis for caching (EventBus, memory hot paths)
+- Smart model routing (rule-based: task length/complexity → model family)
+- Priority/fair-share scheduling in ProcessManager
+- WebSocket batching + frontend lazy loading
+
+*Validation milestone: 100 concurrent agents with <2s median loop latency, no SQLite lock contention.*
+
+**Phase 3 — Production & Observability**
+> Focus: deployable to staging with dashboards and alerts.
+- Production Dockerfile + Compose + basic Helm
+- Prometheus + OpenTelemetry (agent loops, tool calls, LLM calls)
+- TLS enforcement + MFA
+- Webhook retry + DLQ
+
+*Validation milestone: Deploy to cloud VM, Grafana dashboard shows all agent metrics, TLS terminates correctly, webhook failures retry and land in DLQ.*
+
+**Phase 4 — Ecosystem & Polish**
+> Focus: third-party integrations viable, mobile supervision possible.
+- Public OpenAPI + LangChain compatibility adapter
+- Fine-grained RBAC (per-tool/per-LLM)
+- PWA / responsiveness basics
+
+*Validation milestone: External tool registered via LangChain adapter, mobile browser can view Mission Control and kill an agent.*
+
+---
+
+### Detailed Breakdown
 
 ### Deployment & Packaging
 - [ ] Production Dockerfile + multi-stage build
@@ -319,6 +364,12 @@ npx vitest run --exclude "**/raw-file-endpoint*" --exclude "**/kernel-integratio
 **For CI/validation of new code:** Run the targeted tests above. The slow integration tests should only be run in isolation when modifying server/kernel boot code.
 
 **For new Wave/feature tests:** Run the specific new test files first, then the exclude command above for regression checking.
+
+### Recommended CI Improvements
+
+- [ ] **Windows CI runner** — Add `windows-latest` runner to GitHub Actions to catch PTY/path/shell regressions early (v0.4.1 had 17 Windows-specific bugs)
+- [ ] **Quick CI workflow** — Add a `--quick` Vitest flag or dedicated `ci-quick.yml` for PR validation (unit tests only, <30s)
+- [ ] **Integration test isolation** — Run `raw-file-endpoint` and `kernel-integration` suites in a separate CI job with increased heap (`--max-old-space-size=4096`)
 
 ### Known Pre-existing Failures
 
