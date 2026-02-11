@@ -204,11 +204,28 @@ Critical fixes to get agents actually running on Windows. These were identified 
 
 ---
 
-## v0.4.2 — Model & Polish (2026-02-11)
+## v0.4.2 — Last Mile Polish (2026-02-11)
 
+### Model Updates
 - [x] **Updated LLM defaults to 2026 frontier models** — Gemini 3 Flash/Pro, GPT-5.2/5.3-Codex, Claude Opus 4.6 (older models still available as options)
 - [x] **Updated Settings model selector** — Cron job model dropdown now lists all 7 current models across providers
 - [x] **Updated .env.example** — Model name comments reflect current defaults
+
+### Reliability (Tier 1)
+- [x] **Persistent storage default** — Changed AETHER_ROOT from `/tmp/aether` to `~/.aether` (survives reboots). Configurable via `AETHER_FS_ROOT` env var. Migration warning on boot if legacy `/tmp/aether` data found.
+- [x] **Atomic file save** — VirtualFS.writeFile now uses write-to-temp-then-rename pattern (crash-safe on all platforms).
+- [x] **Configurable command timeout** — `run_command` accepts optional `timeout` arg (seconds), default 30s, max 5 min. Added `DEFAULT_COMMAND_TIMEOUT` / `MAX_COMMAND_TIMEOUT` constants.
+- [x] **Container terminal resize fix** — PTYManager now sends resize signal to containerized sessions via `ContainerManager.resizeTTY()`.
+- [x] **Test scoped filtering** — Vitest workspace projects: `npm run test:kernel`, `test:runtime`, `test:server`, `test:components`, `test:unit`. Not all 1300+ tests need to run every time.
+- [x] **`npm run doctor` diagnostic** — New `scripts/doctor.ts` checks 9 prerequisites (Node, npm, Docker, Playwright, .env, API keys, port, data dir, disk space) with green/yellow/red output and actionable fix suggestions.
+
+### Quality of Life (Tier 2)
+- [x] **Agent pause/resume** — New `agent.pause` / `agent.resume` kernel commands. AgentLoop already supported stopped state; now exposed via `kernelClient.pauseAgent()` / `resumeAgent()` and UI buttons in AgentDashboard.
+- [x] **Step limit auto-continue** — When agents hit step limit, they emit `agent.stepLimitReached` and wait up to 5 min for a continue signal. UI shows "Continue (+25 steps)" button. `kernelClient.continueAgent(pid, extraSteps)` API.
+- [x] **Dead keyboard shortcuts removed** — Removed 10 unimplemented shortcuts (Cmd+P, Cmd+Shift+F, Cmd+B/I, etc.). Wired Terminal Cmd+T to open new terminal window.
+- [x] **Browser download handling** — `page.on('download')` captures files and routes them into agent VFS via `browser:download` event.
+- [x] **Enhanced setup.sh** — Now prompts for API key, verifies Playwright, runs doctor check, and shows scoped test commands.
+- [x] **Integration smoke tests** — 9 smoke tests covering: kernel lifecycle, file lifecycle (write/read/list/delete), atomic write verification, auth flow, agent pause/resume, process spawn/info/list.
 
 ---
 

@@ -19,6 +19,7 @@ function createMockPage(overrides: Record<string, any> = {}) {
     isClosed: vi.fn().mockReturnValue(false),
     setViewportSize: vi.fn().mockResolvedValue(undefined),
     evaluate: vi.fn().mockResolvedValue([]),
+    on: vi.fn(),
     mouse: {
       click: vi.fn().mockResolvedValue(undefined),
       wheel: vi.fn().mockResolvedValue(undefined),
@@ -43,10 +44,7 @@ function createMockBrowser(page: any) {
  * Inject a mock Playwright module into the BrowserManager by calling init()
  * with a mocked dynamic import.
  */
-async function initWithMockPlaywright(
-  manager: BrowserManager,
-  mockBrowser: any,
-) {
+async function initWithMockPlaywright(manager: BrowserManager, mockBrowser: any) {
   // We patch the manager's internals after init detects playwright as unavailable
   // by directly setting the private fields
   const m = manager as any;
@@ -114,7 +112,7 @@ describe('BrowserManager', () => {
 
     it('throws when creating duplicate session', async () => {
       await manager.createSession('dup');
-      await expect(manager.createSession('dup')).rejects.toThrow("already exists");
+      await expect(manager.createSession('dup')).rejects.toThrow('already exists');
     });
 
     it('throws when Playwright is not available', async () => {
@@ -138,7 +136,7 @@ describe('BrowserManager', () => {
     });
 
     it('throws when session does not exist', async () => {
-      await expect(manager.destroySession('nonexistent')).rejects.toThrow("not found");
+      await expect(manager.destroySession('nonexistent')).rejects.toThrow('not found');
     });
   });
 
@@ -155,11 +153,17 @@ describe('BrowserManager', () => {
       await manager.createSession('nav');
       const info = await manager.navigateTo('nav', 'https://example.com');
 
-      expect(mockPage.goto).toHaveBeenCalledWith('https://example.com', { waitUntil: 'domcontentloaded' });
+      expect(mockPage.goto).toHaveBeenCalledWith('https://example.com', {
+        waitUntil: 'domcontentloaded',
+      });
       expect(info.url).toBe('https://example.com');
       expect(info.title).toBe('Example Domain');
       expect(navHandler).toHaveBeenCalledWith(
-        expect.objectContaining({ sessionId: 'nav', url: 'https://example.com', title: 'Example Domain' }),
+        expect.objectContaining({
+          sessionId: 'nav',
+          url: 'https://example.com',
+          title: 'Example Domain',
+        }),
       );
     });
   });
@@ -219,9 +223,7 @@ describe('BrowserManager', () => {
       expect(info.url).toBe('https://test.com/page');
       expect(info.title).toBe('Test Page');
       expect(info.isLoading).toBe(false);
-      expect(infoHandler).toHaveBeenCalledWith(
-        expect.objectContaining({ sessionId: 'pi', info }),
-      );
+      expect(infoHandler).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 'pi', info }));
     });
   });
 
@@ -345,12 +347,12 @@ describe('BrowserManager', () => {
 
   describe('error handling', () => {
     it('throws on operations with invalid session ID', async () => {
-      await expect(manager.navigateTo('bad', 'https://x.com')).rejects.toThrow("not found");
-      await expect(manager.getScreenshot('bad')).rejects.toThrow("not found");
-      await expect(manager.click('bad', 0, 0)).rejects.toThrow("not found");
-      await expect(manager.type('bad', 'x')).rejects.toThrow("not found");
-      await expect(manager.keyPress('bad', 'Enter')).rejects.toThrow("not found");
-      await expect(manager.scroll('bad', 0, 0)).rejects.toThrow("not found");
+      await expect(manager.navigateTo('bad', 'https://x.com')).rejects.toThrow('not found');
+      await expect(manager.getScreenshot('bad')).rejects.toThrow('not found');
+      await expect(manager.click('bad', 0, 0)).rejects.toThrow('not found');
+      await expect(manager.type('bad', 'x')).rejects.toThrow('not found');
+      await expect(manager.keyPress('bad', 'Enter')).rejects.toThrow('not found');
+      await expect(manager.scroll('bad', 0, 0)).rejects.toThrow('not found');
     });
   });
 });

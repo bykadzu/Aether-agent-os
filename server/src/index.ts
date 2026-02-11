@@ -34,6 +34,7 @@ import {
   DEFAULT_PORT,
   DEFAULT_WS_PATH,
   AETHER_VERSION,
+  AETHER_ROOT,
 } from '@aether/shared';
 import { createV1Router } from './routes/v1.js';
 
@@ -71,7 +72,7 @@ const MIME_TYPES: Record<string, string> = {
 // ---------------------------------------------------------------------------
 
 const kernel = new Kernel({
-  fsRoot: process.env.AETHER_FS_ROOT || '/tmp/aether',
+  fsRoot: AETHER_ROOT,
 });
 
 await kernel.boot();

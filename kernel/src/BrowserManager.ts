@@ -28,7 +28,11 @@ type PlaywrightPage = {
   goBack(): Promise<any>;
   goForward(): Promise<any>;
   reload(): Promise<any>;
-  screenshot(options?: { type?: string; encoding?: string; fullPage?: boolean }): Promise<Buffer | string>;
+  screenshot(options?: {
+    type?: string;
+    encoding?: string;
+    fullPage?: boolean;
+  }): Promise<Buffer | string>;
   url(): string;
   title(): Promise<string>;
   mouse: {
@@ -137,6 +141,24 @@ export class BrowserManager {
     };
 
     this.sessions.set(sessionId, session);
+
+    // Handle file downloads — route into agent filesystem
+    page.on('download', async (download: any) => {
+      try {
+        const filename = download.suggestedFilename();
+        const tmpPath = await download.path();
+        if (tmpPath && filename) {
+          this.bus.emit('browser:download', {
+            sessionId,
+            filename,
+            tempPath: tmpPath,
+          });
+          console.log(`[BrowserManager] Download captured: ${filename}`);
+        }
+      } catch (err: any) {
+        console.warn(`[BrowserManager] Download handling failed: ${err.message}`);
+      }
+    });
 
     this.bus.emit('browser:created', { sessionId });
     console.log(`[BrowserManager] Session created: ${sessionId} (${width}x${height})`);
@@ -256,28 +278,41 @@ export class BrowserManager {
 
     const elements = await session.page.evaluate(() => {
       const INTERACTIVE_TAGS = new Set([
-        'A', 'BUTTON', 'INPUT', 'SELECT', 'TEXTAREA', 'LABEL',
-        'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'P', 'LI', 'IMG',
+        'A',
+        'BUTTON',
+        'INPUT',
+        'SELECT',
+        'TEXTAREA',
+        'LABEL',
+        'H1',
+        'H2',
+        'H3',
+        'H4',
+        'H5',
+        'H6',
+        'P',
+        'LI',
+        'IMG',
       ]);
 
       function extractElements(root: Element): any[] {
         const result: any[] = [];
-        const walker = document.createTreeWalker(
-          root,
-          NodeFilter.SHOW_ELEMENT,
-          {
-            acceptNode(node: Node) {
-              const el = node as Element;
-              if (INTERACTIVE_TAGS.has(el.tagName)) {
-                return NodeFilter.FILTER_ACCEPT;
-              }
-              if (el.getAttribute('role') || el.getAttribute('aria-label') || el.getAttribute('onclick')) {
-                return NodeFilter.FILTER_ACCEPT;
-              }
-              return NodeFilter.FILTER_SKIP;
-            },
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, {
+          acceptNode(node: Node) {
+            const el = node as Element;
+            if (INTERACTIVE_TAGS.has(el.tagName)) {
+              return NodeFilter.FILTER_ACCEPT;
+            }
+            if (
+              el.getAttribute('role') ||
+              el.getAttribute('aria-label') ||
+              el.getAttribute('onclick')
+            ) {
+              return NodeFilter.FILTER_ACCEPT;
+            }
+            return NodeFilter.FILTER_SKIP;
           },
-        );
+        });
 
         let node = walker.nextNode();
         while (node) {
@@ -321,7 +356,12 @@ export class BrowserManager {
   /**
    * Click at a position on the page.
    */
-  async click(sessionId: string, x: number, y: number, button: 'left' | 'right' = 'left'): Promise<void> {
+  async click(
+    sessionId: string,
+    x: number,
+    y: number,
+    button: 'left' | 'right' = 'left',
+  ): Promise<void> {
     const session = this.getSession(sessionId);
     await session.page.mouse.click(x, y, { button });
   }

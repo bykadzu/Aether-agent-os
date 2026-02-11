@@ -58,14 +58,20 @@ export class ContainerManager {
 
     // Detect NVIDIA GPUs
     try {
-      const output = execFileSync('nvidia-smi', [
-        '--query-gpu=name,memory.total,memory.free,utilization.gpu',
-        '--format=csv,noheader,nounits',
-      ], { timeout: 5000 }).toString().trim();
+      const output = execFileSync(
+        'nvidia-smi',
+        [
+          '--query-gpu=name,memory.total,memory.free,utilization.gpu',
+          '--format=csv,noheader,nounits',
+        ],
+        { timeout: 5000 },
+      )
+        .toString()
+        .trim();
 
       if (output) {
         this.detectedGPUs = output.split('\n').map((line, idx) => {
-          const [name, memTotal, memFree, util] = line.split(',').map(s => s.trim());
+          const [name, memTotal, memFree, util] = line.split(',').map((s) => s.trim());
           return {
             id: idx,
             name,
@@ -75,7 +81,9 @@ export class ContainerManager {
           };
         });
         this.gpuAvailable = this.detectedGPUs.length > 0;
-        console.log(`[ContainerManager] ${this.detectedGPUs.length} GPU(s) detected: ${this.detectedGPUs.map(g => g.name).join(', ')}`);
+        console.log(
+          `[ContainerManager] ${this.detectedGPUs.length} GPU(s) detected: ${this.detectedGPUs.map((g) => g.name).join(', ')}`,
+        );
       }
     } catch {
       this.gpuAvailable = false;
@@ -93,7 +101,11 @@ export class ContainerManager {
   /**
    * Create and start a container for an agent process.
    */
-  async create(pid: PID, hostVolumePath: string, sandbox?: SandboxConfig): Promise<ContainerInfo | null> {
+  async create(
+    pid: PID,
+    hostVolumePath: string,
+    sandbox?: SandboxConfig,
+  ): Promise<ContainerInfo | null> {
     if (!this.dockerAvailable) {
       this.bus.emit('container.fallback', { pid, reason: 'Docker not available' });
       return null;
@@ -103,7 +115,9 @@ export class ContainerManager {
     try {
       execFileSync('docker', ['info'], { stdio: 'ignore', timeout: 5000 });
     } catch {
-      console.warn('[ContainerManager] Docker became unavailable after init, falling back to child_process');
+      console.warn(
+        '[ContainerManager] Docker became unavailable after init, falling back to child_process',
+      );
       this.dockerAvailable = false;
       this.bus.emit('container.fallback', { pid, reason: 'Docker became unavailable' });
       return null;
@@ -124,20 +138,31 @@ export class ContainerManager {
     }
 
     const args: string[] = [
-      'run', '-d',
-      '--name', containerName,
-      '--hostname', `agent-${pid}`,
+      'run',
+      '-d',
+      '--name',
+      containerName,
+      '--hostname',
+      `agent-${pid}`,
       // Resource limits
-      '--memory', `${memoryMB}m`,
-      '--cpus', String(cpuLimit),
+      '--memory',
+      `${memoryMB}m`,
+      '--cpus',
+      String(cpuLimit),
       // Mount the agent's home directory
-      '-v', `${hostVolumePath}:/home/agent:rw`,
-      '-w', '/home/agent',
+      '-v',
+      `${hostVolumePath}:/home/agent:rw`,
+      '-w',
+      '/home/agent',
       // Environment
-      '-e', `AETHER_PID=${pid}`,
-      '-e', 'TERM=xterm-256color',
-      '-e', 'HOME=/home/agent',
-      '-e', 'USER=agent',
+      '-e',
+      `AETHER_PID=${pid}`,
+      '-e',
+      'TERM=xterm-256color',
+      '-e',
+      'HOME=/home/agent',
+      '-e',
+      'USER=agent',
     ];
 
     // Graphical container: expose VNC port and set DISPLAY
@@ -194,21 +219,40 @@ export class ContainerManager {
       // Start Xvfb and x11vnc inside the container for graphical agents
       if (graphical) {
         try {
-          await this.dockerExec('docker', [
-            'exec', '-d', trimmedId,
-            '/bin/bash', '-c',
-            `Xvfb ${VNC_DISPLAY} -screen 0 1920x1080x24 &`,
-          ], 10_000);
+          await this.dockerExec(
+            'docker',
+            [
+              'exec',
+              '-d',
+              trimmedId,
+              '/bin/bash',
+              '-c',
+              `Xvfb ${VNC_DISPLAY} -screen 0 1920x1080x24 &`,
+            ],
+            10_000,
+          );
           // Wait briefly for Xvfb to start
-          await new Promise(r => setTimeout(r, 500));
-          await this.dockerExec('docker', [
-            'exec', '-d', trimmedId,
-            '/bin/bash', '-c',
-            `x11vnc -display ${VNC_DISPLAY} -rfbport ${VNC_BASE_PORT + 99} -nopw -forever -shared &`,
-          ], 10_000);
-          console.log(`[ContainerManager] Graphical stack started for PID ${pid} (VNC port ${vncPort})`);
+          await new Promise((r) => setTimeout(r, 500));
+          await this.dockerExec(
+            'docker',
+            [
+              'exec',
+              '-d',
+              trimmedId,
+              '/bin/bash',
+              '-c',
+              `x11vnc -display ${VNC_DISPLAY} -rfbport ${VNC_BASE_PORT + 99} -nopw -forever -shared &`,
+            ],
+            10_000,
+          );
+          console.log(
+            `[ContainerManager] Graphical stack started for PID ${pid} (VNC port ${vncPort})`,
+          );
         } catch (err: any) {
-          console.error(`[ContainerManager] Failed to start graphical stack for PID ${pid}:`, err.message);
+          console.error(
+            `[ContainerManager] Failed to start graphical stack for PID ${pid}:`,
+            err.message,
+          );
         }
       }
 
@@ -242,11 +286,15 @@ export class ContainerManager {
   /**
    * Execute a command inside a container. Returns stdout output.
    */
-  async exec(pid: PID, command: string, options: {
-    cwd?: string;
-    env?: Record<string, string>;
-    timeout?: number;
-  } = {}): Promise<string> {
+  async exec(
+    pid: PID,
+    command: string,
+    options: {
+      cwd?: string;
+      env?: Record<string, string>;
+      timeout?: number;
+    } = {},
+  ): Promise<string> {
     const info = this.containers.get(pid);
     if (!info) {
       throw new Error(`No container for PID ${pid}`);
@@ -276,10 +324,13 @@ export class ContainerManager {
    * Spawn an interactive shell session inside a container.
    * Returns the ChildProcess for stdin/stdout piping.
    */
-  spawnShell(pid: PID, options: {
-    cwd?: string;
-    env?: Record<string, string>;
-  } = {}): ChildProcess | null {
+  spawnShell(
+    pid: PID,
+    options: {
+      cwd?: string;
+      env?: Record<string, string>;
+    } = {},
+  ): ChildProcess | null {
     const info = this.containers.get(pid);
     if (!info) return null;
 
@@ -312,13 +363,19 @@ export class ContainerManager {
     info.status = 'stopping' as ContainerStatus;
 
     try {
-      await this.dockerExec('docker', ['stop', '-t', String(CONTAINER_STOP_TIMEOUT), info.containerId], 15_000);
+      await this.dockerExec(
+        'docker',
+        ['stop', '-t', String(CONTAINER_STOP_TIMEOUT), info.containerId],
+        15_000,
+      );
       this.bus.emit('container.stopped', { pid, containerId: info.containerId });
     } catch {
       // Force kill if stop fails
       try {
         await this.dockerExec('docker', ['kill', info.containerId], 5_000);
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }
 
     try {
@@ -340,6 +397,24 @@ export class ContainerManager {
   }
 
   /**
+   * Resize the TTY for a containerized terminal session.
+   * Sends stty resize command to the container so interactive programs redraw.
+   */
+  async resizeTTY(pid: PID, cols: number, rows: number): Promise<void> {
+    const info = this.containers.get(pid);
+    if (!info) return;
+    try {
+      await this.dockerExec(
+        'docker',
+        ['exec', info.containerId, 'stty', 'rows', String(rows), 'cols', String(cols)],
+        5_000,
+      );
+    } catch {
+      // Best-effort; older containers or non-interactive sessions may not support this
+    }
+  }
+
+  /**
    * Get container info for a process.
    */
   get(pid: PID): ContainerInfo | undefined {
@@ -358,7 +433,7 @@ export class ContainerManager {
    */
   async shutdown(): Promise<void> {
     const pids = Array.from(this.containers.keys());
-    await Promise.all(pids.map(pid => this.remove(pid)));
+    await Promise.all(pids.map((pid) => this.remove(pid)));
   }
 
   // ---------------------------------------------------------------------------
@@ -385,10 +460,11 @@ export class ContainerManager {
       throw new Error(`Container for PID ${pid} is not graphical`);
     }
 
-    return this.dockerExec('docker', [
-      'exec', '-e', `DISPLAY=${VNC_DISPLAY}`, info.containerId,
-      '/bin/bash', '-c', command,
-    ], 30_000);
+    return this.dockerExec(
+      'docker',
+      ['exec', '-e', `DISPLAY=${VNC_DISPLAY}`, info.containerId, '/bin/bash', '-c', command],
+      30_000,
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -416,23 +492,30 @@ export class ContainerManager {
     if (!this.gpuAvailable) return [];
 
     try {
-      const output = await this.shellExec('nvidia-smi', [
-        '--query-gpu=name,memory.total,memory.free,utilization.gpu,temperature.gpu,power.draw',
-        '--format=csv,noheader,nounits',
-      ], 5000);
+      const output = await this.shellExec(
+        'nvidia-smi',
+        [
+          '--query-gpu=name,memory.total,memory.free,utilization.gpu,temperature.gpu,power.draw',
+          '--format=csv,noheader,nounits',
+        ],
+        5000,
+      );
 
-      return output.trim().split('\n').map((line, idx) => {
-        const [name, memTotal, memFree, util, temp, power] = line.split(',').map(s => s.trim());
-        return {
-          id: idx,
-          name,
-          memoryTotal: parseFloat(memTotal) || 0,
-          memoryFree: parseFloat(memFree) || 0,
-          utilization: parseFloat(util) || 0,
-          temperature: parseFloat(temp) || 0,
-          powerUsage: parseFloat(power) || 0,
-        };
-      });
+      return output
+        .trim()
+        .split('\n')
+        .map((line, idx) => {
+          const [name, memTotal, memFree, util, temp, power] = line.split(',').map((s) => s.trim());
+          return {
+            id: idx,
+            name,
+            memoryTotal: parseFloat(memTotal) || 0,
+            memoryFree: parseFloat(memFree) || 0,
+            utilization: parseFloat(util) || 0,
+            temperature: parseFloat(temp) || 0,
+            powerUsage: parseFloat(power) || 0,
+          };
+        });
     } catch {
       return [];
     }
@@ -455,13 +538,16 @@ export class ContainerManager {
   /**
    * Allocate GPUs for a process. Returns null if not enough GPUs available.
    */
-  private allocateGPUs(pid: PID, gpuConfig: { enabled: boolean; count?: number; deviceIds?: string[] }): GPUAllocation | null {
+  private allocateGPUs(
+    pid: PID,
+    gpuConfig: { enabled: boolean; count?: number; deviceIds?: string[] },
+  ): GPUAllocation | null {
     if (!this.gpuAvailable || !gpuConfig.enabled) return null;
 
     let gpuIds: number[];
 
     if (gpuConfig.deviceIds && gpuConfig.deviceIds.length > 0) {
-      gpuIds = gpuConfig.deviceIds.map(id => parseInt(id, 10));
+      gpuIds = gpuConfig.deviceIds.map((id) => parseInt(id, 10));
     } else {
       const count = gpuConfig.count || this.detectedGPUs.length;
       const allocatedIds = new Set<number>();
@@ -469,14 +555,14 @@ export class ContainerManager {
         for (const id of alloc.gpuIds) allocatedIds.add(id);
       }
 
-      const available = this.detectedGPUs
-        .filter(g => !allocatedIds.has(g.id))
-        .map(g => g.id);
+      const available = this.detectedGPUs.filter((g) => !allocatedIds.has(g.id)).map((g) => g.id);
 
       if (available.length < count) {
-        console.warn(`[ContainerManager] Not enough free GPUs: requested ${count}, available ${available.length}`);
+        console.warn(
+          `[ContainerManager] Not enough free GPUs: requested ${count}, available ${available.length}`,
+        );
         // Fall back to sharing all GPUs
-        gpuIds = this.detectedGPUs.map(g => g.id);
+        gpuIds = this.detectedGPUs.map((g) => g.id);
       } else {
         gpuIds = available.slice(0, count);
       }
@@ -507,7 +593,11 @@ export class ContainerManager {
 
       // Extra safety: force kill if the child process hangs beyond timeout
       const safetyTimer = setTimeout(() => {
-        try { child.kill('SIGKILL'); } catch { /* ignore */ }
+        try {
+          child.kill('SIGKILL');
+        } catch {
+          /* ignore */
+        }
       }, timeout + 5000);
       child.on('exit', () => clearTimeout(safetyTimer));
     });

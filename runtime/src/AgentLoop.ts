@@ -330,13 +330,128 @@ export async function runAgentLoop(
     }
   }
 
-  // Max steps reached
+  // Max steps reached — offer to continue
   kernel.bus.emit('agent.thought', {
     pid,
-    thought: `Reached maximum step limit (${state.maxSteps}). Stopping.`,
+    thought: `Reached step limit (${state.maxSteps}). Waiting for continue signal...`,
   });
+  kernel.bus.emit('agent.stepLimitReached', {
+    pid,
+    stepsCompleted: state.maxSteps,
+    summary: state.lastObservation?.substring(0, 200) || 'Step limit reached.',
+  });
+  kernel.processes.setState(pid, 'stopped', 'waiting');
+
+  // Wait up to 5 minutes for a continue signal
+  const continued = await waitForContinue(kernel, pid, options.signal, 300_000);
+  if (continued > 0) {
+    state.maxSteps += continued;
+    kernel.bus.emit('agent.thought', { pid, thought: `Continuing for ${continued} more steps.` });
+    kernel.processes.setState(pid, 'running', 'thinking');
+    // Re-enter the main loop by calling recursively (tail-position)
+    while (state.step < state.maxSteps) {
+      if (options.signal?.aborted) break;
+      const currentProc = kernel.processes.get(pid);
+      if (!currentProc || currentProc.info.state === 'zombie' || currentProc.info.state === 'dead')
+        break;
+      if (currentProc.info.state === 'stopped') {
+        await sleep(1000);
+        continue;
+      }
+      try {
+        if (
+          state.history.length > 20 ||
+          (state.step > 0 && state.step % 15 === 0 && state.history.length > 12)
+        ) {
+          await compactHistory(state, provider, kernel, pid);
+        }
+        kernel.processes.setState(pid, 'running', 'thinking');
+        const decision = await getNextAction(state, config, tools, provider, options.apiKey);
+        kernel.bus.emit('agent.thought', { pid, thought: decision.reasoning });
+        state.history.push({
+          role: 'agent',
+          content: `[Think] ${decision.reasoning}\n[Action] ${decision.tool}(${JSON.stringify(decision.args)})`,
+          timestamp: Date.now(),
+        });
+        const tool = toolMap.get(decision.tool);
+        if (!tool) {
+          state.step++;
+          continue;
+        }
+        kernel.processes.setState(pid, 'running', 'executing');
+        const result = await tool.execute(decision.args, { kernel, pid, signal: options.signal });
+        state.lastObservation = result.output;
+        state.history.push({
+          role: 'tool',
+          content: `[${decision.tool}] ${result.output}`,
+          timestamp: Date.now(),
+        });
+        if (decision.tool === 'complete') {
+          kernel.processes.setState(pid, 'zombie', 'completed');
+          kernel.processes.exit(pid, 0);
+          return;
+        }
+        state.step++;
+        kernel.bus.emit('agent.progress', {
+          pid,
+          step: state.step,
+          maxSteps: state.maxSteps,
+          summary: decision.reasoning.substring(0, 100),
+        });
+        await sleep(AGENT_STEP_INTERVAL);
+      } catch (err: any) {
+        state.step++;
+        await sleep(AGENT_STEP_INTERVAL);
+      }
+    }
+  }
+
+  kernel.bus.emit('agent.thought', { pid, thought: `Agent finished after ${state.step} steps.` });
   kernel.processes.setState(pid, 'zombie', 'completed');
   kernel.processes.exit(pid, 0);
+}
+
+/**
+ * Wait for an agent.continued event or timeout.
+ * Returns the number of extra steps granted, or 0 if timed out.
+ */
+function waitForContinue(
+  kernel: Kernel,
+  pid: PID,
+  signal?: AbortSignal,
+  timeoutMs = 300_000,
+): Promise<number> {
+  return new Promise((resolve) => {
+    let resolved = false;
+    const unsub = kernel.bus.on('agent.continued', (data: { pid: PID; extraSteps: number }) => {
+      if (data.pid === pid && !resolved) {
+        resolved = true;
+        unsub();
+        resolve(data.extraSteps);
+      }
+    });
+    const timer = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        unsub();
+        resolve(0);
+      }
+    }, timeoutMs);
+    if (signal) {
+      signal.addEventListener(
+        'abort',
+        () => {
+          if (!resolved) {
+            resolved = true;
+            unsub();
+            clearTimeout(timer);
+            resolve(0);
+          }
+        },
+        { once: true },
+      );
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------

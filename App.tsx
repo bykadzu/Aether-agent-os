@@ -640,82 +640,32 @@ const App: React.FC = () => {
       'Workspaces',
     );
 
-    // -- App-specific shortcuts --
+    // -- App-specific shortcuts (only register shortcuts with real handlers) --
 
-    // Terminal
+    // Terminal: open a new Terminal window
     mgr.registerShortcut(
       'app:terminal:new-tab',
       'Cmd+T',
-      () => {},
-      'New tab',
-      'app:terminal',
-      'Terminal',
-    );
-    mgr.registerShortcut(
-      'app:terminal:clear',
-      'Cmd+K',
-      () => {},
-      'Clear terminal',
+      () => openApp(AppID.TERMINAL),
+      'New terminal window',
       'app:terminal',
       'Terminal',
     );
 
-    // Code Editor
-    mgr.registerShortcut(
-      'app:code:save',
-      'Cmd+S',
-      () => {},
-      'Save file',
-      'app:code',
-      'Code Editor',
-    );
-    mgr.registerShortcut(
-      'app:code:quick-open',
-      'Cmd+P',
-      () => {},
-      'Quick open file',
-      'app:code',
-      'Code Editor',
-    );
-    mgr.registerShortcut(
-      'app:code:search-all',
-      'Cmd+Shift+F',
-      () => {},
-      'Search all files',
-      'app:code',
-      'Code Editor',
-    );
+    // Code Editor: Cmd+S handled by Monaco internally — no registration needed
+    // Quick-open (Cmd+P) and search-all (Cmd+Shift+F) not implemented — removed
 
-    // Browser
-    mgr.registerShortcut(
-      'app:browser:url-bar',
-      'Cmd+L',
-      () => {},
-      'Focus URL bar',
-      'app:browser',
-      'Browser',
-    );
-    mgr.registerShortcut(
-      'app:browser:new-tab',
-      'Cmd+T',
-      () => {},
-      'New tab',
-      'app:browser',
-      'Browser',
-    );
+    // Browser: reload active page via kernel client
     mgr.registerShortcut(
       'app:browser:reload',
       'Cmd+R',
-      () => {},
+      () => {
+        /* Handled by BrowserApp component internally */
+      },
       'Reload page',
       'app:browser',
       'Browser',
     );
-
-    // Notes
-    mgr.registerShortcut('app:notes:save', 'Cmd+S', () => {}, 'Save note', 'app:notes', 'Notes');
-    mgr.registerShortcut('app:notes:bold', 'Cmd+B', () => {}, 'Bold', 'app:notes', 'Notes');
-    mgr.registerShortcut('app:notes:italic', 'Cmd+I', () => {}, 'Italic', 'app:notes', 'Notes');
 
     return () => {
       // Clean up all registered shortcuts
@@ -739,16 +689,7 @@ const App: React.FC = () => {
         'global:ws-move-left',
         'global:ws-move-right',
         'app:terminal:new-tab',
-        'app:terminal:clear',
-        'app:code:save',
-        'app:code:quick-open',
-        'app:code:search-all',
-        'app:browser:url-bar',
-        'app:browser:new-tab',
         'app:browser:reload',
-        'app:notes:save',
-        'app:notes:bold',
-        'app:notes:italic',
       ];
       ids.forEach((id) => mgr.unregisterShortcut(id));
     };

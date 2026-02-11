@@ -346,6 +346,11 @@ export class PTYManager {
     if (!session.containerized) {
       // node-pty sends SIGWINCH automatically
       session.ptyProcess.resize(cols, rows);
+    } else if (session.containerized && this.containerManager) {
+      // Send resize signal to container shell
+      this.containerManager
+        .resizeTTY(session.pid, cols, rows)
+        .catch((err: any) => console.warn(`[PTY] Container resize failed: ${err.message}`));
     }
 
     return true;

@@ -2,6 +2,9 @@
  * Aether OS - System Constants
  */
 
+import * as os from 'node:os';
+import * as path from 'node:path';
+
 export const AETHER_VERSION = '0.1.0';
 
 // Server defaults
@@ -15,8 +18,13 @@ export const DEFAULT_AGENT_TIMEOUT = 300_000; // 5 minutes
 export const DEFAULT_AGENT_MAX_STEPS = 50;
 export const AGENT_STEP_INTERVAL = 3_000; // 3 seconds between steps
 
-// Filesystem
-export const AETHER_ROOT = '/tmp/aether'; // Root of the virtual FS on disk
+// Command execution
+export const DEFAULT_COMMAND_TIMEOUT = 30_000; // 30 seconds
+export const MAX_COMMAND_TIMEOUT = 300_000; // 5 minutes cap
+
+// Filesystem — defaults to ~/.aether for persistence across reboots
+// Override with AETHER_FS_ROOT env var (e.g. /tmp/aether for testing)
+export const AETHER_ROOT = process.env.AETHER_FS_ROOT || path.join(os.homedir(), '.aether');
 export const HOME_DIR = '/home';
 export const TMP_DIR = '/tmp';
 export const PROC_DIR = '/proc';
@@ -46,7 +54,7 @@ export const VNC_WS_BASE_PORT = 6080; // Base WebSocket proxy port for noVNC
 export const VNC_DISPLAY = ':99'; // Default Xvfb display number
 
 // Persistence
-export const STATE_DB_PATH = '/tmp/aether/var/aether-state.db';
+export const STATE_DB_PATH = path.join(AETHER_ROOT, 'var', 'aether-state.db');
 
 // Authentication
 export const AUTH_TOKEN_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours in ms

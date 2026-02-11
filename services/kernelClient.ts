@@ -377,6 +377,27 @@ export class KernelClient {
   }
 
   /**
+   * Pause a running agent.
+   */
+  async pauseAgent(pid: PID): Promise<void> {
+    return this.request({ type: 'agent.pause', pid });
+  }
+
+  /**
+   * Resume a paused agent.
+   */
+  async resumeAgent(pid: PID): Promise<void> {
+    return this.request({ type: 'agent.resume', pid });
+  }
+
+  /**
+   * Continue an agent that hit its step limit.
+   */
+  async continueAgent(pid: PID, extraSteps = 25): Promise<void> {
+    return this.request({ type: 'agent.continue', pid, extraSteps });
+  }
+
+  /**
    * List all active processes.
    */
   async listProcesses(): Promise<KernelProcessInfo[]> {

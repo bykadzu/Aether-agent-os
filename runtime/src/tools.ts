@@ -14,7 +14,7 @@
 import { exec as execCb } from 'node:child_process';
 import { promisify } from 'node:util';
 import { Kernel, PluginManager } from '@aether/kernel';
-import { PID, PlanNode } from '@aether/shared';
+import { PID, PlanNode, DEFAULT_COMMAND_TIMEOUT, MAX_COMMAND_TIMEOUT } from '@aether/shared';
 
 const execAsync = promisify(execCb);
 import {
@@ -267,10 +267,13 @@ export function createToolSet(): ToolDefinition[] {
           const cwd = ctx.kernel.fs.getRealRoot() + virtualCwd;
           const shell = process.platform === 'win32' ? true : '/bin/bash';
 
+          const requestedTimeout = args.timeout
+            ? Math.min(Number(args.timeout) * 1000, MAX_COMMAND_TIMEOUT)
+            : DEFAULT_COMMAND_TIMEOUT;
           const { stdout, stderr } = await execAsync(args.command, {
             cwd,
             shell,
-            timeout: 30_000,
+            timeout: requestedTimeout,
             maxBuffer: 1024 * 1024,
             env: { ...process.env, ...(proc?.info.env || {}) },
           });

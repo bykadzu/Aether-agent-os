@@ -108,6 +108,25 @@ export class Kernel {
     if (this.running) return;
 
     console.log(`[Kernel] Aether OS v${this.version} booting...`);
+    console.log(`[Kernel] Data root: ${this.fs.getRealRoot()}`);
+
+    // Warn about legacy /tmp/aether data if the new default is in use
+    if (!process.env.AETHER_FS_ROOT) {
+      try {
+        const legacyRoot = process.platform === 'win32' ? 'C:\\temp\\aether' : '/tmp/aether';
+        const legacyFs = await import('node:fs/promises');
+        const legacyStat = await legacyFs.stat(legacyRoot).catch(() => null);
+        if (legacyStat?.isDirectory()) {
+          console.warn(`[Kernel] ⚠ Legacy data found at ${legacyRoot}`);
+          console.warn(`[Kernel]   Data now lives at ${this.fs.getRealRoot()}`);
+          console.warn(
+            `[Kernel]   To migrate: copy contents from ${legacyRoot} to ${this.fs.getRealRoot()}`,
+          );
+        }
+      } catch {
+        /* ignore */
+      }
+    }
 
     // Initialize filesystem
     await this.fs.init();
@@ -227,6 +246,24 @@ export class Kernel {
         console.log(`[Kernel] Cleaned up home directory for ${data.uid} (PID ${data.pid})`);
       }
     });
+
+    // Handle browser downloads — copy into agent's Downloads folder
+    this.bus.on(
+      'browser:download',
+      async (data: { sessionId: string; filename: string; tempPath: string }) => {
+        try {
+          const nodeFs = await import('node:fs/promises');
+          const content = await nodeFs.readFile(data.tempPath, 'utf-8').catch(() => null);
+          if (content !== null) {
+            const downloadPath = `/home/downloads/${data.filename}`;
+            await this.fs.writeFile(downloadPath, content);
+            console.log(`[Kernel] Browser download saved to ${downloadPath}`);
+          }
+        } catch (err: any) {
+          console.warn(`[Kernel] Failed to save browser download: ${err.message}`);
+        }
+      },
+    );
 
     this.running = true;
     this.startTime = Date.now();
@@ -395,6 +432,54 @@ export class Kernel {
               id: cmd.id,
               error: 'Process not in waiting state',
             });
+          }
+          break;
+        }
+
+        case 'agent.pause': {
+          const proc = this.processes.get(cmd.pid);
+          if (proc && proc.info.state === 'running') {
+            this.processes.setState(cmd.pid, 'stopped', 'idle');
+            this.bus.emit('agent.thought', { pid: cmd.pid, thought: 'Paused by operator.' });
+            events.push({ type: 'response.ok', id: cmd.id });
+          } else {
+            events.push({
+              type: 'response.error',
+              id: cmd.id,
+              error: 'Process not running',
+            } as KernelEvent);
+          }
+          break;
+        }
+
+        case 'agent.resume': {
+          const proc = this.processes.get(cmd.pid);
+          if (proc && proc.info.state === 'stopped') {
+            this.processes.setState(cmd.pid, 'running', 'thinking');
+            this.bus.emit('agent.thought', { pid: cmd.pid, thought: 'Resumed by operator.' });
+            events.push({ type: 'response.ok', id: cmd.id });
+          } else {
+            events.push({
+              type: 'response.error',
+              id: cmd.id,
+              error: 'Process not stopped',
+            } as KernelEvent);
+          }
+          break;
+        }
+
+        case 'agent.continue': {
+          const proc = this.processes.get(cmd.pid);
+          if (proc && proc.info.state === 'stopped' && proc.info.agentPhase === 'waiting') {
+            this.processes.setState(cmd.pid, 'running', 'thinking');
+            this.bus.emit('agent.continued', { pid: cmd.pid, extraSteps: cmd.extraSteps || 25 });
+            events.push({ type: 'response.ok', id: cmd.id });
+          } else {
+            events.push({
+              type: 'response.error',
+              id: cmd.id,
+              error: 'Process not waiting for continue',
+            } as KernelEvent);
           }
           break;
         }

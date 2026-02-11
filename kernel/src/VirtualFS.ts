@@ -273,9 +273,19 @@ export class VirtualFS {
 
     // Ensure parent directory exists
     await fs.mkdir(path.dirname(realPath), { recursive: true });
+
+    // Atomic write: write to temp file then rename (safe on crash)
+    const tmpPath = realPath + `.aether-tmp-${Date.now()}`;
     try {
-      await fs.writeFile(realPath, content, 'utf-8');
+      await fs.writeFile(tmpPath, content, 'utf-8');
+      await fs.rename(tmpPath, realPath);
     } catch (err: any) {
+      // Clean up temp file on error
+      try {
+        await fs.unlink(tmpPath);
+      } catch {
+        /* ignore */
+      }
       if (err.code === 'ENOSPC') {
         throw new Error(`Disk full: cannot write to ${virtualPath}`);
       }

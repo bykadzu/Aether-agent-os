@@ -25,6 +25,9 @@ import {
   Users,
   Wrench,
   ArrowLeft,
+  Pause,
+  Play,
+  FastForward,
 } from 'lucide-react';
 import { Agent, AgentStatus } from '../../types';
 import { VirtualDesktop } from '../os/VirtualDesktop';
@@ -76,6 +79,9 @@ interface AgentDashboardProps {
   onLaunchAgent: (role: string, goal: string) => void;
   onOpenVM: (agentId: string) => void;
   onStopAgent: (agentId: string) => void;
+  onPauseAgent?: (agentId: string) => void;
+  onResumeAgent?: (agentId: string) => void;
+  onContinueAgent?: (agentId: string, extraSteps: number) => void;
 }
 
 /** Placeholder card shown while the initial agent list is loading. */
@@ -119,6 +125,9 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({
   onLaunchAgent,
   onOpenVM,
   onStopAgent,
+  onPauseAgent,
+  onResumeAgent,
+  onContinueAgent,
 }) => {
   const [showNewAgentModal, setShowNewAgentModal] = useState(false);
   const [newGoal, setNewGoal] = useState('');
@@ -826,6 +835,42 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({
                   >
                     <ExternalLink size={12} />
                   </button>
+                  {agent.status === 'working' && agent.phase !== 'waiting' && onPauseAgent && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onPauseAgent(agent.id);
+                      }}
+                      className="p-1 rounded hover:bg-yellow-500/20 text-gray-500 hover:text-yellow-400 transition-colors"
+                      title="Pause"
+                    >
+                      <Pause size={12} />
+                    </button>
+                  )}
+                  {(agent.status === 'idle' || agent.phase === 'idle') && onResumeAgent && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onResumeAgent(agent.id);
+                      }}
+                      className="p-1 rounded hover:bg-green-500/20 text-gray-500 hover:text-green-400 transition-colors"
+                      title="Resume"
+                    >
+                      <Play size={12} />
+                    </button>
+                  )}
+                  {agent.phase === 'waiting' && onContinueAgent && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onContinueAgent(agent.id, 25);
+                      }}
+                      className="p-1 rounded hover:bg-blue-500/20 text-gray-500 hover:text-blue-400 transition-colors"
+                      title="Continue (+25 steps)"
+                    >
+                      <FastForward size={12} />
+                    </button>
+                  )}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();

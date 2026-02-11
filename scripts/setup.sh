@@ -100,9 +100,42 @@ echo ""
 if [ ! -f .env ]; then
     cp .env.example .env
     echo -e "  ${GREEN}Created .env from .env.example${NC}"
-    echo -e "  ${YELLOW}→ Edit .env and add your GEMINI_API_KEY${NC}"
+    echo ""
+    echo -e "  ${YELLOW}You need at least one LLM API key for agents to work.${NC}"
+    read -p "  Enter your GEMINI_API_KEY (or press Enter to skip): " GEMINI_KEY
+    if [ -n "$GEMINI_KEY" ]; then
+        sed -i "s/^GEMINI_API_KEY=$/GEMINI_API_KEY=$GEMINI_KEY/" .env
+        echo -e "  ${GREEN}GEMINI_API_KEY saved to .env${NC}"
+    else
+        echo -e "  ${YELLOW}Skipped — add API keys to .env later${NC}"
+    fi
 else
     echo -e "  ${GREEN}.env already exists, skipping${NC}"
+fi
+
+echo ""
+
+# --- Validate Playwright installation ---
+echo -n "  Verifying Playwright Chromium... "
+PLAYWRIGHT_FOUND=false
+for DIR in "$HOME/.cache/ms-playwright" "$HOME/AppData/Local/ms-playwright" "node_modules/playwright-core/.local-browsers"; do
+    if [ -d "$DIR" ] && ls "$DIR"/chromium-* &>/dev/null 2>&1; then
+        echo -e "${GREEN}found ✓${NC}"
+        PLAYWRIGHT_FOUND=true
+        break
+    fi
+done
+if [ "$PLAYWRIGHT_FOUND" = false ]; then
+    echo -e "${YELLOW}not found (web browsing disabled for agents)${NC}"
+fi
+
+# --- Quick health check ---
+echo ""
+echo -e "  ${CYAN}Running quick health check...${NC}"
+if npx tsx scripts/doctor.ts 2>/dev/null; then
+    echo ""
+else
+    echo -e "  ${YELLOW}Doctor check skipped (run 'npm run doctor' manually)${NC}"
 fi
 
 echo ""
@@ -111,9 +144,10 @@ echo -e "${GREEN}  ║        Setup Complete ✓            ║${NC}"
 echo -e "${GREEN}  ╚═══════════════════════════════════╝${NC}"
 echo ""
 echo "  Next steps:"
-echo "    1. Edit .env and add your GEMINI_API_KEY"
+echo "    1. npm run doctor       → Diagnose any issues"
 echo "    2. npm run dev          → Start UI (mock mode)"
 echo "    3. npm run dev:kernel   → Start kernel backend"
 echo "    4. npm run dev:full     → Start both"
-echo "    5. npm test             → Run test suite"
+echo "    5. npm run test:unit    → Run fast unit tests"
+echo "    6. npm test             → Run full test suite"
 echo ""
