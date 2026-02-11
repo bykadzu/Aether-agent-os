@@ -2,7 +2,7 @@
 
 Consolidated checklist of all outstanding work, derived from NEXT_STEPS.md, FEATURES.md, all roadmaps, and the research documents. Organized by urgency and version target.
 
-**Last updated:** 2026-02-11 (v0.4.2 complete — frontier models updated, v0.5 roadmap expanded)
+**Last updated:** 2026-02-11 (v0.4.3 complete — auth fix, boot screen fix, hybrid architecture documented)
 
 ---
 
@@ -232,6 +232,41 @@ Critical fixes to get agents actually running on Windows. These were identified 
 - [x] **File upload endpoint** — `POST /api/fs/upload?path=...` with raw binary body (50 MB limit). New `VirtualFS.writeFileBinary()` method. Upload button in File Explorer toolbar. `kernelClient.uploadFile()` client method.
 - [x] **Screenshot polling optimization** — BrowserApp stops polling once kernel starts pushing screencast frames. Saves bandwidth and CPU in kernel mode.
 - [x] **Iframe coordinate scaling fix** — `scaleCoords()` now uses viewport container rect instead of just canvas, and clamps coordinates to valid viewport range.
+
+---
+
+## v0.4.3 — Auth Fix + Hybrid Architecture Foundation (2026-02-11)
+
+### Bug Fixes
+- [x] **WebSocket auth race condition** — `useKernel()` called `connect()` before token was set, leaving WS permanently unauthenticated. All apps got "Authentication required" errors. Fix: removed auto-connect from useKernel hook, App.tsx controls WS lifecycle (connects only after token validation). Added `kernelClient.reconnect()` method.
+- [x] **Boot screen progress bar** — `animate-[width_2s_ease-out_forwards]` referenced nonexistent keyframe; bar stuck at 0%. Fix: added `progressFill` keyframe to Tailwind config, use `animate-progress-fill`.
+
+### Hybrid Architecture Vision (documented, implementation in v0.5)
+
+Aether OS is a **two-layer system**:
+
+| Layer | What | Technology | Status |
+|-------|------|-----------|--------|
+| **Control Plane** | Web UI — spawn agents, monitor, manage files, view logs | React + Vite | Working (v0.4.3) |
+| **Workspace Plane** | Real Linux desktops where agents + humans work | Docker + Xvfb + x11vnc + noVNC | Infrastructure exists, needs desktop image |
+
+**What already works:**
+- `ContainerManager` creates Docker containers with graphical mode (Xvfb + x11vnc)
+- `VNCManager` bridges browser WebSocket to container VNC (port 6080+)
+- `VNCViewer` renders noVNC client in the window system
+- `Kernel.ts` full spawn flow: agent config → container → VNC proxy → event
+- `PTYManager` attaches terminal sessions to container shells
+
+**What's missing (v0.5 scope):**
+- [ ] **Container desktop image** — Pre-built `aether-desktop` Docker image with XFCE4, Firefox, VS Code Server, dev tools
+- [ ] **Persistent home directories** — Mount `~/.aether/workspaces/{pid}:/home/aether` in containers
+- [ ] **VNC quality + input** — Clipboard sync, dynamic resize (`xrandr`), bandwidth-adaptive quality
+- [ ] **Docker Compose packaging** — One-command `docker compose up` with kernel + UI + dynamic containers
+- [ ] **Agent desktop integration** — GUI app launching via tools, human takeover UX, shared state indicators
+
+**Competitive position (as of Feb 2026):**
+- No other project combines: visual containerized Linux desktops + human VNC takeover + web Control Plane
+- Closest: Windows Agent Workspace (Microsoft, proprietary, no multi-agent control), OpenClaw (messaging-only, host access, no isolation), UI-TARS (host GUI automation, no containers)
 
 ---
 
