@@ -177,8 +177,18 @@ const App: React.FC = () => {
           setAuthChecking(false);
         });
     } else {
-      // No stored token — don't connect WS, show login screen
-      setAuthChecking(false);
+      // No stored token — check if kernel server is reachable
+      fetch('http://localhost:3001/health')
+        .then((res) => {
+          if (res.ok) {
+            setRuntimeMode('kernel');
+          }
+          setAuthChecking(false);
+        })
+        .catch(() => {
+          // Server not available — fall through to mock mode
+          setAuthChecking(false);
+        });
     }
   }, []);
 

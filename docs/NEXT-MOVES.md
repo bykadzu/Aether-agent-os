@@ -203,12 +203,27 @@ For personal use, budget ~$20-50/mo in API costs. For a shared instance with act
 
 ---
 
+## The Killer Feature: Agent Takeover
+
+Right now you can watch agents work in their containers via VNC, but you can't interact. The flow that would make Aether OS click:
+
+1. **Pause agent** — freeze its action loop, not kill it
+2. **Interactive VNC** — you click, type, log into your accounts (Cursor, GitHub, etc.)
+3. **Resume agent** — it picks up from current desktop state, not from scratch
+
+This turns "watch an agent work" into "work alongside an agent." That's the demo. That's the pitch. That's what separates Aether from every other agent platform that gives you either a chat box or a black box.
+
+As of v0.5, only view-only streaming works. Building pause/takeover/resume is the #1 feature priority when development resumes.
+
+---
+
 ## Things That Would Make the Biggest Difference
 
 Ranked by impact for the "test and share" phase:
 
-1. **Fix whatever breaks during your testing session** — real bugs trump new features
-2. **One-command setup script** — `./setup.sh` or `setup.bat` that handles everything
+1. **Agent takeover UX** — pause, interact, resume (see above)
+2. **Fix whatever breaks during your testing session** — real bugs trump new features
+3. **One-command setup script** — `./setup.sh` or `setup.bat` that handles everything
 3. **Agent success rate** — if agents fail 50% of the time, nothing else matters. Track and improve this.
 4. **Better error messages** — when something fails, tell the user what went wrong and how to fix it
 5. **A "getting started" walkthrough** — first 5 minutes after login, guided experience
