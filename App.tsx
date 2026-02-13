@@ -1229,6 +1229,14 @@ const App: React.FC = () => {
             onLaunchAgent={launchAgent}
             onOpenVM={(agentId) => openApp(AppID.VM, { agentId })}
             onStopAgent={stopAgent}
+            onPauseAgent={(id) => {
+              const agent = agents.find((a) => a.id === id);
+              if (agent?.pid) kernel.pauseAgent(agent.pid);
+            }}
+            onResumeAgent={(id) => {
+              const agent = agents.find((a) => a.id === id);
+              if (agent?.pid) kernel.resumeAgent(agent.pid);
+            }}
           />
         );
       case AppID.SHEETS:

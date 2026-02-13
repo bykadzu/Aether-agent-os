@@ -772,6 +772,33 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({
                         Desktop
                       </button>
                     )}
+                    {(agent.status === 'working' || agent.status === 'thinking') &&
+                      onPauseAgent && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onPauseAgent(agent.id);
+                          }}
+                          className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-yellow-300 bg-yellow-500/10 hover:bg-yellow-500/20 border border-yellow-500/20 rounded-md transition-colors"
+                          title="Pause Agent"
+                        >
+                          <Pause size={10} />
+                          Pause
+                        </button>
+                      )}
+                    {(agent.status === 'idle' || agent.status === 'paused') && onResumeAgent && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onResumeAgent(agent.id);
+                        }}
+                        className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-green-300 bg-green-500/10 hover:bg-green-500/20 border border-green-500/20 rounded-md transition-colors"
+                        title="Resume Agent"
+                      >
+                        <Play size={10} />
+                        Resume
+                      </button>
+                    )}
                     <div
                       className={`text-[10px] font-bold px-2 py-1 rounded-md uppercase tracking-wide border ${getStatusStyles(agent.status)}`}
                     >
@@ -863,19 +890,21 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({
                   >
                     <ExternalLink size={12} />
                   </button>
-                  {agent.status === 'working' && agent.phase !== 'waiting' && onPauseAgent && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onPauseAgent(agent.id);
-                      }}
-                      className="p-1 rounded hover:bg-yellow-500/20 text-gray-500 hover:text-yellow-400 transition-colors"
-                      title="Pause"
-                    >
-                      <Pause size={12} />
-                    </button>
-                  )}
-                  {(agent.status === 'idle' || agent.phase === 'idle') && onResumeAgent && (
+                  {(agent.status === 'working' || agent.status === 'thinking') &&
+                    agent.status !== 'paused' &&
+                    onPauseAgent && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onPauseAgent(agent.id);
+                        }}
+                        className="p-1 rounded hover:bg-yellow-500/20 text-gray-500 hover:text-yellow-400 transition-colors"
+                        title="Pause"
+                      >
+                        <Pause size={12} />
+                      </button>
+                    )}
+                  {(agent.status === 'idle' || agent.status === 'paused') && onResumeAgent && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation();

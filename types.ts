@@ -68,6 +68,7 @@ export type AgentStatus =
   | 'idle'
   | 'thinking'
   | 'working'
+  | 'paused'
   | 'waiting_approval'
   | 'completed'
   | 'error';
@@ -107,6 +108,7 @@ export function phaseToStatus(phase: string, state: string): AgentStatus {
   if (state === 'zombie' || state === 'dead') {
     return phase === 'completed' ? 'completed' : 'error';
   }
+  if (state === 'paused') return 'paused';
   if (state === 'stopped') return 'idle';
 
   switch (phase) {

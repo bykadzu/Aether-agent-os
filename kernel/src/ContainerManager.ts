@@ -178,7 +178,7 @@ export class ContainerManager {
     const image = sandbox?.image || (graphical ? DEFAULT_GRAPHICAL_IMAGE : DEFAULT_CONTAINER_IMAGE);
     const memoryMB = sandbox?.memoryLimitMB || DEFAULT_CONTAINER_MEMORY_MB;
     const cpuLimit = sandbox?.cpuLimit || DEFAULT_CONTAINER_CPU_LIMIT;
-    const networkEnabled = sandbox?.networkAccess ?? false;
+    const networkEnabled = sandbox?.networkAccess ?? true;
     const containerName = `aether-agent-${pid}-${Date.now()}`;
 
     // Determine VNC port for graphical containers
