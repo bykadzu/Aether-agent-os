@@ -14,6 +14,10 @@ import {
   File,
   Folder,
   Monitor,
+  MessageCircle,
+  Send,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { getKernelClient, KernelFileStat, VNCInfo } from '../../services/kernelClient';
 import { VNCViewer } from './VNCViewer';
@@ -78,6 +82,13 @@ export const VirtualDesktop: React.FC<VirtualDesktopProps> = ({
 
   // Agent paused state (human takeover)
   const [agentPaused, setAgentPaused] = useState(false);
+
+  // Live chat state
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState<
+    Array<{ role: 'user' | 'agent'; content: string; timestamp: number }>
+  >([]);
+  const [chatInput, setChatInput] = useState('');
 
   // GPU allocation for this agent
   const [gpuIds, setGpuIds] = useState<number[] | undefined>(undefined);
@@ -172,6 +183,56 @@ export const VirtualDesktop: React.FC<VirtualDesktopProps> = ({
     return () => clearInterval(interval);
   }, [agent.pid, agent.id]);
 
+  // Subscribe to chat-related events
+  useEffect(() => {
+    if (!agent.pid) return;
+
+    const client = getKernelClient();
+    if (!client.connected) return;
+
+    // Listen for agent thoughts (agent-side messages in chat)
+    const unsubThought = client.on('agent.thought', (data: any) => {
+      if (data.pid === agent.pid && chatOpen) {
+        setChatMessages((prev) => {
+          const msgs = [
+            ...prev,
+            { role: 'agent' as const, content: data.thought, timestamp: Date.now() },
+          ];
+          return msgs.length > 100 ? msgs.slice(-100) : msgs;
+        });
+      }
+    });
+
+    // Listen for user message confirmations
+    const unsubUserMsg = client.on('agent.userMessage', (data: any) => {
+      if (data.pid === agent.pid) {
+        // The user message is already added optimistically in sendMessage
+      }
+    });
+
+    return () => {
+      unsubThought();
+      unsubUserMsg();
+    };
+  }, [agent.pid, chatOpen]);
+
+  // Send a chat message to the agent
+  const sendChatMessage = async () => {
+    if (!chatInput.trim() || !agent.pid) return;
+    const content = chatInput.trim();
+    setChatInput('');
+
+    // Optimistically add user message
+    setChatMessages((prev) => [...prev, { role: 'user', content, timestamp: Date.now() }]);
+
+    try {
+      const client = getKernelClient();
+      await client.sendAgentMessage(agent.pid, content);
+    } catch (err) {
+      console.error('[VirtualDesktop] Failed to send chat message:', err);
+    }
+  };
+
   // Whether this agent has an active VNC desktop
   const hasVNC = vncInfo !== null;
   const vncWsUrl = vncInfo ? `ws://localhost:${vncInfo.wsPort}` : null;
@@ -210,6 +271,7 @@ export const VirtualDesktop: React.FC<VirtualDesktopProps> = ({
     { Icon: Globe, id: 'browser' },
     { Icon: Terminal, id: 'terminal' },
     { Icon: Code, id: 'code' },
+    { Icon: MessageCircle, id: 'chat' },
     { Icon: StickyNote, id: 'notes' },
   ];
 
@@ -511,14 +573,77 @@ export const VirtualDesktop: React.FC<VirtualDesktopProps> = ({
         )}
       </div>
 
+      {/* Chat Panel */}
+      {chatOpen && agent.pid && (
+        <div className="absolute right-2 bottom-12 w-64 h-80 bg-black/60 backdrop-blur-xl border border-white/15 rounded-lg flex flex-col z-50 shadow-2xl">
+          {/* Chat Header */}
+          <div className="flex items-center justify-between px-3 py-2 border-b border-white/10">
+            <div className="flex items-center gap-1.5 text-[10px] text-white/90 font-semibold">
+              <MessageCircle size={10} />
+              <span>Chat with Agent</span>
+            </div>
+            <button
+              onClick={() => setChatOpen(false)}
+              className="text-white/50 hover:text-white/80 transition-colors"
+            >
+              <ChevronDown size={12} />
+            </button>
+          </div>
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto p-2 space-y-1.5 text-[9px]">
+            {chatMessages.length === 0 && (
+              <div className="text-white/30 text-center mt-8">Send a message to the agent...</div>
+            )}
+            {chatMessages.map((msg, i) => (
+              <div
+                key={i}
+                className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+              >
+                <div
+                  className={`max-w-[85%] px-2 py-1 rounded-md break-words ${
+                    msg.role === 'user'
+                      ? 'bg-indigo-500/40 text-white/90'
+                      : 'bg-white/10 text-white/70'
+                  }`}
+                >
+                  {msg.content}
+                </div>
+              </div>
+            ))}
+          </div>
+          {/* Input */}
+          <div className="flex items-center gap-1.5 px-2 py-1.5 border-t border-white/10">
+            <input
+              type="text"
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') sendChatMessage();
+              }}
+              placeholder="Type a message..."
+              className="flex-1 bg-white/10 border border-white/10 rounded px-2 py-1 text-[9px] text-white/90 placeholder-white/30 outline-none focus:border-indigo-400/50"
+            />
+            <button
+              onClick={sendChatMessage}
+              disabled={!chatInput.trim()}
+              className="p-1 text-white/50 hover:text-indigo-300 disabled:opacity-30 transition-colors"
+            >
+              <Send size={10} />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Dock with active app highlighting */}
       <div className="absolute bottom-2 left-1/2 -translate-x-1/2 w-auto bg-white/20 backdrop-blur-xl border border-white/20 px-2 py-1.5 rounded-xl flex items-end gap-2 z-50">
         {dockIcons.map(({ Icon, id }, i) => {
-          const isActiveIcon = activeApp === id;
+          const isActiveIcon = activeApp === id || (id === 'chat' && chatOpen);
           return (
             <div
               key={i}
+              onClick={id === 'chat' ? () => setChatOpen(!chatOpen) : undefined}
               className={`w-6 h-6 rounded-lg flex items-center justify-center border shadow-sm transition-all duration-300
+                                ${id === 'chat' ? 'cursor-pointer' : ''}
                                 ${
                                   isActiveIcon
                                     ? 'bg-indigo-500/40 border-indigo-400/50 text-white ring-1 ring-indigo-400/30 scale-110'

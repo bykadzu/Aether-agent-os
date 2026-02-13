@@ -70,6 +70,9 @@ export class VirtualFS {
       await fs.writeFile(hostnamePath, 'aether\n');
     }
 
+    // Watch shared directory for real-time agent file updates
+    this.watch('/shared');
+
     this.bus.emit('fs.initialized', { root: this.root });
   }
 
@@ -714,6 +717,13 @@ export class VirtualFS {
     if (entry.isDirectory()) return 'directory';
     if (entry.isSymbolicLink()) return 'symlink';
     return 'file';
+  }
+
+  /**
+   * Get the absolute path to the shared directory.
+   */
+  getSharedPath(): string {
+    return path.join(this.root, 'shared');
   }
 
   /**

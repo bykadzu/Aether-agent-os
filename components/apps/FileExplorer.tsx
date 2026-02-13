@@ -20,6 +20,7 @@ import {
   Star,
   RefreshCw,
   Upload,
+  Share2,
 } from 'lucide-react';
 import { FileSystemItem } from '../../data/mockFileSystem';
 import { getKernelClient, KernelFileStat } from '../../services/kernelClient';
@@ -152,6 +153,21 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ files, onOpenFile })
     },
     [useKernel, kernelPath, loadKernelDir],
   );
+
+  // Auto-refresh when files change in shared directory
+  useEffect(() => {
+    if (!useKernel || !kernelPath.startsWith('/shared')) return;
+
+    const client = getKernelClient();
+    const unsub = client.on('fs.changed', (data: any) => {
+      if (data.path && data.path.startsWith('/shared')) {
+        // Debounce: reload after a short delay
+        setTimeout(() => loadKernelDir(kernelPath), 500);
+      }
+    });
+
+    return unsub;
+  }, [useKernel, kernelPath, loadKernelDir]);
 
   // Filtered and sorted files
   const processedFiles = useMemo(() => {
@@ -348,6 +364,12 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ files, onOpenFile })
               className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors ${kernelPath === '/tmp' ? 'bg-black/5 font-medium' : 'hover:bg-black/5 text-gray-600'}`}
             >
               <Download size={16} className="text-orange-500" /> Tmp
+            </button>
+            <button
+              onClick={() => navigate('/shared')}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors ${kernelPath === '/shared' || kernelPath.startsWith('/shared/') ? 'bg-black/5 font-medium' : 'hover:bg-black/5 text-gray-600'}`}
+            >
+              <Share2 size={16} className="text-indigo-500" /> Shared
             </button>
           </>
         ) : (

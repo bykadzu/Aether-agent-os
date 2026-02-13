@@ -1320,8 +1320,10 @@ type KernelEventBase =
   | { type: 'agent.progress'; pid: PID; step: number; maxSteps: number; summary: string }
   | { type: 'agent.file_created'; pid: PID; path: string; content: string }
   | { type: 'agent.browsing'; pid: PID; url: string; summary?: string }
+  | { type: 'agent.sharedFileWritten'; pid: PID; path: string; size: number }
   | { type: 'agent.paused'; pid: PID }
   | { type: 'agent.resumed'; pid: PID }
+  | { type: 'agent.userMessage'; pid: PID; content: string; timestamp: number }
 
   // IPC events
   | { type: 'ipc.message'; message: IPCMessage }

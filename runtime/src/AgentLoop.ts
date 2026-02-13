@@ -200,6 +200,22 @@ export async function runAgentLoop(
       continue;
     }
 
+    // Drain pending user messages and inject into context
+    if (kernel.processes.drainUserMessages) {
+      const userMsgs = kernel.processes.drainUserMessages(pid);
+      for (const msg of userMsgs) {
+        state.history.push({
+          role: 'tool',
+          content: `[User Message] ${msg}`,
+          timestamp: Date.now(),
+        });
+        kernel.bus.emit('agent.thought', {
+          pid,
+          thought: `Received user message: "${msg.substring(0, 100)}"`,
+        });
+      }
+    }
+
     try {
       // Context compaction: summarize old history when it grows too large
       if (shouldCompact(state)) {
@@ -397,6 +413,21 @@ export async function runAgentLoop(
       if (currentProc.info.state === 'stopped' || currentProc.info.state === 'paused') {
         await sleep(1000);
         continue;
+      }
+      // Drain pending user messages and inject into context
+      if (kernel.processes.drainUserMessages) {
+        const userMsgs = kernel.processes.drainUserMessages(pid);
+        for (const msg of userMsgs) {
+          state.history.push({
+            role: 'tool',
+            content: `[User Message] ${msg}`,
+            timestamp: Date.now(),
+          });
+          kernel.bus.emit('agent.thought', {
+            pid,
+            thought: `Received user message: "${msg.substring(0, 100)}"`,
+          });
+        }
       }
       try {
         if (shouldCompact(state)) {

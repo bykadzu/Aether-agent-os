@@ -325,6 +325,34 @@ export function createV1Router(
       return true;
     }
 
+    // POST /api/v1/agents/:pid/message — Send user message to agent's chat queue
+    params = matchRoute(pathname, method, 'POST', '/api/v1/agents/:pid/message');
+    if (params) {
+      const pid = parseInt(params.pid, 10);
+      if (!isNaN(pid)) {
+        const proc = kernel.processes.get(pid);
+        if (!proc) {
+          jsonError(res, 404, 'NOT_FOUND', `Process ${pid} not found`);
+          return true;
+        }
+        try {
+          const body = await readBody(req);
+          const { content } = JSON.parse(body);
+          if (!content || typeof content !== 'string') {
+            jsonError(res, 400, 'INVALID_INPUT', 'content (string) is required');
+            return true;
+          }
+          kernel.processes.queueUserMessage(pid, content);
+          kernel.bus.emit('agent.userMessage', { pid, content, timestamp: Date.now() });
+          jsonOk(res, { delivered: true, queued: true });
+        } catch (err: any) {
+          jsonError(res, 400, 'INVALID_INPUT', err.message);
+        }
+        return true;
+      }
+      // Not a numeric PID — fall through to the :uid/message handler below
+    }
+
     // POST /api/v1/agents/:uid/message — Send message to agent
     params = matchRoute(pathname, method, 'POST', '/api/v1/agents/:uid/message');
     if (params) {
@@ -639,6 +667,8 @@ export function createV1Router(
       'agent.phaseChange',
       'agent.progress',
       'fs.changed',
+      'agent.sharedFileWritten',
+      'agent.userMessage',
       'cron.fired',
       'trigger.fired',
       'kernel.metrics',

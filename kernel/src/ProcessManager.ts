@@ -41,6 +41,8 @@ export interface ManagedProcess {
   handle?: any;
   /** IPC message queue for this process */
   messageQueue: IPCMessage[];
+  /** User chat messages queue for live agent chat */
+  userMessages: string[];
 }
 
 export class ProcessManager {
@@ -169,6 +171,7 @@ export class ProcessManager {
       agentConfig: config,
       abortController: new AbortController(),
       messageQueue: [],
+      userMessages: [],
     };
 
     this.processes.set(pid, proc);
@@ -486,6 +489,31 @@ export class ProcessManager {
       this.bus.emit('ipc.delivered', { messageId: msg.id, toPid: pid });
     }
     return messages;
+  }
+
+  // ---------------------------------------------------------------------------
+  // User Chat Messages (Live Agent Chat)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Queue a user chat message for an agent process.
+   * Returns true if the process exists and the message was queued.
+   */
+  queueUserMessage(pid: PID, message: string): boolean {
+    const proc = this.processes.get(pid);
+    if (!proc || proc.info.state === 'dead') return false;
+    proc.userMessages.push(message);
+    return true;
+  }
+
+  /**
+   * Drain (consume) all pending user chat messages for a process.
+   * Returns the messages and clears the queue.
+   */
+  drainUserMessages(pid: PID): string[] {
+    const proc = this.processes.get(pid);
+    if (!proc) return [];
+    return proc.userMessages.splice(0);
   }
 
   /**

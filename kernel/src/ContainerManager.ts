@@ -203,6 +203,14 @@ export class ContainerManager {
       // Mount the agent's persistent workspace
       '-v',
       `${hostVolumePath}:/home/aether:rw`,
+      // Mount shared directory for cross-agent file exchange
+      ...(() => {
+        const sharedDir = path.join(AETHER_ROOT, 'shared');
+        if (!fs.existsSync(sharedDir)) {
+          fs.mkdirSync(sharedDir, { recursive: true });
+        }
+        return ['-v', `${sharedDir}:/home/agent/shared:rw`];
+      })(),
       '-w',
       '/home/aether',
       // Environment

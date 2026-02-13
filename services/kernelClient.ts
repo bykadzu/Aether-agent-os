@@ -618,6 +618,25 @@ export class KernelClient {
   }
 
   // -----------------------------------------------------------------------
+  // Agent Chat API
+  // -----------------------------------------------------------------------
+
+  /**
+   * Send a chat message to a running agent by PID.
+   */
+  async sendAgentMessage(pid: number, content: string): Promise<void> {
+    const res = await fetch(`${this.getBaseUrl()}/api/v1/agents/${pid}/message`, {
+      method: 'POST',
+      headers: this.getRestHeaders(),
+      body: JSON.stringify({ content }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: { message: res.statusText } }));
+      throw new Error(err.error?.message || 'Failed to send message');
+    }
+  }
+
+  // -----------------------------------------------------------------------
   // History API (REST - fetches from HTTP endpoints)
   // -----------------------------------------------------------------------
 
