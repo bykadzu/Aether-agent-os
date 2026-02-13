@@ -1285,6 +1285,22 @@ export type KernelCommand =
   | { type: 'tools.export'; id: string; format: 'langchain' | 'openai' }
   | { type: 'tools.list'; id: string }
 
+  // MCP commands (v0.6)
+  | { type: 'mcp.addServer'; id: string; config: MCPServerConfig }
+  | { type: 'mcp.removeServer'; id: string; serverId: string }
+  | { type: 'mcp.updateServer'; id: string; serverId: string; updates: Partial<MCPServerConfig> }
+  | { type: 'mcp.connect'; id: string; serverId: string }
+  | { type: 'mcp.disconnect'; id: string; serverId: string }
+  | { type: 'mcp.listServers'; id: string }
+  | { type: 'mcp.listTools'; id: string; serverId?: string }
+  | {
+      type: 'mcp.callTool';
+      id: string;
+      serverId: string;
+      toolName: string;
+      args: Record<string, any>;
+    }
+
   // System
   | { type: 'kernel.status'; id: string }
   | { type: 'kernel.shutdown'; id: string };
@@ -1508,6 +1524,16 @@ type KernelEventBase =
   | { type: 'tools.exported'; count: number; format: string }
   | { type: 'tools.list'; tools: Array<{ name: string; source: string; description: string }> }
 
+  // MCP events (v0.6)
+  | { type: 'mcp.server.added'; server: MCPServerInfo }
+  | { type: 'mcp.server.removed'; serverId: string }
+  | { type: 'mcp.server.connected'; server: MCPServerInfo }
+  | { type: 'mcp.server.disconnected'; serverId: string; reason?: string }
+  | { type: 'mcp.server.error'; serverId: string; error: string }
+  | { type: 'mcp.tools.discovered'; serverId: string; tools: MCPToolInfo[] }
+  | { type: 'mcp.servers.list'; servers: MCPServerInfo[] }
+  | { type: 'mcp.tools.list'; tools: MCPToolInfo[] }
+
   // System events
   | { type: 'kernel.ready'; version: string; uptime: number }
   | {
@@ -1561,6 +1587,55 @@ export interface AuditEntryInfo {
   result_hash: string | null;
   metadata: string | null;
   created_at: number;
+}
+
+// ---------------------------------------------------------------------------
+// MCP Types (v0.6)
+// ---------------------------------------------------------------------------
+
+/** Transport type for connecting to an MCP server */
+export type MCPTransportType = 'stdio' | 'sse';
+
+/** Configuration for an MCP server connection */
+export interface MCPServerConfig {
+  id: string;
+  name: string;
+  transport: MCPTransportType;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+  autoConnect: boolean;
+  enabled: boolean;
+  allowedAgentRoles?: string[];
+  tags?: string[];
+}
+
+/** Runtime info about a connected MCP server */
+export interface MCPServerInfo {
+  id: string;
+  name: string;
+  transport: MCPTransportType;
+  status: 'connecting' | 'connected' | 'disconnected' | 'error';
+  capabilities?: {
+    tools?: boolean;
+    resources?: boolean;
+    prompts?: boolean;
+  };
+  toolCount: number;
+  serverVersion?: string;
+  lastError?: string;
+  connectedAt?: number;
+}
+
+/** An MCP tool as exposed to Aether agents */
+export interface MCPToolInfo {
+  name: string;
+  mcpName: string;
+  serverId: string;
+  description: string;
+  inputSchema: Record<string, any>;
 }
 
 // ---------------------------------------------------------------------------

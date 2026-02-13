@@ -46,6 +46,7 @@ import { AuditLogger } from './AuditLogger.js';
 import { ModelRouter } from './ModelRouter.js';
 import { MetricsExporter } from './MetricsExporter.js';
 import { ToolCompatLayer } from './ToolCompatLayer.js';
+import { MCPManager } from './MCPManager.js';
 import {
   KernelCommand,
   KernelEvent,
@@ -55,6 +56,7 @@ import {
   DEFAULT_PORT,
   ProcessInfo,
   AgentProfile,
+  MCPServerConfig,
 } from '@aether/shared';
 
 export class Kernel {
@@ -85,6 +87,7 @@ export class Kernel {
   readonly modelRouter: ModelRouter;
   readonly metrics: MetricsExporter;
   readonly toolCompat: ToolCompatLayer;
+  readonly mcp: MCPManager;
 
   private startTime: number;
   private running = false;
@@ -115,6 +118,7 @@ export class Kernel {
     this.modelRouter = new ModelRouter();
     this.metrics = new MetricsExporter(this.bus, this.processes, this.resources);
     this.toolCompat = new ToolCompatLayer(this.bus, this.state);
+    this.mcp = new MCPManager(this.bus, this.state);
     this.snapshots = new SnapshotManager(
       this.bus,
       this.processes,
@@ -292,6 +296,10 @@ export class Kernel {
     // Initialize tool compatibility layer
     await this.toolCompat.init();
     console.log('[Kernel] Tool compatibility layer initialized');
+
+    // Initialize MCP manager
+    await this.mcp.init();
+    console.log('[Kernel] MCP manager initialized');
 
     // Listen for process cleanup events to remove agent home directories
     this.bus.on('process.cleanup', async (data: { pid: number; uid: string; cwd: string }) => {
@@ -2225,6 +2233,92 @@ export class Kernel {
           break;
         }
 
+        // ----- MCP Commands (v0.6) -----
+        case 'mcp.addServer': {
+          try {
+            const serverInfo = this.mcp.addServer(cmd.config);
+            events.push({ type: 'response.ok', id: cmd.id, data: serverInfo });
+            events.push({ type: 'mcp.server.added', server: serverInfo } as KernelEvent);
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        case 'mcp.removeServer': {
+          try {
+            this.mcp.removeServer(cmd.serverId);
+            events.push({ type: 'response.ok', id: cmd.id });
+            events.push({ type: 'mcp.server.removed', serverId: cmd.serverId } as KernelEvent);
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        case 'mcp.updateServer': {
+          try {
+            this.mcp.updateServer(cmd.serverId, cmd.updates);
+            events.push({ type: 'response.ok', id: cmd.id });
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        case 'mcp.connect': {
+          try {
+            const config = this.mcp.getServerConfig(cmd.serverId);
+            if (!config) {
+              events.push({
+                type: 'response.error',
+                id: cmd.id,
+                error: `MCP server not found: ${cmd.serverId}`,
+              });
+              break;
+            }
+            const serverInfo = await this.mcp.connect(config);
+            events.push({ type: 'response.ok', id: cmd.id, data: serverInfo });
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        case 'mcp.disconnect': {
+          try {
+            await this.mcp.disconnect(cmd.serverId);
+            events.push({ type: 'response.ok', id: cmd.id });
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        case 'mcp.listServers': {
+          const servers = this.mcp.getAllServers();
+          events.push({ type: 'response.ok', id: cmd.id, data: servers });
+          events.push({ type: 'mcp.servers.list', servers } as KernelEvent);
+          break;
+        }
+
+        case 'mcp.listTools': {
+          const mcpTools = this.mcp.getTools(cmd.serverId);
+          events.push({ type: 'response.ok', id: cmd.id, data: mcpTools });
+          events.push({ type: 'mcp.tools.list', tools: mcpTools } as KernelEvent);
+          break;
+        }
+
+        case 'mcp.callTool': {
+          try {
+            const toolResult = await this.mcp.callTool(cmd.serverId, cmd.toolName, cmd.args);
+            events.push({ type: 'response.ok', id: cmd.id, data: { output: toolResult } });
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
         default:
           events.push({
             type: 'response.error',
@@ -2300,6 +2394,7 @@ export class Kernel {
       ['ModelRouter', true],
       ['MetricsExporter', true],
       ['ToolCompatLayer', true],
+      ['MCPManager', true],
     ];
 
     const port = process.env.AETHER_PORT || String(DEFAULT_PORT);
@@ -2362,6 +2457,7 @@ export class Kernel {
     }
 
     await this.remoteAccess.shutdown();
+    await this.mcp.shutdown();
     this.toolCompat.shutdown();
     this.metrics.shutdown();
     this.audit.shutdown();

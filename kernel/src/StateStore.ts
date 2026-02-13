@@ -230,6 +230,12 @@ export class StateStore {
     getPermissionPoliciesForSubject: Database.Statement;
     getPermissionPoliciesForAction: Database.Statement;
     getAllPermissionPolicies: Database.Statement;
+    // MCP server statements (v0.6)
+    insertMCPServer: Database.Statement;
+    getMCPServer: Database.Statement;
+    getAllMCPServers: Database.Statement;
+    updateMCPServer: Database.Statement;
+    deleteMCPServer: Database.Statement;
   };
 
   private _persistenceDisabled = false;
@@ -759,6 +765,20 @@ export class StateStore {
       );
 
       CREATE INDEX IF NOT EXISTS idx_permission_policies_subject_action ON permission_policies(subject, action);
+    `);
+
+    // MCP servers table (v0.6)
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS mcp_servers (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        transport TEXT NOT NULL,
+        config TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        auto_connect INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
     `);
   }
 
@@ -1373,6 +1393,16 @@ export class StateStore {
       getAllPermissionPolicies: this.db.prepare(
         `SELECT id, subject, action, resource, effect, created_at, created_by FROM permission_policies ORDER BY created_at ASC`,
       ),
+      // MCP servers (v0.6)
+      insertMCPServer: this.db.prepare(
+        `INSERT OR REPLACE INTO mcp_servers (id, name, transport, config, enabled, auto_connect, created_at, updated_at) VALUES (@id, @name, @transport, @config, @enabled, @auto_connect, @created_at, @updated_at)`,
+      ),
+      getMCPServer: this.db.prepare(`SELECT * FROM mcp_servers WHERE id = ?`),
+      getAllMCPServers: this.db.prepare(`SELECT * FROM mcp_servers ORDER BY name`),
+      updateMCPServer: this.db.prepare(
+        `UPDATE mcp_servers SET config = @config, enabled = @enabled, auto_connect = @auto_connect, updated_at = @updated_at WHERE id = @id`,
+      ),
+      deleteMCPServer: this.db.prepare(`DELETE FROM mcp_servers WHERE id = ?`),
     };
   }
 
@@ -2866,6 +2896,45 @@ export class StateStore {
   // ---------------------------------------------------------------------------
   // Lifecycle
   // ---------------------------------------------------------------------------
+
+  // ---------------------------------------------------------------------------
+  // MCP Server Persistence (v0.6)
+  // ---------------------------------------------------------------------------
+
+  insertMCPServer(record: {
+    id: string;
+    name: string;
+    transport: string;
+    config: string;
+    enabled: number;
+    auto_connect: number;
+    created_at: number;
+    updated_at: number;
+  }): void {
+    this.stmts.insertMCPServer.run(record);
+  }
+
+  getMCPServer(id: string): any {
+    return this.stmts.getMCPServer.get(id);
+  }
+
+  getAllMCPServers(): any[] {
+    return this.stmts.getAllMCPServers.all();
+  }
+
+  updateMCPServer(record: {
+    id: string;
+    config: string;
+    enabled: number;
+    auto_connect: number;
+    updated_at: number;
+  }): void {
+    this.stmts.updateMCPServer.run(record);
+  }
+
+  deleteMCPServer(id: string): void {
+    this.stmts.deleteMCPServer.run(id);
+  }
 
   /**
    * Close the database connection.
