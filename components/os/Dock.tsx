@@ -18,6 +18,7 @@ import {
   Store,
   Puzzle,
   Plug,
+  Package,
 } from 'lucide-react';
 
 interface DockProps {
@@ -67,6 +68,12 @@ export const Dock: React.FC<DockProps> = ({ onAppClick, openApps }) => {
       icon: Plug,
       label: 'Integrations',
       color: 'bg-teal-100 text-teal-600',
+    },
+    {
+      id: AppID.OPENCLAW,
+      icon: Package,
+      label: 'OpenClaw',
+      color: 'bg-orange-100 text-orange-600',
     },
   ];
 

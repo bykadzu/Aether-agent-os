@@ -21,6 +21,7 @@ export enum AppID {
   APP_STORE = 'app_store',
   PLUGIN_MARKETPLACE = 'plugin_marketplace',
   INTEGRATIONS = 'integrations',
+  OPENCLAW = 'openclaw',
 }
 
 export interface WindowState {

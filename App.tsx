@@ -19,6 +19,7 @@ import { MemoryInspectorApp } from './components/apps/MemoryInspectorApp';
 import { AppStoreApp } from './components/apps/AppStoreApp';
 import { PluginMarketplaceApp } from './components/apps/PluginMarketplaceApp';
 import { IntegrationsApp } from './components/apps/IntegrationsApp';
+import { OpenClawImporter } from './components/apps/OpenClawImporter';
 
 // Lazy-loaded heavy components (Monaco editor, browser, canvas, spreadsheet, PDF viewer, Agent VM)
 const CodeEditorApp = React.lazy(() =>
@@ -90,6 +91,7 @@ const DOCK_APPS: AppID[] = [
   AppID.APP_STORE,
   AppID.PLUGIN_MARKETPLACE,
   AppID.INTEGRATIONS,
+  AppID.OPENCLAW,
 ];
 
 const App: React.FC = () => {
@@ -854,6 +856,8 @@ const App: React.FC = () => {
         return 'Plugin Marketplace';
       case AppID.INTEGRATIONS:
         return 'Integrations';
+      case AppID.OPENCLAW:
+        return 'OpenClaw Importer';
       default:
         return 'App';
     }
@@ -1295,6 +1299,8 @@ const App: React.FC = () => {
         return <PluginMarketplaceApp />;
       case AppID.INTEGRATIONS:
         return <IntegrationsApp />;
+      case AppID.OPENCLAW:
+        return <OpenClawImporter />;
       case AppID.VM: {
         const agent = agents.find((a) => a.id === windowState.initialData?.agentId);
         if (!agent) return <div className="p-4 text-white">Agent not found or terminated.</div>;
