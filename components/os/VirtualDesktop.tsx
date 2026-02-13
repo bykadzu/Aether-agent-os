@@ -315,7 +315,7 @@ export const VirtualDesktop: React.FC<VirtualDesktopProps> = ({
         {/* VNC Desktop Mode: render real graphical desktop when VNC is active */}
         {hasVNC && vncWsUrl ? (
           <div className="relative w-full h-full">
-            <VNCViewer wsUrl={vncWsUrl} scale={scale} viewOnly={!agentPaused} />
+            <VNCViewer wsUrl={vncWsUrl} scale={scale} viewOnly={false} />
           </div>
         ) : (
           /* Standard simulated windows mode (non-graphical agents) */
@@ -668,8 +668,8 @@ export const VirtualDesktop: React.FC<VirtualDesktopProps> = ({
         </div>
       )}
 
-      {/* Overlay for non-interactive mode */}
-      {!interactive && !agentPaused && <div className="absolute inset-0 z-[100]"></div>}
+      {/* Overlay for non-interactive mode (disabled when VNC is active so user can interact) */}
+      {!interactive && !agentPaused && !hasVNC && <div className="absolute inset-0 z-[100]"></div>}
     </div>
   );
 };

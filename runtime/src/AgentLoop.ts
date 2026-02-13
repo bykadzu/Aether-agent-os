@@ -271,10 +271,26 @@ export async function runAgentLoop(
         timestamp: Date.now(),
       });
 
+      // Normalize common tool name aliases (LLMs sometimes use variants)
+      const TOOL_ALIASES: Record<string, string> = {
+        finish: 'complete',
+        done: 'complete',
+        end: 'complete',
+        exit: 'complete',
+        search: 'browse_web',
+        bash: 'run_command',
+        shell: 'run_command',
+        exec: 'run_command',
+      };
+      if (TOOL_ALIASES[decision.tool]) {
+        decision.tool = TOOL_ALIASES[decision.tool];
+      }
+
       // Phase 2: Act - execute the chosen tool
       const tool = toolMap.get(decision.tool);
       if (!tool) {
-        const errMsg = `Unknown tool: ${decision.tool}`;
+        const availableTools = tools.map((t) => t.name).join(', ');
+        const errMsg = `Unknown tool: ${decision.tool}. Available tools: ${availableTools}`;
         state.history.push({ role: 'tool', content: errMsg, timestamp: Date.now() });
         state.lastObservation = errMsg;
         state.step++;
@@ -332,18 +348,19 @@ export async function runAgentLoop(
       const result = await tool.execute(decision.args, ctx);
 
       // Phase 3: Observe - record the result
+      const output = result.output || '';
       kernel.processes.setState(pid, 'running', 'observing');
       kernel.bus.emit('agent.observation', {
         pid,
-        result: result.output.substring(0, 500),
+        result: output.substring(0, 500),
       });
 
       state.history.push({
         role: 'tool',
-        content: `[${decision.tool}] ${result.success ? 'OK' : 'FAIL'}: ${result.output.substring(0, 4000)}`,
+        content: `[${decision.tool}] ${result.success ? 'OK' : 'FAIL'}: ${output.substring(0, 4000)}`,
         timestamp: Date.now(),
       });
-      state.lastObservation = result.output;
+      state.lastObservation = output;
 
       if (result.artifacts) {
         state.artifacts.push(...result.artifacts);
@@ -355,7 +372,7 @@ export async function runAgentLoop(
           kernel.memory.store({
             agent_uid: proc.info.uid,
             layer: 'episodic',
-            content: `[Step ${state.step + 1}] Used ${decision.tool}: ${result.output.substring(0, 300)}`,
+            content: `[Step ${state.step + 1}] Used ${decision.tool}: ${output.substring(0, 300)}`,
             tags: ['auto-journal', decision.tool],
             importance: decision.tool === 'complete' ? 0.8 : 0.3,
             source_pid: pid,
@@ -381,7 +398,7 @@ export async function runAgentLoop(
           durationMs,
           role: config.role,
           goal: config.goal,
-          summary: result.output?.substring(0, 300) || 'Task completed.',
+          summary: output.substring(0, 300) || 'Task completed.',
         });
 
         // Run post-task reflection (fire-and-forget, don't block exit)
@@ -505,6 +522,20 @@ export async function runAgentLoop(
           content: `[Think] ${decision.reasoning}\n[Action] ${decision.tool}(${JSON.stringify(decision.args)})`,
           timestamp: Date.now(),
         });
+        // Normalize tool name aliases (same as main loop)
+        const CONT_ALIASES: Record<string, string> = {
+          finish: 'complete',
+          done: 'complete',
+          end: 'complete',
+          exit: 'complete',
+          search: 'browse_web',
+          bash: 'run_command',
+          shell: 'run_command',
+          exec: 'run_command',
+        };
+        if (CONT_ALIASES[decision.tool]) {
+          decision.tool = CONT_ALIASES[decision.tool];
+        }
         const tool = toolMap.get(decision.tool);
         if (!tool) {
           state.step++;
@@ -685,6 +716,8 @@ async function getNextAction(
         const noArgTools = [
           'think',
           'complete',
+          'finish',
+          'done',
           'list_agents',
           'check_messages',
           'list_workspaces',

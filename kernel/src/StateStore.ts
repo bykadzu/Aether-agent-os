@@ -1415,6 +1415,7 @@ export class StateStore {
     });
 
     this.bus.on('agent.thought', (data: { pid: PID; thought: string }) => {
+      if (!data.thought) return; // Guard against null/undefined content
       try {
         this.recordAgentLog({
           pid: data.pid,
