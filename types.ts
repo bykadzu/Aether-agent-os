@@ -97,6 +97,7 @@ export interface Agent {
   isWaiting?: boolean;
   githubSync?: boolean;
   vncWsUrl?: string; // WebSocket URL for VNC when agent has a graphical desktop
+  runtime?: 'builtin' | 'claude-code' | 'openclaw'; // Execution engine (v0.8)
 }
 
 // Runtime mode - determines if we use mock or real kernel

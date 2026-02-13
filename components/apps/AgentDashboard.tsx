@@ -776,9 +776,9 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    {(agent as any).runtime && (agent as any).runtime !== 'builtin' && (
+                    {agent.runtime && agent.runtime !== 'builtin' && (
                       <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                        {(agent as any).runtime === 'claude-code' ? 'Claude Code' : 'OpenClaw'}
+                        {agent.runtime === 'claude-code' ? 'Claude Code' : 'OpenClaw'}
                       </span>
                     )}
                     {agent.vncWsUrl && (

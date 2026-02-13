@@ -537,7 +537,7 @@ export class Kernel {
           const isAdmin = !user || user.role === 'admin';
           const processes = this.processes
             .getActiveByOwner(user?.id, isAdmin)
-            .map((p) => ({ ...p.info }));
+            .map((p) => ({ ...p.info, runtime: p.agentConfig?.runtime || 'builtin' }));
           events.push({
             type: 'response.ok',
             id: cmd.id,

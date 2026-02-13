@@ -49,7 +49,7 @@ type SidebarTab = 'terminal' | 'timeline' | 'activity';
 // ---------------------------------------------------------------------------
 
 function runtimeBadge(agent: Agent): { label: string; color: string } | null {
-  const rt = (agent as any).runtime;
+  const rt = agent.runtime;
   if (!rt) return null;
   switch (rt) {
     case 'claude-code':
@@ -280,7 +280,7 @@ export const AgentVM: React.FC<AgentVMProps> = ({
   const handleSendMessage = useCallback(() => {
     if (!messageText.trim()) return;
     const kernel = getKernelClient();
-    const rt = (agent as any).runtime;
+    const rt = agent.runtime;
 
     if ((rt === 'claude-code' || rt === 'openclaw') && agent.pid && kernel.connected) {
       kernel.sendAgentMessage(agent.pid, messageText.trim()).catch(() => {

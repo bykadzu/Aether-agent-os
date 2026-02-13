@@ -33,6 +33,7 @@ export interface AgentProcess {
   progress: { step: number; maxSteps: number; summary: string };
   vncInfo?: { wsPort: number; display: string } | null;
   gpuIds?: number[];
+  runtime?: 'builtin' | 'claude-code' | 'openclaw';
 }
 
 export interface AgentLog {
@@ -111,6 +112,7 @@ export function useKernel(wsUrl?: string) {
         createdAt: info.createdAt,
         logs: [{ timestamp: Date.now(), type: 'system', message: `Process ${info.pid} spawned.` }],
         progress: { step: 0, maxSteps: 50, summary: 'Initializing...' },
+        runtime: info.runtime,
       };
       setState((prev) => {
         // Deduplicate — ignore if PID already exists (event may arrive via bus + command response)
@@ -355,6 +357,7 @@ export function useKernel(wsUrl?: string) {
           createdAt: info.createdAt,
           logs: [],
           progress: { step: 0, maxSteps: 50, summary: '' },
+          runtime: info.runtime,
         }));
         setState((prev) => ({
           ...prev,

@@ -45,6 +45,7 @@ export interface KernelProcessInfo {
   cpuPercent: number;
   memoryMB: number;
   ttyId?: string;
+  runtime?: 'builtin' | 'claude-code' | 'openclaw';
 }
 
 export interface UserInfo {

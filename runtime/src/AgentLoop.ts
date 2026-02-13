@@ -678,17 +678,28 @@ async function getNextAction(
           console.warn(`[AgentLoop] Empty args for ${tc.name}, retrying with nudge`);
           messages.push({
             role: 'user',
-            content: `Your args were empty. Please provide the required arguments for ${tc.name}.`,
+            content: `Your args were empty. Please provide the required arguments for ${tc.name}. For example: ${tc.name === 'read_file' ? '{"path": "/home/..."}' : tc.name === 'list_files' ? '{"path": "/home/..."}' : tc.name === 'write_file' ? '{"path": "/home/...", "content": "..."}' : tc.name === 'run_command' ? '{"command": "..."}' : tc.name === 'browse_web' ? '{"url": "https://..."}' : '{"...": "..."}'}`,
           });
           const retryResponse = await provider.chat(messages, llmTools);
           if (retryResponse.toolCalls && retryResponse.toolCalls.length > 0) {
             const rtc = retryResponse.toolCalls[0];
-            return {
-              reasoning: retryResponse.content || response.content || 'No reasoning provided',
-              tool: rtc.name,
-              args: rtc.arguments,
-            };
+            if (rtc.arguments && Object.keys(rtc.arguments).length > 0) {
+              return {
+                reasoning: retryResponse.content || response.content || 'No reasoning provided',
+                tool: rtc.name,
+                args: rtc.arguments,
+              };
+            }
           }
+          // Second retry also failed — fall back to think tool instead of passing empty args
+          console.warn(`[AgentLoop] Empty args persisted for ${tc.name}, falling back to think`);
+          return {
+            reasoning: response.content || 'No reasoning provided',
+            tool: 'think',
+            args: {
+              thought: `I tried to use ${tc.name} but couldn't determine the correct arguments. Let me reconsider my approach.`,
+            },
+          };
         }
         return {
           reasoning: response.content || 'No reasoning provided',

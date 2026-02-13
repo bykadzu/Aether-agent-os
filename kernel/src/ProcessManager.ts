@@ -176,7 +176,10 @@ export class ProcessManager {
 
     this.processes.set(pid, proc);
 
-    this.bus.emit('process.spawned', { pid, info: { ...info } });
+    this.bus.emit('process.spawned', {
+      pid,
+      info: { ...info, runtime: config.runtime || 'builtin' },
+    });
     return proc;
   }
 
