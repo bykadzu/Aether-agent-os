@@ -1161,6 +1161,174 @@ export function createToolSet(): ToolDefinition[] {
         return { success: true, output: args.summary || 'Task completed.' };
       },
     },
+
+    // ----- Self-Modification Tools (v0.7) -----
+    {
+      name: 'discover_skills',
+      description:
+        'Search for available skills from local library and connected MCP servers. Returns matching skills with descriptions and install status. Args: query (string), source (local|mcp|all, optional, default all), limit (number, optional, default 10)',
+      execute: async (args, ctx) => {
+        if (!ctx.kernel.skillForge) {
+          return { success: false, output: 'SkillForge subsystem not available' };
+        }
+        if (!args.query) {
+          return { success: false, output: 'query is required' };
+        }
+        const results = await ctx.kernel.skillForge.discover(
+          args.query,
+          args.source || 'all',
+          args.limit || 10,
+        );
+        if (results.length === 0) {
+          return { success: true, output: 'No skills found matching your query.' };
+        }
+        const formatted = results
+          .map(
+            (r: any, i: number) =>
+              `${i + 1}. [${r.source}] ${r.name}: ${r.description} (${r.installed ? 'installed' : 'available'}${r.risk_level ? ', risk: ' + r.risk_level : ''})`,
+          )
+          .join('\n');
+        return { success: true, output: `Found ${results.length} skill(s):\n${formatted}` };
+      },
+    },
+
+    {
+      name: 'install_skill',
+      description:
+        'Install a skill from a SKILL.md path. The skill is validated, dependency-checked, risk-scored, and registered. Args: skill_id (string - path to SKILL.md or skill identifier), source (local|clawhub, optional, default local)',
+      execute: async (args, ctx) => {
+        if (!ctx.kernel.skillForge) {
+          return { success: false, output: 'SkillForge subsystem not available' };
+        }
+        if (!args.skill_id) {
+          return { success: false, output: 'skill_id is required' };
+        }
+        const result = await ctx.kernel.skillForge.install(
+          args.skill_id,
+          args.source || 'local',
+          ctx.uid,
+        );
+        return { success: result.success, output: result.message };
+      },
+    },
+
+    {
+      name: 'create_skill',
+      description:
+        'Create a new reusable skill by generating a SKILL.md file. The skill is validated and registered. Args: name (string, lowercase-hyphens), description (string), instructions (string - markdown instructions), tools_used (string[], optional), test_input (string, optional), test_expected (string, optional)',
+      execute: async (args, ctx) => {
+        if (!ctx.kernel.skillForge) {
+          return { success: false, output: 'SkillForge subsystem not available' };
+        }
+        if (!args.name || !args.description || !args.instructions) {
+          return { success: false, output: 'name, description, and instructions are required' };
+        }
+        const result = await ctx.kernel.skillForge.create(
+          {
+            name: args.name,
+            description: args.description,
+            instructions: args.instructions,
+            tools_used: args.tools_used,
+            test_input: args.test_input,
+            test_expected: args.test_expected,
+          },
+          ctx.uid,
+        );
+        return { success: result.success, output: result.message };
+      },
+    },
+
+    {
+      name: 'compose_skills',
+      description:
+        'Combine multiple existing skills into a new composite skill. Args: name (string), description (string), steps (array of {skill_id: string, input_mapping?: string})',
+      execute: async (args, ctx) => {
+        if (!ctx.kernel.skillForge) {
+          return { success: false, output: 'SkillForge subsystem not available' };
+        }
+        if (!args.name || !args.description || !args.steps?.length) {
+          return { success: false, output: 'name, description, and steps are required' };
+        }
+        const result = await ctx.kernel.skillForge.compose(
+          args.name,
+          args.description,
+          args.steps,
+          ctx.uid,
+        );
+        return { success: result.success, output: result.message };
+      },
+    },
+
+    {
+      name: 'connect_mcp_server',
+      description:
+        'Connect to a new MCP tool server to gain access to its tools. Args: server_id (string), transport (stdio|sse), command (string, for stdio), args (string[], for stdio), url (string, for sse)',
+      execute: async (args, ctx) => {
+        if (!ctx.kernel.mcp) {
+          return { success: false, output: 'MCP subsystem not available' };
+        }
+        if (!args.server_id || !args.transport) {
+          return { success: false, output: 'server_id and transport are required' };
+        }
+        try {
+          const config = {
+            id: args.server_id,
+            name: args.server_id,
+            transport: args.transport as 'stdio' | 'sse',
+            command: args.command,
+            args: args.args,
+            url: args.url,
+            enabled: true,
+          };
+          await ctx.kernel.mcp.addServer(config);
+          await ctx.kernel.mcp.connect(args.server_id);
+          const tools = ctx.kernel.mcp.getTools(args.server_id);
+          return {
+            success: true,
+            output: `Connected to MCP server '${args.server_id}'. Discovered ${tools.length} tool(s): ${tools.map((t: any) => t.name).join(', ')}`,
+          };
+        } catch (err: any) {
+          return { success: false, output: `Failed to connect: ${err.message}` };
+        }
+      },
+    },
+
+    {
+      name: 'update_profile',
+      description:
+        'Update your agent profile — expertise tags and working style notes. Args: add_expertise (string[], optional), remove_expertise (string[], optional), notes (string, optional)',
+      execute: async (args, ctx) => {
+        if (!ctx.kernel.memory) {
+          return { success: false, output: 'Memory subsystem not available' };
+        }
+        try {
+          const profile = ctx.kernel.memory.getProfile(ctx.uid);
+          if (args.add_expertise?.length) {
+            const current = profile?.expertise || [];
+            const updated = [...new Set([...current, ...args.add_expertise])];
+            ctx.kernel.memory.updateProfileAfterTask(ctx.uid, { expertise: updated });
+          }
+          if (args.remove_expertise?.length) {
+            const current = profile?.expertise || [];
+            const updated = current.filter((e: string) => !args.remove_expertise.includes(e));
+            ctx.kernel.memory.updateProfileAfterTask(ctx.uid, { expertise: updated });
+          }
+          if (args.notes) {
+            ctx.kernel.memory.store({
+              agent_uid: ctx.uid,
+              layer: 'semantic',
+              content: `Working style note: ${args.notes}`,
+              tags: ['profile', 'working-style'],
+              importance: 0.7,
+              source_pid: ctx.pid,
+            });
+          }
+          return { success: true, output: 'Profile updated successfully.' };
+        } catch (err: any) {
+          return { success: false, output: `Error: ${err.message}` };
+        }
+      },
+    },
   ];
 }
 
@@ -1533,6 +1701,99 @@ export const TOOL_SCHEMAS: Record<
     type: 'object',
     properties: {
       summary: { type: 'string', description: 'Summary of what was accomplished' },
+    },
+  },
+  // Self-Modification Tools (v0.7)
+  discover_skills: {
+    type: 'object',
+    properties: {
+      query: { type: 'string', description: 'Search query for skills' },
+      source: {
+        type: 'string',
+        description: 'Source filter: local, mcp, or all (default: all)',
+      },
+      limit: { type: 'number', description: 'Max results (default: 10)' },
+    },
+    required: ['query'],
+  },
+  install_skill: {
+    type: 'object',
+    properties: {
+      skill_id: {
+        type: 'string',
+        description: 'Path to SKILL.md or skill identifier',
+      },
+      source: {
+        type: 'string',
+        description: 'Source: local or clawhub (default: local)',
+      },
+    },
+    required: ['skill_id'],
+  },
+  create_skill: {
+    type: 'object',
+    properties: {
+      name: { type: 'string', description: 'Skill name (lowercase-hyphens)' },
+      description: { type: 'string', description: 'Skill description' },
+      instructions: { type: 'string', description: 'Markdown instructions for the skill' },
+      tools_used: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Tools used by this skill (optional)',
+      },
+      test_input: { type: 'string', description: 'Test input for validation (optional)' },
+      test_expected: { type: 'string', description: 'Expected test output (optional)' },
+    },
+    required: ['name', 'description', 'instructions'],
+  },
+  compose_skills: {
+    type: 'object',
+    properties: {
+      name: { type: 'string', description: 'Composite skill name' },
+      description: { type: 'string', description: 'Composite skill description' },
+      steps: {
+        type: 'array',
+        description: 'Steps with skill_id and optional input_mapping',
+        items: {
+          type: 'object',
+          properties: {
+            skill_id: { type: 'string' },
+            input_mapping: { type: 'string' },
+          },
+        },
+      },
+    },
+    required: ['name', 'description', 'steps'],
+  },
+  connect_mcp_server: {
+    type: 'object',
+    properties: {
+      server_id: { type: 'string', description: 'Unique server identifier' },
+      transport: { type: 'string', description: 'Transport type: stdio or sse' },
+      command: { type: 'string', description: 'Command to launch (for stdio transport)' },
+      args: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Command arguments (for stdio transport)',
+      },
+      url: { type: 'string', description: 'Server URL (for sse transport)' },
+    },
+    required: ['server_id', 'transport'],
+  },
+  update_profile: {
+    type: 'object',
+    properties: {
+      add_expertise: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Expertise tags to add',
+      },
+      remove_expertise: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Expertise tags to remove',
+      },
+      notes: { type: 'string', description: 'Working style notes to store' },
     },
   },
 };

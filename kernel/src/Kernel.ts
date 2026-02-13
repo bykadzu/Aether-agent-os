@@ -48,6 +48,7 @@ import { MetricsExporter } from './MetricsExporter.js';
 import { ToolCompatLayer } from './ToolCompatLayer.js';
 import { MCPManager } from './MCPManager.js';
 import { OpenClawAdapter } from './OpenClawAdapter.js';
+import { SkillForge } from './SkillForge.js';
 import {
   KernelCommand,
   KernelEvent,
@@ -90,6 +91,7 @@ export class Kernel {
   readonly toolCompat: ToolCompatLayer;
   readonly mcp: MCPManager;
   readonly openClaw: OpenClawAdapter;
+  readonly skillForge: SkillForge;
 
   private startTime: number;
   private running = false;
@@ -122,6 +124,13 @@ export class Kernel {
     this.toolCompat = new ToolCompatLayer(this.bus, this.state);
     this.mcp = new MCPManager(this.bus, this.state);
     this.openClaw = new OpenClawAdapter(this.bus, this.state, this.pluginRegistry);
+    this.skillForge = new SkillForge(
+      this.bus,
+      this.state,
+      this.pluginRegistry,
+      this.openClaw,
+      this.containers,
+    );
     this.snapshots = new SnapshotManager(
       this.bus,
       this.processes,
@@ -307,6 +316,10 @@ export class Kernel {
     // Initialize OpenClaw adapter
     await this.openClaw.init();
     console.log('[Kernel] OpenClaw adapter initialized');
+
+    // SkillForge — agent self-modification (v0.7)
+    await this.skillForge.init();
+    console.log('[Kernel] SkillForge initialized');
 
     // Listen for process cleanup events to remove agent home directories
     this.bus.on('process.cleanup', async (data: { pid: number; uid: string; cwd: string }) => {
@@ -2399,6 +2412,126 @@ export class Kernel {
           break;
         }
 
+        // ----- SkillForge Commands (v0.7) -----
+        case 'skillforge.discover': {
+          try {
+            const results = await this.skillForge.discover(
+              (cmd as any).query,
+              (cmd as any).source,
+              (cmd as any).limit,
+            );
+            events.push({ type: 'response.ok', id: cmd.id, data: results });
+            events.push({
+              type: 'skillforge.discover.results',
+              results,
+            } as KernelEvent);
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        case 'skillforge.install': {
+          try {
+            const result = await this.skillForge.install(
+              (cmd as any).skillId,
+              (cmd as any).source,
+              user?.id,
+            );
+            if (result.success) {
+              events.push({ type: 'response.ok', id: cmd.id, data: result });
+            } else {
+              events.push({ type: 'response.error', id: cmd.id, error: result.message });
+            }
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        case 'skillforge.create': {
+          try {
+            const result = await this.skillForge.create((cmd as any).params, user?.id || 'system');
+            if (result.success) {
+              events.push({ type: 'response.ok', id: cmd.id, data: result });
+            } else {
+              events.push({ type: 'response.error', id: cmd.id, error: result.message });
+            }
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        case 'skillforge.compose': {
+          try {
+            const result = await this.skillForge.compose(
+              (cmd as any).name,
+              (cmd as any).description,
+              (cmd as any).steps,
+              user?.id || 'system',
+            );
+            if (result.success) {
+              events.push({ type: 'response.ok', id: cmd.id, data: result });
+            } else {
+              events.push({ type: 'response.error', id: cmd.id, error: result.message });
+            }
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        case 'skillforge.remove': {
+          try {
+            await this.skillForge.remove((cmd as any).skillId);
+            events.push({ type: 'response.ok', id: cmd.id });
+            events.push({
+              type: 'skillforge.skill.removed',
+              skillId: (cmd as any).skillId,
+            } as KernelEvent);
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        case 'skillforge.rollback': {
+          try {
+            const success = await this.skillForge.rollback(
+              (cmd as any).skillId,
+              (cmd as any).version,
+            );
+            if (success) {
+              events.push({ type: 'response.ok', id: cmd.id });
+            } else {
+              events.push({
+                type: 'response.error',
+                id: cmd.id,
+                error: `Rollback failed for ${(cmd as any).skillId}@v${(cmd as any).version}`,
+              });
+            }
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        case 'skillforge.listVersions': {
+          try {
+            const versions = await this.skillForge.listVersions((cmd as any).skillId);
+            events.push({ type: 'response.ok', id: cmd.id, data: versions });
+            events.push({
+              type: 'skillforge.versions.list',
+              skillId: (cmd as any).skillId,
+              versions,
+            } as KernelEvent);
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
         default:
           events.push({
             type: 'response.error',
@@ -2476,6 +2609,7 @@ export class Kernel {
       ['ToolCompatLayer', true],
       ['MCPManager', true],
       ['OpenClawAdapter', true],
+      ['SkillForge', true],
     ];
 
     const port = process.env.AETHER_PORT || String(DEFAULT_PORT);

@@ -110,7 +110,10 @@ export type Permission =
   | 'integrations.manage'
   | 'integrations.view'
   | 'plugins.manage'
-  | 'plugins.view';
+  | 'plugins.view'
+  | 'skills.create'
+  | 'skills.install'
+  | 'skills.share';
 
 /** Organization roles (hierarchical) */
 export type OrgRole = 'owner' | 'admin' | 'manager' | 'member' | 'viewer';
@@ -148,6 +151,9 @@ export const ROLE_PERMISSIONS: Record<OrgRole, Permission[]> = {
     'integrations.view',
     'plugins.manage',
     'plugins.view',
+    'skills.create',
+    'skills.install',
+    'skills.share',
   ],
   admin: [
     'org.manage',
@@ -176,6 +182,9 @@ export const ROLE_PERMISSIONS: Record<OrgRole, Permission[]> = {
     'integrations.view',
     'plugins.manage',
     'plugins.view',
+    'skills.create',
+    'skills.install',
+    'skills.share',
   ],
   manager: [
     'org.view',
@@ -1308,6 +1317,21 @@ export type KernelCommand =
   | { type: 'openclaw.removeImport'; id: string; skillId: string }
   | { type: 'openclaw.getInstructions'; id: string; skillId: string }
 
+  // SkillForge commands (v0.7)
+  | { type: 'skillforge.discover'; id: string; query: string; source?: string; limit?: number }
+  | { type: 'skillforge.install'; id: string; skillId: string; source?: string }
+  | { type: 'skillforge.create'; id: string; params: SkillForgeCreateParams }
+  | {
+      type: 'skillforge.compose';
+      id: string;
+      name: string;
+      description: string;
+      steps: Array<{ skill_id: string; input_mapping?: string }>;
+    }
+  | { type: 'skillforge.remove'; id: string; skillId: string }
+  | { type: 'skillforge.rollback'; id: string; skillId: string; version: number }
+  | { type: 'skillforge.listVersions'; id: string; skillId: string }
+
   // System
   | { type: 'kernel.status'; id: string }
   | { type: 'kernel.shutdown'; id: string };
@@ -1553,6 +1577,24 @@ type KernelEventBase =
   | { type: 'openclaw.import.list'; imports: OpenClawImportResult[] }
   | { type: 'openclaw.import.removed'; skillId: string }
 
+  // SkillForge events (v0.7)
+  | { type: 'skillforge.skill.created'; skillId: string; name: string; riskLevel: SkillRiskLevel }
+  | { type: 'skillforge.skill.installed'; skillId: string; name: string; source: string }
+  | { type: 'skillforge.skill.removed'; skillId: string }
+  | { type: 'skillforge.skill.composed'; skillId: string; name: string; components: string[] }
+  | {
+      type: 'skillforge.approval.required';
+      skillId: string;
+      name: string;
+      riskLevel: SkillRiskLevel;
+      permissions: SkillPermissionManifest;
+    }
+  | { type: 'skillforge.approval.granted'; skillId: string }
+  | { type: 'skillforge.approval.denied'; skillId: string; reason: string }
+  | { type: 'skillforge.discover.results'; results: SkillForgeDiscoverResult[] }
+  | { type: 'skillforge.versions.list'; skillId: string; versions: SkillVersion[] }
+  | { type: 'skillforge.skill.rollback'; skillId: string; version: number }
+
   // System events
   | { type: 'kernel.ready'; version: string; uptime: number }
   | {
@@ -1696,6 +1738,49 @@ export interface OpenClawBatchImportResult {
   imported: OpenClawImportResult[];
   failed: Array<{ path: string; error: string }>;
   totalScanned: number;
+}
+
+// ---------------------------------------------------------------------------
+// SkillForge Types (v0.7)
+// ---------------------------------------------------------------------------
+
+export type SkillRiskLevel = 'minimal' | 'low' | 'moderate' | 'high' | 'critical';
+export type SkillForgeEnforcement = 'allow' | 'warn' | 'prompt' | 'deny';
+
+export interface SkillPermissionManifest {
+  version: 1;
+  declared_purpose: string;
+  filesystem?: string[]; // e.g. ["read:./data", "write:./output"]
+  network?: string[]; // e.g. ["api.example.com"]
+  env?: string[]; // e.g. ["API_KEY"]
+  exec?: string[]; // e.g. ["node", "python"]
+  sensitive_data?: { credentials?: boolean };
+}
+
+export interface SkillForgeCreateParams {
+  name: string;
+  description: string;
+  instructions: string;
+  tools_used?: string[];
+  test_input?: string;
+  test_expected?: string;
+  permissions?: SkillPermissionManifest;
+}
+
+export interface SkillForgeDiscoverResult {
+  skill_id: string;
+  name: string;
+  description: string;
+  source: 'local' | 'clawhub' | 'mcp';
+  installed: boolean;
+  risk_level?: SkillRiskLevel;
+}
+
+export interface SkillVersion {
+  version: number;
+  content: string;
+  created_at: number;
+  created_by: string;
 }
 
 // ---------------------------------------------------------------------------

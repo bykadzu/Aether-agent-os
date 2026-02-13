@@ -115,6 +115,14 @@ export const OPENCLAW_DEFAULT_AUTHOR = 'OpenClaw Community';
 export const OPENCLAW_DEFAULT_VERSION = '1.0.0';
 export const OPENCLAW_MAX_SKILLS = 100; // Max imported skills
 
+// SkillForge — Agent Self-Modification (v0.7)
+export const SKILLFORGE_MAX_SKILLS_PER_AGENT = 20;
+export const SKILLFORGE_MAX_CREATES_PER_HOUR = 5;
+export const SKILLFORGE_SANDBOX_TIMEOUT = 30_000; // 30s per sandbox test
+export const SKILLFORGE_MAX_RETRIES = 3; // Iterative refinement attempts
+export const SKILLFORGE_DEFAULT_ENFORCEMENT: 'allow' | 'warn' | 'prompt' | 'deny' = 'warn';
+export const SKILLFORGE_SKILL_ID_PREFIX = 'forge-';
+
 // Event deduplication
 export function createEventId(): string {
   return `${Date.now()}-${crypto.randomUUID()}`;
