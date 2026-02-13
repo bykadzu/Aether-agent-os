@@ -1871,6 +1871,90 @@ export function createV1Router(
     return false;
   }
 
+  // ----- OpenClaw Skills (v0.6) -----
+
+  async function handleOpenClaw(
+    req: IncomingMessage,
+    res: ServerResponse,
+    url: URL,
+    _user: UserInfo,
+  ): Promise<boolean> {
+    const method = req.method || 'GET';
+    const pathname = url.pathname;
+
+    // GET /api/v1/openclaw/skills — List imported OpenClaw skills
+    if (pathname === '/api/v1/openclaw/skills' && method === 'GET') {
+      const skills = kernel.openClaw.listImported();
+      jsonOk(res, skills);
+      return true;
+    }
+
+    // POST /api/v1/openclaw/import — Import a single SKILL.md
+    if (pathname === '/api/v1/openclaw/import' && method === 'POST') {
+      try {
+        const body = await readBody(req);
+        const { path: skillPath } = JSON.parse(body);
+        if (!skillPath) {
+          jsonError(res, 400, 'INVALID_INPUT', 'path is required');
+          return true;
+        }
+        const result = await kernel.openClaw.importSkill(skillPath);
+        jsonOk(res, result, 201);
+      } catch (err: any) {
+        jsonError(res, 400, 'IMPORT_ERROR', err.message);
+      }
+      return true;
+    }
+
+    // POST /api/v1/openclaw/import-directory — Batch import from directory
+    if (pathname === '/api/v1/openclaw/import-directory' && method === 'POST') {
+      try {
+        const body = await readBody(req);
+        const { dirPath } = JSON.parse(body);
+        if (!dirPath) {
+          jsonError(res, 400, 'INVALID_INPUT', 'dirPath is required');
+          return true;
+        }
+        const result = await kernel.openClaw.importDirectory(dirPath);
+        jsonOk(res, result);
+      } catch (err: any) {
+        jsonError(res, 400, 'IMPORT_ERROR', err.message);
+      }
+      return true;
+    }
+
+    // GET /api/v1/openclaw/skills/:skillId/instructions — Get skill instructions
+    let params = matchRoute(
+      pathname,
+      method,
+      'GET',
+      '/api/v1/openclaw/skills/:skillId/instructions',
+    );
+    if (params) {
+      const instructions = kernel.openClaw.getInstructions(params.skillId);
+      if (instructions !== undefined) {
+        jsonOk(res, { skillId: params.skillId, instructions });
+      } else {
+        jsonError(res, 404, 'NOT_FOUND', `Skill ${params.skillId} not found`);
+      }
+      return true;
+    }
+
+    // DELETE /api/v1/openclaw/skills/:skillId — Remove imported skill
+    params = matchRoute(pathname, method, 'DELETE', '/api/v1/openclaw/skills/:skillId');
+    if (params) {
+      const removed = kernel.openClaw.removeImport(params.skillId);
+      if (removed) {
+        jsonOk(res, { deleted: true });
+      } else {
+        jsonError(res, 404, 'NOT_FOUND', `Skill ${params.skillId} not found`);
+      }
+      return true;
+    }
+
+    return false;
+  }
+
   // ----- Main handler -----
 
   // ----- Tools (v0.5 Phase 4 — Tool Compatibility Layer) -----
@@ -1961,6 +2045,7 @@ export function createV1Router(
     if (await handleWebhookDlq(req, res, url, user)) return true;
     if (await handleTools(req, res, url, user)) return true;
     if (await handleMCP(req, res, url, user)) return true;
+    if (await handleOpenClaw(req, res, url, user)) return true;
 
     return false;
   };

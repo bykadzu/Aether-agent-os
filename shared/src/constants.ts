@@ -99,6 +99,22 @@ export const RATE_LIMIT_REQUESTS_PER_MIN = 120; // Authenticated users
 export const RATE_LIMIT_REQUESTS_UNAUTH_PER_MIN = 30; // Unauthenticated users
 export const RATE_LIMIT_AGENT_TOOLS_PER_MIN = 60; // Per-agent tool executions
 
+// MCP (Model Context Protocol) — v0.6
+export const MCP_TOOL_CALL_TIMEOUT = 30_000; // 30 seconds per MCP tool call
+export const MCP_CONNECT_TIMEOUT = 15_000; // 15 seconds to establish connection
+export const MCP_RECONNECT_DELAY = 5_000; // Delay before reconnect attempt
+export const MCP_MAX_RECONNECT_ATTEMPTS = 5;
+export const MCP_PING_INTERVAL = 30_000; // Keepalive ping interval
+export const MCP_MAX_TOOLS_PER_AGENT = 50; // Limit agent tool list to prevent LLM degradation
+export const MCP_MAX_SERVERS = 10; // Max concurrent MCP server connections
+
+// OpenClaw Skill Adapter — v0.6
+export const OPENCLAW_SKILL_ID_PREFIX = 'openclaw-skill-';
+export const OPENCLAW_DEFAULT_CATEGORY = 'tools';
+export const OPENCLAW_DEFAULT_AUTHOR = 'OpenClaw Community';
+export const OPENCLAW_DEFAULT_VERSION = '1.0.0';
+export const OPENCLAW_MAX_SKILLS = 100; // Max imported skills
+
 // Event deduplication
 export function createEventId(): string {
   return `${Date.now()}-${crypto.randomUUID()}`;

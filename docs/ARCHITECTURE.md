@@ -1,6 +1,6 @@
 # Aether OS Architecture
 
-> Last updated: 2026-02-13 (comprehensive deep-dive, post-v0.5)
+> Last updated: 2026-02-13 (comprehensive deep-dive, post-v0.6 MCP + OpenClaw)
 
 ---
 
@@ -22,7 +22,7 @@
 
 ## System Overview
 
-Aether OS is a three-tier agent operating system: a **React PWA desktop UI**, a **WebSocket/HTTP transport server**, and a **kernel** with 26 subsystems that orchestrate agent execution, memory, containers, and persistence.
+Aether OS is a three-tier agent operating system: a **React PWA desktop UI**, a **WebSocket/HTTP transport server**, and a **kernel** with 28 subsystems that orchestrate agent execution, memory, containers, and persistence.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -43,13 +43,13 @@ Aether OS is a three-tier agent operating system: a **React PWA desktop UI**, a 
 ┌──────────────────────────────┼──────────────────────────────────────┐
 │                        SERVER / TRANSPORT                            │
 │                                                                     │
-│   REST API: /api/v1/* (53 endpoints, OpenAPI spec)                 │
+│   REST API: /api/v1/* (58+ endpoints, OpenAPI spec)                 │
 │   Static: /manifest.json, /sw.js, /icons/*                         │
 │   Metrics: /metrics (Prometheus), /health                          │
 │   WebSocket: /kernel (UI <-> kernel), /cluster (node <-> hub)      │
 │                                                                     │
 ├─────────────────────────────────────────────────────────────────────┤
-│                        KERNEL (26 subsystems)                       │
+│                        KERNEL (28 subsystems)                       │
 │                                                                     │
 │   CORE                          INTELLIGENCE                        │
 │   ┌────────────────┐            ┌──────────────────┐                │
@@ -83,6 +83,13 @@ Aether OS is a three-tier agent operating system: a **React PWA desktop UI**, a 
 │   │ (retry + DLQ)  │            └──────────────────┘                │
 │   └────────────────┘                                                │
 │                                                                     │
+│   INTEROPERABILITY                                                  │
+│   ┌────────────────┐  ┌──────────────────┐                          │
+│   │ MCPManager     │  │ OpenClawAdapter  │                          │
+│   │ (MCP client,   │  │ (SKILL.md import │                          │
+│   │  tool bridge)  │  │  + dep check)    │                          │
+│   └────────────────┘  └──────────────────┘                          │
+│                                                                     │
 │   INFRASTRUCTURE                                                    │
 │   ┌────────────────┐  ┌────────────┐  ┌──────────────────────┐     │
 │   │ ClusterManager │  │ CronManager│  │  RemoteAccessManager │     │
@@ -112,8 +119,8 @@ Aether OS is a three-tier agent operating system: a **React PWA desktop UI**, a 
 ├─────────────────────────────────────────────────────────────────────┤
 │                     SHARED PROTOCOL                                 │
 │                                                                     │
-│   100+ command types (UI -> Kernel)                                │
-│   80+ event types   (Kernel -> UI)                                 │
+│   110+ command types (UI -> Kernel)                                │
+│   90+ event types   (Kernel -> UI)                                 │
 │   Discriminated unions -- fully typed, no guessing                 │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -122,12 +129,12 @@ Aether OS is a three-tier agent operating system: a **React PWA desktop UI**, a 
 
 ## Kernel Subsystems
 
-The kernel (`kernel/src/Kernel.ts`) is the central orchestrator. It instantiates all 26 subsystems in its constructor and wires them via dependency injection. The `boot()` method initializes subsystems in order; `shutdown()` tears them down in reverse. The `handleCommand(cmd, user)` method dispatches ~100 command types as a giant discriminated-union switch.
+The kernel (`kernel/src/Kernel.ts`) is the central orchestrator. It instantiates all 28 subsystems in its constructor and wires them via dependency injection. The `boot()` method initializes subsystems in order; `shutdown()` tears them down in reverse. The `handleCommand(cmd, user)` method dispatches ~110 command types as a giant discriminated-union switch.
 
 ### EventBus
 
 **File:** `kernel/src/EventBus.ts`
-**Purpose:** Central pub/sub nervous system. All 26 subsystems communicate through typed events on this bus, not direct calls.
+**Purpose:** Central pub/sub nervous system. All 28 subsystems communicate through typed events on this bus, not direct calls.
 
 | Method | Description |
 |--------|-------------|
@@ -295,6 +302,8 @@ The kernel (`kernel/src/Kernel.ts`) is the central orchestrator. It instantiates
 | **TemplateManager** | Agent template marketplace. Preconfigured roles with suggested goals, categories, ratings. |
 | **SkillManager** | YAML declarative skill definitions for agents. |
 | **RemoteAccessManager** | SSH tunnel and Tailscale VPN setup for remote agent access. |
+| **MCPManager** | Model Context Protocol client. Connects to external MCP servers (stdio/SSE), discovers tools, bridges tool calls. 27th subsystem (v0.6). |
+| **OpenClawAdapter** | Imports OpenClaw SKILL.md files. Parses frontmatter, validates dependencies (bins, env, OS), maps to PluginRegistryManifest. 28th subsystem (v0.6). |
 
 ---
 
@@ -627,7 +636,7 @@ All messages are JSON with a `type` discriminator field:
 { type: 'browser.navigate', sessionId: string, url: string }
 { type: 'memory.store', request: MemoryStoreRequest }
 { type: 'memory.recall', query: MemoryQuery }
-// ... ~100 total command types
+// ... ~110 total command types
 ```
 
 **Events (Kernel -> UI):**
@@ -639,7 +648,7 @@ All messages are JSON with a `type` discriminator field:
 { type: 'agent.action', pid: number, tool: string, args: any }
 { type: 'browser:screenshot', sessionId: string, data: string }
 { type: 'memory.stored', memoryId: string }
-// ... ~80 total event types
+// ... ~90 total event types
 ```
 
 ### Command Categories
@@ -658,6 +667,8 @@ All messages are JSON with a `type` discriminator field:
 | Plugins | install, list, enable, disable, marketplace browse | ~6 |
 | System | stats, health, metrics, snapshot, restore | ~8 |
 | Org/Team | create, invite, remove, listMembers, updateRole | ~10 |
+| MCP | addServer, connect, disconnect, listTools, callTool | ~8 |
+| OpenClaw | importSkill, importDirectory, listImported, removeImport, getInstructions | ~5 |
 
 ### Batching
 
@@ -726,6 +737,11 @@ All kernel state is persisted in `~/.aether/state.db` using `better-sqlite3` (sy
 │ installed_apps     -- Desktop app installations      │
 │ template_marketplace -- Agent template catalog       │
 │ template_ratings   -- Template reviews               │
+├─────────────────────────────────────────────────────┤
+│             INTEROPERABILITY TABLES (v0.6)            │
+├─────────────────────────────────────────────────────┤
+│ mcp_servers        -- MCP server configs + status    │
+│ openclaw_imports   -- Imported OpenClaw skills        │
 ├─────────────────────────────────────────────────────┤
 │                 SYSTEM TABLES                        │
 ├─────────────────────────────────────────────────────┤
@@ -917,7 +933,7 @@ Each agent has a persistent profile tracking:
 |----------|-----------|
 | **TypeScript everywhere** | Single type system from UI to kernel. Protocol changes caught at compile time. |
 | **Discriminated unions for protocol** | Every message has a `type` field. Exhaustive switch matching, no ambiguity. |
-| **Event-driven kernel** | Loose coupling -- 26 subsystems communicate via EventBus, not direct calls. |
+| **Event-driven kernel** | Loose coupling -- 28 subsystems communicate via EventBus, not direct calls. |
 | **SQLite (not Postgres)** | Zero config, embedded, synchronous reads. Scales to 100+ agents on single node. |
 | **Real filesystem at ~/.aether** | Agents use standard file I/O. Survives reboots. Can inspect from host. |
 | **node-pty for terminals** | Real terminal emulation -- ANSI colors, cursor, interactive programs. |
@@ -940,10 +956,10 @@ Aether_Agent_OS/
 │
 ├── shared/                  # Shared types and protocol
 │   └── src/
-│       ├── protocol.ts      # ALL message types (100+ commands, 80+ events)
+│       ├── protocol.ts      # ALL message types (110+ commands, 90+ events)
 │       └── constants.ts     # Version, ports, limits, intervals
 │
-├── kernel/                  # The OS kernel (26 subsystems)
+├── kernel/                  # The OS kernel (28 subsystems)
 │   └── src/
 │       ├── Kernel.ts            # Orchestrator -- boots and wires everything
 │       ├── EventBus.ts          # Typed event pub/sub (dedup, wildcard)
@@ -972,6 +988,8 @@ Aether_Agent_OS/
 │       ├── ModelRouter.ts            # Smart model routing (flash/standard/frontier)
 │       ├── MetricsExporter.ts        # Prometheus metrics at /metrics
 │       ├── ToolCompatLayer.ts        # LangChain/OpenAI tool import/export
+│       ├── MCPManager.ts            # MCP protocol client (stdio/SSE transports)
+│       ├── OpenClawAdapter.ts       # OpenClaw SKILL.md import adapter
 │       └── __tests__/               # Unit tests
 │
 ├── runtime/                 # Agent execution engine
@@ -995,7 +1013,7 @@ Aether_Agent_OS/
 ├── server/                  # HTTP + WebSocket transport
 │   └── src/
 │       ├── index.ts         # Boots kernel, TLS, rate limiting, WS handler
-│       ├── routes/v1.ts     # REST API v1 (53 endpoints)
+│       ├── routes/v1.ts     # REST API v1 (58+ endpoints)
 │       └── openapi.ts       # OpenAPI 3.0 spec generator
 │
 ├── components/              # React UI (PWA)
@@ -1021,7 +1039,8 @@ Aether_Agent_OS/
 │       ├── WriterApp.tsx           # Markdown writer
 │       ├── MemoryInspectorApp.tsx  # Agent memory browser
 │       ├── SystemMonitorApp.tsx    # Real-time metrics
-│       └── SettingsApp.tsx         # Settings, orgs, automation
+│       ├── SettingsApp.tsx         # Settings, orgs, automation, MCP
+│       └── OpenClawImporter.tsx   # OpenClaw SKILL.md import UI
 │
 ├── services/                # Frontend services
 │   ├── kernelClient.ts      # WebSocket client (session dedup, batching)
@@ -1069,6 +1088,7 @@ Aether_Agent_OS/
 | v0.3 | Intelligence | 4-layer memory, planning, reflection, vision, collaboration |
 | v0.4 | Ecosystem | REST API, webhooks, Slack/GitHub/S3/Discord, plugin marketplace, CLI, SDK |
 | v0.5 | Production | Resource governance, audit logging, Prometheus, TLS, MFA, Helm, RBAC, PWA, LangChain compat |
+| v0.6 | Interoperability | MCP protocol client (stdio/SSE), OpenClaw SKILL.md adapter, tool bridging, 28 subsystems |
 
 ---
 
