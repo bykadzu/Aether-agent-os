@@ -271,6 +271,60 @@ export function createV1Router(
       return true;
     }
 
+    // POST /api/v1/agents/:pid/pause — Pause agent for human takeover
+    params = matchRoute(pathname, method, 'POST', '/api/v1/agents/:pid/pause');
+    if (params) {
+      const pid = parseInt(params.pid, 10);
+      if (isNaN(pid)) {
+        jsonError(res, 400, 'INVALID_INPUT', 'pid must be a number');
+        return true;
+      }
+      const proc = kernel.processes.get(pid);
+      if (!proc) {
+        jsonError(res, 404, 'NOT_FOUND', `Process ${pid} not found`);
+        return true;
+      }
+      const ok = kernel.processes.pause(pid);
+      if (ok) {
+        jsonOk(res, { pid, state: 'paused' });
+      } else {
+        jsonError(
+          res,
+          409,
+          'INVALID_STATE',
+          `Process ${pid} cannot be paused (state: ${proc.info.state})`,
+        );
+      }
+      return true;
+    }
+
+    // POST /api/v1/agents/:pid/resume — Resume a paused agent
+    params = matchRoute(pathname, method, 'POST', '/api/v1/agents/:pid/resume');
+    if (params) {
+      const pid = parseInt(params.pid, 10);
+      if (isNaN(pid)) {
+        jsonError(res, 400, 'INVALID_INPUT', 'pid must be a number');
+        return true;
+      }
+      const proc = kernel.processes.get(pid);
+      if (!proc) {
+        jsonError(res, 404, 'NOT_FOUND', `Process ${pid} not found`);
+        return true;
+      }
+      const ok = kernel.processes.resume(pid);
+      if (ok) {
+        jsonOk(res, { pid, state: 'running' });
+      } else {
+        jsonError(
+          res,
+          409,
+          'INVALID_STATE',
+          `Process ${pid} is not paused (state: ${proc.info.state})`,
+        );
+      }
+      return true;
+    }
+
     // POST /api/v1/agents/:uid/message — Send message to agent
     params = matchRoute(pathname, method, 'POST', '/api/v1/agents/:uid/message');
     if (params) {

@@ -21,6 +21,7 @@ interface VNCViewerProps {
   width?: number;
   height?: number;
   scale?: number;
+  viewOnly?: boolean;
   onConnect?: () => void;
   onDisconnect?: () => void;
   onResize?: (width: number, height: number) => void;
@@ -40,7 +41,10 @@ export interface VNCViewerHandle {
  * The noVNC library is loaded dynamically from node_modules or CDN.
  */
 export const VNCViewer = forwardRef<VNCViewerHandle, VNCViewerProps>(
-  ({ wsUrl, width, height, scale = 1, onConnect, onDisconnect, onResize }, ref) => {
+  (
+    { wsUrl, width, height, scale = 1, viewOnly = true, onConnect, onDisconnect, onResize },
+    ref,
+  ) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const rfbRef = useRef<any>(null);
     const [status, setStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'error'>(
@@ -94,8 +98,9 @@ export const VNCViewer = forwardRef<VNCViewerHandle, VNCViewerProps>(
             rfb = new RFB(containerRef.current, wsUrl, {
               scaleViewport: true,
               resizeSession: false,
-              showDotCursor: true,
+              showDotCursor: !viewOnly,
             });
+            rfb.viewOnly = viewOnly;
 
             // Apply initial quality preset
             const settings = QUALITY_PRESETS[quality];
@@ -185,6 +190,14 @@ export const VNCViewer = forwardRef<VNCViewerHandle, VNCViewerProps>(
         rfbRef.current = null;
       };
     }, [wsUrl]);
+
+    // Toggle viewOnly on the live RFB instance when prop changes
+    useEffect(() => {
+      const rfb = rfbRef.current;
+      if (!rfb) return;
+      rfb.viewOnly = viewOnly;
+      rfb.showDotCursor = !viewOnly;
+    }, [viewOnly]);
 
     // Handle resize with ResizeObserver and debounce
     useEffect(() => {

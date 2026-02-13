@@ -194,8 +194,8 @@ export async function runAgentLoop(
       return;
     }
 
-    // If stopped, wait
-    if (currentProc.info.state === 'stopped') {
+    // If stopped or paused, wait
+    if (currentProc.info.state === 'stopped' || currentProc.info.state === 'paused') {
       await sleep(1000);
       continue;
     }
@@ -394,7 +394,7 @@ export async function runAgentLoop(
       const currentProc = kernel.processes.get(pid);
       if (!currentProc || currentProc.info.state === 'zombie' || currentProc.info.state === 'dead')
         break;
-      if (currentProc.info.state === 'stopped') {
+      if (currentProc.info.state === 'stopped' || currentProc.info.state === 'paused') {
         await sleep(1000);
         continue;
       }

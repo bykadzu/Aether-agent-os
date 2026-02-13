@@ -243,7 +243,7 @@ export class ProcessManager {
         return true;
 
       case 'SIGCONT':
-        if (proc.info.state === 'stopped') {
+        if (proc.info.state === 'stopped' || proc.info.state === 'paused') {
           this.setState(pid, 'running');
         }
         return true;
@@ -287,6 +287,36 @@ export class ProcessManager {
 
     // Auto-reap after delay
     setTimeout(() => this.reap(pid), 2000);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Pause / Resume (Agent Takeover)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Pause an agent so a human can take over its desktop.
+   * The agent loop will spin-wait until resumed.
+   */
+  pause(pid: PID): boolean {
+    const proc = this.processes.get(pid);
+    if (!proc) return false;
+    if (proc.info.state !== 'running' && proc.info.state !== 'sleeping') return false;
+
+    this.setState(pid, 'paused');
+    this.bus.emit('agent.paused', { pid });
+    return true;
+  }
+
+  /**
+   * Resume a paused agent, returning control from the human.
+   */
+  resume(pid: PID): boolean {
+    const proc = this.processes.get(pid);
+    if (!proc || proc.info.state !== 'paused') return false;
+
+    this.setState(pid, 'running', 'thinking');
+    this.bus.emit('agent.resumed', { pid });
+    return true;
   }
 
   // ---------------------------------------------------------------------------
@@ -383,6 +413,7 @@ export class ProcessManager {
       running: 0,
       sleeping: 0,
       stopped: 0,
+      paused: 0,
       zombie: 0,
       dead: 0,
     };

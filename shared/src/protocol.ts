@@ -41,6 +41,7 @@ export type ProcessState =
   | 'running' // Actively executing
   | 'sleeping' // Waiting for I/O or event
   | 'stopped' // Paused by signal (SIGSTOP)
+  | 'paused' // Agent paused for human takeover
   | 'zombie' // Terminated but not yet reaped
   | 'dead'; // Fully cleaned up
 
@@ -1319,6 +1320,8 @@ type KernelEventBase =
   | { type: 'agent.progress'; pid: PID; step: number; maxSteps: number; summary: string }
   | { type: 'agent.file_created'; pid: PID; path: string; content: string }
   | { type: 'agent.browsing'; pid: PID; url: string; summary?: string }
+  | { type: 'agent.paused'; pid: PID }
+  | { type: 'agent.resumed'; pid: PID }
 
   // IPC events
   | { type: 'ipc.message'; message: IPCMessage }

@@ -238,8 +238,16 @@ describe('Protocol', () => {
 
   describe('Type assertions', () => {
     it('ProcessState values are valid', () => {
-      const states: ProcessState[] = ['created', 'running', 'sleeping', 'stopped', 'zombie', 'dead'];
-      expect(states).toHaveLength(6);
+      const states: ProcessState[] = [
+        'created',
+        'running',
+        'sleeping',
+        'stopped',
+        'paused',
+        'zombie',
+        'dead',
+      ];
+      expect(states).toHaveLength(7);
     });
 
     it('AgentPhase values are valid', () => {
