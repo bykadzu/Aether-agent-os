@@ -1194,6 +1194,293 @@ export function getToolsForAgent(pid: PID, pluginManager?: PluginManager): ToolD
 }
 
 // ---------------------------------------------------------------------------
+// Tool Parameter Schemas — sent to the LLM so it knows exact argument shapes
+// ---------------------------------------------------------------------------
+
+export const TOOL_SCHEMAS: Record<
+  string,
+  { type: string; properties: Record<string, any>; required?: string[] }
+> = {
+  read_file: {
+    type: 'object',
+    properties: {
+      path: { type: 'string', description: 'File path to read' },
+    },
+    required: ['path'],
+  },
+  write_file: {
+    type: 'object',
+    properties: {
+      path: { type: 'string', description: 'File path to write to' },
+      content: { type: 'string', description: 'Content to write' },
+    },
+    required: ['path', 'content'],
+  },
+  list_files: {
+    type: 'object',
+    properties: {
+      path: { type: 'string', description: 'Directory path to list (default: current dir)' },
+    },
+  },
+  mkdir: {
+    type: 'object',
+    properties: {
+      path: { type: 'string', description: 'Directory path to create' },
+    },
+    required: ['path'],
+  },
+  rm: {
+    type: 'object',
+    properties: {
+      path: { type: 'string', description: 'File or directory path to remove' },
+    },
+    required: ['path'],
+  },
+  stat: {
+    type: 'object',
+    properties: {
+      path: { type: 'string', description: 'File or directory path to inspect' },
+    },
+    required: ['path'],
+  },
+  mv: {
+    type: 'object',
+    properties: {
+      source: { type: 'string', description: 'Source path' },
+      destination: { type: 'string', description: 'Destination path' },
+    },
+    required: ['source', 'destination'],
+  },
+  cp: {
+    type: 'object',
+    properties: {
+      source: { type: 'string', description: 'Source path' },
+      destination: { type: 'string', description: 'Destination path' },
+    },
+    required: ['source', 'destination'],
+  },
+  run_command: {
+    type: 'object',
+    properties: {
+      command: { type: 'string', description: 'Shell command to execute' },
+      timeout: { type: 'number', description: 'Timeout in seconds (optional)' },
+    },
+    required: ['command'],
+  },
+  browse_web: {
+    type: 'object',
+    properties: {
+      url: {
+        type: 'string',
+        description:
+          'URL to browse. For search use: https://lite.duckduckgo.com/lite/?q=your+search+terms',
+      },
+    },
+    required: ['url'],
+  },
+  screenshot_page: {
+    type: 'object',
+    properties: {
+      url: { type: 'string', description: 'URL to navigate to before screenshot (optional)' },
+    },
+  },
+  click_element: {
+    type: 'object',
+    properties: {
+      text: { type: 'string', description: 'Click element by visible text label' },
+      css: { type: 'string', description: 'Click element by CSS selector' },
+      xpath: { type: 'string', description: 'Click element by XPath' },
+      x: { type: 'number', description: 'Click at x coordinate' },
+      y: { type: 'number', description: 'Click at y coordinate' },
+      button: { type: 'string', description: 'Mouse button: left or right (default: left)' },
+    },
+  },
+  type_text: {
+    type: 'object',
+    properties: {
+      text: { type: 'string', description: 'Text to type into focused element' },
+      key: { type: 'string', description: 'Single key to press (e.g. Enter, Tab, Escape)' },
+    },
+  },
+  list_agents: {
+    type: 'object',
+    properties: {},
+  },
+  send_message: {
+    type: 'object',
+    properties: {
+      pid: { type: 'number', description: 'Target agent PID' },
+      message: { type: 'string', description: 'Message content to send' },
+      channel: { type: 'string', description: 'Message channel (default: "default")' },
+    },
+    required: ['pid', 'message'],
+  },
+  check_messages: {
+    type: 'object',
+    properties: {},
+  },
+  request_review: {
+    type: 'object',
+    properties: {
+      pid: { type: 'number', description: 'Target agent PID' },
+      subject: { type: 'string', description: 'Review subject' },
+      content: { type: 'string', description: 'Content to review' },
+      context: { type: 'string', description: 'Additional context (optional)' },
+      urgency: { type: 'string', description: 'low, medium, or high (default: medium)' },
+    },
+    required: ['pid', 'subject', 'content'],
+  },
+  respond_to_review: {
+    type: 'object',
+    properties: {
+      pid: { type: 'number', description: 'Requester agent PID' },
+      correlation_id: { type: 'string', description: 'Review request correlation ID' },
+      approved: { type: 'boolean', description: 'Whether the review is approved' },
+      feedback: { type: 'string', description: 'Feedback text' },
+      suggestions: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Suggested changes (optional)',
+      },
+    },
+    required: ['pid', 'correlation_id', 'approved', 'feedback'],
+  },
+  delegate_task: {
+    type: 'object',
+    properties: {
+      pid: { type: 'number', description: 'Target agent PID' },
+      goal: { type: 'string', description: 'Task goal to delegate' },
+      context: { type: 'string', description: 'Context for the task (optional)' },
+      priority: { type: 'string', description: 'low, medium, or high (default: medium)' },
+    },
+    required: ['pid', 'goal'],
+  },
+  share_knowledge: {
+    type: 'object',
+    properties: {
+      pid: { type: 'number', description: 'Target agent PID' },
+      topic: { type: 'string', description: 'Knowledge topic' },
+      content: { type: 'string', description: 'Knowledge content' },
+      layer: {
+        type: 'string',
+        description: 'Memory layer: episodic, semantic, procedural, or social (default: semantic)',
+      },
+      tags: { type: 'array', items: { type: 'string' }, description: 'Tags (optional)' },
+    },
+    required: ['pid', 'topic', 'content'],
+  },
+  create_shared_workspace: {
+    type: 'object',
+    properties: {
+      name: { type: 'string', description: 'Workspace name' },
+    },
+    required: ['name'],
+  },
+  mount_workspace: {
+    type: 'object',
+    properties: {
+      name: { type: 'string', description: 'Workspace name to mount' },
+      mount_point: { type: 'string', description: 'Mount point path (optional)' },
+    },
+    required: ['name'],
+  },
+  list_workspaces: {
+    type: 'object',
+    properties: {},
+  },
+  remember: {
+    type: 'object',
+    properties: {
+      content: { type: 'string', description: 'Memory content to store' },
+      layer: {
+        type: 'string',
+        description: 'Memory layer: episodic, semantic, procedural, or social (default: episodic)',
+      },
+      tags: { type: 'array', items: { type: 'string' }, description: 'Tags (optional)' },
+      importance: { type: 'number', description: 'Importance score 0-1 (default: 0.5)' },
+    },
+    required: ['content'],
+  },
+  recall: {
+    type: 'object',
+    properties: {
+      query: { type: 'string', description: 'Search query for memories' },
+      layer: { type: 'string', description: 'Filter by memory layer (optional)' },
+      tags: { type: 'array', items: { type: 'string' }, description: 'Filter by tags (optional)' },
+      limit: { type: 'number', description: 'Max results (default: 10)' },
+    },
+  },
+  forget: {
+    type: 'object',
+    properties: {
+      memoryId: { type: 'string', description: 'ID of memory to delete' },
+    },
+    required: ['memoryId'],
+  },
+  analyze_image: {
+    type: 'object',
+    properties: {
+      image_base64: { type: 'string', description: 'Base64 encoded image data' },
+      prompt: { type: 'string', description: 'What to analyze (optional)' },
+      screenshot: {
+        type: 'boolean',
+        description: 'Take browser screenshot instead of using image_base64 (optional)',
+      },
+    },
+  },
+  create_plan: {
+    type: 'object',
+    properties: {
+      goal: { type: 'string', description: 'Plan goal' },
+      nodes: {
+        type: 'array',
+        description: 'Plan nodes with title, description, estimated_steps, children',
+        items: {
+          type: 'object',
+          properties: {
+            title: { type: 'string' },
+            description: { type: 'string' },
+            estimated_steps: { type: 'number' },
+          },
+        },
+      },
+    },
+    required: ['goal', 'nodes'],
+  },
+  update_plan: {
+    type: 'object',
+    properties: {
+      node_id: { type: 'string', description: 'Plan node ID to update' },
+      status: {
+        type: 'string',
+        description: 'New status: pending, active, completed, failed, or skipped',
+      },
+      actual_steps: { type: 'number', description: 'Actual steps taken (optional)' },
+    },
+    required: ['node_id', 'status'],
+  },
+  get_feedback: {
+    type: 'object',
+    properties: {
+      limit: { type: 'number', description: 'Max feedback entries to return (default: 20)' },
+    },
+  },
+  think: {
+    type: 'object',
+    properties: {
+      thought: { type: 'string', description: 'Your thought or reasoning' },
+    },
+    required: ['thought'],
+  },
+  complete: {
+    type: 'object',
+    properties: {
+      summary: { type: 'string', description: 'Summary of what was accomplished' },
+    },
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 

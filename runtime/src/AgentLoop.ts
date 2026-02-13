@@ -33,6 +33,7 @@ import {
   ToolDefinition,
   ToolResult,
   ToolContext,
+  TOOL_SCHEMAS,
 } from './tools.js';
 import { getProviderFromModelString, getProvider, GeminiProvider } from './llm/index.js';
 import type { LLMProvider, ChatMessage, ToolDefinition as LLMToolDef } from './llm/index.js';
@@ -697,11 +698,11 @@ async function getNextAction(
         content: `Step ${state.step + 1}/${state.maxSteps}. What tool should you use next?`,
       });
 
-      // Convert tool definitions to LLM format
+      // Convert tool definitions to LLM format with proper parameter schemas
       const llmTools: LLMToolDef[] = tools.map((t) => ({
         name: t.name,
         description: t.description,
-        parameters: {
+        parameters: TOOL_SCHEMAS[t.name] || {
           type: 'object',
           properties: {},
         },
