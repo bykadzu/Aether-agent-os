@@ -83,12 +83,23 @@ export class AgentSubprocess {
     const { command, args, env } = this.buildCommand(pid, runtime, config, workDir);
 
     // 4. Spawn the process
-    const child = spawn(command, args, {
+    // On Windows, .cmd scripts (like claude.cmd) need shell: true.
+    // To avoid DEP0190 (unescaped args with shell: true), we build a single
+    // command string with properly quoted args instead of passing an args array.
+    const isWin = process.platform === 'win32';
+    const quotedArgs = args.map((a) => (a.includes(' ') ? `"${a}"` : a));
+    const spawnCmd = isWin ? `${command} ${quotedArgs.join(' ')}` : command;
+    const spawnArgs = isWin ? [] : args;
+    const child = spawn(spawnCmd, spawnArgs, {
       cwd: workDir,
       env: { ...process.env, ...env },
       stdio: ['pipe', 'pipe', 'pipe'],
-      shell: process.platform === 'win32',
+      shell: isWin,
     });
+
+    console.log(
+      `[AgentSubprocess] Spawning PID ${pid}: ${spawnCmd} ${spawnArgs.join(' ')} (cwd: ${workDir})`,
+    );
 
     const info: SubprocessInfo = {
       pid,
@@ -126,6 +137,12 @@ export class AgentSubprocess {
 
     // 7. Handle exit
     child.on('exit', (code, signal) => {
+      console.log(
+        `[AgentSubprocess] PID ${pid} exited: code=${code} signal=${signal} (ran ${Math.round((Date.now() - info.startedAt) / 1000)}s)`,
+      );
+      if (info.errorBuffer) {
+        console.error(`[AgentSubprocess] PID ${pid} stderr: ${info.errorBuffer.slice(0, 500)}`);
+      }
       this.bus.emit('subprocess.exited', {
         pid,
         code: code ?? null,
@@ -135,6 +152,7 @@ export class AgentSubprocess {
     });
 
     child.on('error', (err) => {
+      console.error(`[AgentSubprocess] PID ${pid} spawn error: ${err.message}`);
       this.bus.emit('subprocess.output', {
         pid,
         stream: 'stderr',

@@ -1645,6 +1645,11 @@ const BROADCAST_EVENTS = [
   'agent.resumed',
   'agent.injectionBlocked',
   'agent.completed',
+  'agent.log',
+  // External subprocess events (Claude Code, OpenClaw)
+  'subprocess.output',
+  'subprocess.started',
+  'subprocess.exited',
   'ipc.message',
   'ipc.delivered',
   'container.created',
