@@ -41,7 +41,7 @@ Aether OS v0.5 is complete. The system has 26 kernel subsystems, 20+ desktop app
 - Ensure zombie processes get reaped reliably
 - Clean up Docker containers on kernel shutdown (handle SIGINT/SIGTERM)
 - Clean up PTY sessions when processes die
-- Add a `/tmp/aether` garbage collection routine for orphaned agent files
+- Add a `~/.aether` garbage collection routine for orphaned agent files
 
 ---
 

@@ -5,8 +5,8 @@
 
 **AI-Native Operating System for Autonomous Agents**
 
-![Version](https://img.shields.io/badge/version-v0.5-blue)
-![Status](https://img.shields.io/badge/status-Phase%204%20Complete-brightgreen)
+![Version](https://img.shields.io/badge/version-v0.5.1-blue)
+![Status](https://img.shields.io/badge/status-Production%20Ready-brightgreen)
 ![Agents](https://img.shields.io/badge/agents-100%2B%20concurrent-purple)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
@@ -28,15 +28,16 @@ A full-stack operating system that runs AI agents in isolated Docker containers 
 ### Agent Working — Live Terminal & Plan View
 ![Agent Working](agentworking1.jpeg)
 
-## Current Status (v0.5)
+## Current Status (v0.5.1)
 
 | Feature | Status |
 |---------|--------|
-| Docker Desktop Containers | Implemented |
-| VNC Human Takeover | Implemented |
-| 18+ Desktop Apps | Implemented |
+| Functional Linux Desktop (XFCE4 + Firefox) | Implemented |
+| VNC WebSocket Proxy + Human Takeover | Implemented |
+| Agent Self-Knowledge (CODEBASE.md) | Implemented |
+| 20+ Desktop Apps | Implemented |
 | Agent Memory (4-layer) | Implemented |
-| Prometheus Metrics | Implemented |
+| Prometheus Metrics + OpenTelemetry | Implemented |
 | TLS + MFA/TOTP | Implemented |
 | Helm Chart | Implemented |
 | LangChain/OpenAI Tool Compat | Implemented |
@@ -47,7 +48,7 @@ A full-stack operating system that runs AI agents in isolated Docker containers 
 
 Aether OS is a from-scratch operating system designed for AI agents to live and work in. Each agent runs as a real process with its own sandboxed filesystem, terminal session, and execution environment. Agents remember across sessions, plan hierarchically, reflect on their work, collaborate with each other, and see through vision-capable LLMs. Humans observe and interact through a Mission Control interface inspired by macOS.
 
-Unlike approaches that drop an AI into an existing Linux VM, Aether OS is built from the ground up with AI agents as first-class citizens. The kernel (20 subsystems), agent runtime (28+ tools, 4 LLM providers), and UI (23 apps) are all designed around the agent lifecycle: think, act, observe, remember, plan, reflect. The platform includes a full REST API (53 endpoints), TypeScript SDK, CLI tool, plugin marketplace, 4 external integrations (GitHub, Slack, S3, Discord), RBAC with organizations/teams, and an embeddable widget for external websites.
+Unlike approaches that drop an AI into an existing Linux VM, Aether OS is built from the ground up with AI agents as first-class citizens. The kernel (26 subsystems), agent runtime (28+ tools, 4 LLM providers), and UI (23 apps) are all designed around the agent lifecycle: think, act, observe, remember, plan, reflect. Agents have **self-knowledge** — a comprehensive CODEBASE.md is auto-seeded into every container so agents understand the system they run inside. The platform includes a full REST API (53 endpoints), TypeScript SDK, CLI tool, plugin marketplace, 4 external integrations (GitHub, Slack, S3, Discord), RBAC with organizations/teams, and an embeddable widget for external websites.
 
 ## What It Does
 
@@ -156,7 +157,7 @@ If Docker is available on the host, agent processes will automatically run insid
 │  │  signals)    │ │  aether) │ │  terms)  │ │  GPU)       │  │
 │  ├──────────────┤ ├──────────┤ ├──────────┤ ├─────────────┤  │
 │  │ VNC Manager  │ │ Snapshot │ │ Auth     │ │ Cluster     │  │
-│  │ (noVNC       │ │ Manager  │ │ Manager  │ │ Manager     │  │
+│  │ (WS→TCP      │ │ Manager  │ │ Manager  │ │ Manager     │  │
 │  │  proxy)      │ │ (ckpts)  │ │ (JWT+    │ │ (hub/spoke) │  │
 │  │              │ │          │ │  RBAC)   │ │             │  │
 │  ├──────────────┤ ├──────────┤ ├──────────┤ ├─────────────┤  │
@@ -206,7 +207,7 @@ If Docker is available on the host, agent processes will automatically run insid
 | Layer | Directory | Purpose |
 |-------|-----------|---------|
 | **Shared** | `shared/` | Typed protocol between UI and kernel. Every WebSocket message is a discriminated union. |
-| **Kernel** | `kernel/` | The OS core. 20 subsystems — processes, filesystem, terminals, containers, memory, integrations, RBAC. |
+| **Kernel** | `kernel/` | The OS core. 26 subsystems — processes, filesystem, terminals, containers, memory, integrations, RBAC, metrics, audit, model routing. |
 | **Runtime** | `runtime/` | Agent execution. Think-act-observe loop with tool use and LLM integration. |
 | **Server** | `server/` | HTTP + WebSocket transport. REST API v1 (53 endpoints), OpenAPI spec, SSE events. |
 | **SDK** | `sdk/` | TypeScript client library. 12 namespaced API groups with SSE subscription. |
@@ -419,9 +420,9 @@ The host OS itself is a full desktop environment:
 │   └── geminiService.ts         # Gemini API integration (UI-side mock mode)
 ├── kernel/
 │   └── src/
-│       ├── Kernel.ts            # Core kernel orchestrator (20 subsystems)
+│       ├── Kernel.ts            # Core kernel orchestrator (26 subsystems, CODEBASE.md seeding)
 │       ├── ProcessManager.ts    # PID allocation, signals, lifecycle
-│       ├── VirtualFS.ts         # Real filesystem at /tmp/aether
+│       ├── VirtualFS.ts         # Real filesystem at ~/.aether
 │       ├── PTYManager.ts        # Terminal sessions (node-pty or docker exec)
 │       ├── ContainerManager.ts  # Docker container sandboxing + GPU passthrough
 │       ├── VNCManager.ts        # WebSocket-to-TCP proxy for noVNC streams
@@ -578,13 +579,20 @@ The host OS itself is a full desktop environment:
 - [x] Webhook retry + DLQ, shortcut conflict detection, WebSocket session dedup
 - [x] PWA support, lazy loading
 
+**v0.5.1 — Agent Self-Knowledge & Functional Desktop:**
+- [x] Agent self-knowledge — CODEBASE.md auto-seeded to `~/.aether/shared/` on kernel boot
+- [x] VNCManager rewritten with WebSocket-to-TCP proxy (`ws` library) for proper noVNC connectivity
+- [x] Dockerfile.desktop enhanced — XFCE4, Firefox, code-server, pip packages, dev tools
+- [x] ContainerManager fixed for desktop image entrypoint handling
+- [x] App.tsx metadata parsing for graphical agent config (`[graphical:true,gpu:true]`)
+
 ## Snapshots (Agent Checkpoints)
 
 Agents can be snapshotted and restored, similar to VM checkpoints. A snapshot captures the agent's full state: process info, home directory, logs, and IPC queue.
 
 **How it works:**
 - Snapshots pause the agent (SIGSTOP), capture state + tarball the home directory, then resume (SIGCONT)
-- Stored at `/tmp/aether/var/snapshots/` as JSON metadata + `.tar.gz` filesystem archive
+- Stored at `~/.aether/var/snapshots/` as JSON metadata + `.tar.gz` filesystem archive
 - Restoring creates a new process with a new PID, extracts the saved filesystem, and carries over configuration
 
 **API (HTTP):**
@@ -600,7 +608,7 @@ Agents can be snapshotted and restored, similar to VM checkpoints. A snapshot ca
 
 ## Shared Filesystem Mounts
 
-Cooperating agents can share directories. Shared mounts live at `/tmp/aether/shared/` and are symlinked into each agent's home directory.
+Cooperating agents can share directories. Shared mounts live at `~/.aether/shared/` and are symlinked into each agent's home directory.
 
 **How it works:**
 - An agent creates a shared workspace (e.g., `project-data`)
@@ -638,26 +646,28 @@ The timeline loads historical data from `GET /api/history/logs/:pid` and subscri
 Agents can run graphical applications (browsers, IDEs, file managers) inside their Docker containers. The graphical output is streamed to the browser via VNC.
 
 **How it works:**
-- Graphical agents run Xvfb (virtual framebuffer) on display `:99` and x11vnc inside their container
-- The kernel's VNCManager creates a WebSocket-to-TCP proxy for each graphical agent
+- Graphical agents run inside the `aether-desktop:latest` container (Ubuntu 24.04 + XFCE4 + Firefox + code-server)
+- The container entrypoint starts Xvfb (virtual framebuffer on display `:99`), dbus, XFCE4 desktop, and x11vnc automatically
+- The kernel's VNCManager creates a WebSocket-to-TCP proxy (using the `ws` library) for each graphical agent
 - The UI renders the remote desktop using the noVNC RFB client in the VNCViewer component
 - When VNC is active, the VNC stream replaces the simulated windows in the agent's virtual desktop
+- When the agent is paused, VNC switches to interactive mode for human takeover
 
 **Requirements:**
 - Docker must be available on the host
-- The container image must include `Xvfb`, `x11vnc`, and basic X11 utilities
-- Use `aether-desktop:latest` or provide a custom image with `sandbox.image`
-- Install noVNC in the frontend: `npm install @novnc/novnc`
+- Build the desktop image: `docker build -f Dockerfile.desktop -t aether-desktop:latest .`
+- Or provide a custom image with `sandbox.image` (must include Xvfb + x11vnc)
 
-**Building the graphical container image:**
-```dockerfile
-FROM ubuntu:22.04
-RUN apt-get update && apt-get install -y \
-    xvfb x11vnc x11-utils xterm \
-    && rm -rf /var/lib/apt/lists/*
-```
+**The pre-built desktop image includes:**
+- XFCE4 desktop with xfce4-terminal, mousepad (text editor), thunar (file manager)
+- Firefox browser
+- code-server (VS Code in browser)
+- Python 3, Node.js 22, pip, git, curl, wget, vim, nano, jq
+- pip packages: requests, flask, fastapi, uvicorn, beautifulsoup4, httpx, pydantic
+
+**Building the desktop image:**
 ```bash
-docker build -t aether-desktop:latest .
+docker build -f Dockerfile.desktop -t aether-desktop:latest .
 ```
 
 **Spawning a graphical agent (WebSocket):**
@@ -789,7 +799,7 @@ Authentication uses HMAC-SHA256 signed JWTs (implemented with Node.js `crypto`, 
 - Each user's spawned agents are tagged with `ownerUid`
 - Process listing filters by the requesting user (admins see all)
 - Signal sending verifies process ownership
-- Per-user directories exist at `/tmp/aether/users/{userId}/`
+- Per-user directories exist at `~/.aether/users/{userId}/`
 
 ## Clustering
 

@@ -13,7 +13,7 @@ Status legend:
 | Feature | Status | Details |
 |---------|--------|---------|
 | Process management (PID, lifecycle, signals) | Done | `kernel/src/ProcessManager.ts` — PIDs, states (created→running→zombie→dead), SIGTERM/KILL/STOP/CONT/INT/USR1/USR2 |
-| Virtual filesystem | Done | `kernel/src/VirtualFS.ts` — real files at `/tmp/aether`, per-agent home dirs, path traversal prevention |
+| Virtual filesystem | Done | `kernel/src/VirtualFS.ts` — real files at `~/.aether`, per-agent home dirs, path traversal prevention |
 | Pseudo-terminal sessions | Done | `kernel/src/PTYManager.ts` — node-pty for local, docker exec for containers, SIGWINCH resize |
 | Docker container sandboxing | Done | `kernel/src/ContainerManager.ts` — auto-detects Docker, creates containers with CPU/memory limits |
 | GPU passthrough | Done | `kernel/src/ContainerManager.ts` — nvidia-smi detection, GPU allocation tracking, `--gpus` flag |

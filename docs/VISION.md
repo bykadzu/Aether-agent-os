@@ -20,7 +20,7 @@ Every component in Aether OS must be **real** — not simulated, not mocked, not
 |-----------|----------|------|
 | **Browser** | iframe that half the web blocks | Real Chromium instance agents can see, click, and navigate |
 | **Terminal** | Simulated shell with canned responses | Real PTY with node-pty (already done) |
-| **Filesystem** | In-memory JSON tree | Real files on disk at `/tmp/aether` (already done) |
+| **Filesystem** | In-memory JSON tree | Real files on disk at `~/.aether` (already done) |
 | **Processes** | Function calls pretending to be processes | Real PIDs, signals, lifecycle (already done) |
 | **Code Editor** | Textarea with regex highlighting | Monaco/CodeMirror with LSP, autocomplete, real language support |
 | **Apps** | UI shells with no backend | Full applications backed by real services |
