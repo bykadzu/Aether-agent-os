@@ -277,9 +277,9 @@ export const VirtualDesktop: React.FC<VirtualDesktopProps> = ({
 
   return (
     <div
-      className="relative w-full h-full bg-cover bg-center overflow-hidden font-sans select-none"
+      className="relative w-full h-full overflow-hidden font-sans select-none"
       style={{
-        backgroundImage: `url('https://images.unsplash.com/photo-1550684848-fac1c5b4e853?q=80&w=2670&auto=format&fit=crop')`,
+        background: 'linear-gradient(135deg, #0a0a0f 0%, #0d1117 40%, #0f0f18 70%, #0a0a0f 100%)',
       }}
     >
       {/* Menu Bar */}

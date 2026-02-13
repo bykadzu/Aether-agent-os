@@ -288,9 +288,18 @@ export function createToolSet(): ToolDefinition[] {
     // ----- Web Browsing -----
     {
       name: 'browse_web',
-      description: 'Browse a web page using a real browser (Playwright) or HTTP fetch fallback',
+      description:
+        'Browse a web page using a real browser. Provide {url: "https://..."}. For web search use DuckDuckGo: {url: "https://duckduckgo.com/?q=your+search+terms"}',
       execute: async (args, ctx) => {
         try {
+          if (!args.url || typeof args.url !== 'string') {
+            return {
+              success: false,
+              output:
+                'Missing url argument. Usage: browse_web({"url": "https://example.com"}). For search: browse_web({"url": "https://duckduckgo.com/?q=your+search"})',
+            };
+          }
+
           ctx.kernel.bus.emit('agent.browsing', {
             pid: ctx.pid,
             url: args.url,
@@ -308,25 +317,35 @@ export function createToolSet(): ToolDefinition[] {
             let textContent = '';
             let links = '';
             if (session) {
-              // Get all visible text on the page
+              // Get visible text, stripping nav/header/footer noise for cleaner content
               textContent = (await session
                 .evaluate(
                   `(() => {
-                return document.body.innerText || document.body.textContent || '';
+                // Remove noisy elements before extracting text
+                const remove = ['nav', 'header', 'footer', '[role="navigation"]', '[role="banner"]', '[aria-hidden="true"]', '.skip-link', '#skip-to-content'];
+                const cloned = document.body.cloneNode(true);
+                remove.forEach(sel => {
+                  cloned.querySelectorAll(sel).forEach(el => el.remove());
+                });
+                // Try main/article content first, fall back to full body
+                const main = cloned.querySelector('main, [role="main"], article, .content, #content');
+                const text = (main || cloned).innerText || (main || cloned).textContent || '';
+                return text;
               })()`,
                 )
                 .catch(() => '')) as string;
-              textContent = (textContent as string).substring(0, 6000);
+              textContent = (textContent as string).substring(0, 12000);
 
               // Get top links with text
               const linkData = (await session
                 .evaluate(
                   `(() => {
-                const anchors = Array.from(document.querySelectorAll('a[href]'));
+                const main = document.querySelector('main, [role="main"], article, .content, #content') || document.body;
+                const anchors = Array.from(main.querySelectorAll('a[href]'));
                 return anchors
                   .map(a => ({ text: (a.textContent || '').trim().substring(0, 100), href: a.href }))
                   .filter(l => l.text && l.href && !l.href.startsWith('javascript:'))
-                  .slice(0, 30);
+                  .slice(0, 40);
               })()`,
                 )
                 .catch(() => [])) as Array<{ text: string; href: string }>;

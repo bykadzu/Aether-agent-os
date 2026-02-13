@@ -200,7 +200,11 @@ export class BrowserManager {
   async navigateTo(sessionId: string, url: string): Promise<BrowserPageInfo> {
     const session = this.getSession(sessionId);
 
-    await session.page.goto(url, { waitUntil: 'domcontentloaded' });
+    if (!url) {
+      // Empty URL means "stay on current page" — just return info
+      return this.getPageInfo(sessionId);
+    }
+    await session.page.goto(url, { waitUntil: 'networkidle' });
 
     const info = await this.getPageInfo(sessionId);
 
