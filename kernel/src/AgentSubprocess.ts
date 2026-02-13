@@ -14,9 +14,13 @@
 import { spawn, ChildProcess } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { EventBus } from './EventBus.js';
 import type { AetherMCPServer } from './AetherMCPServer.js';
 import type { PID, AgentConfig, AgentRuntime } from '@aether/shared';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 import { SUBPROCESS_OUTPUT_MAX_BUFFER, SUBPROCESS_GRACEFUL_TIMEOUT } from '@aether/shared';
 
 // ---------------------------------------------------------------------------
@@ -330,8 +334,10 @@ export class AgentSubprocess {
     fs.writeFileSync(path.join(workDir, 'CLAUDE.md'), claudeMd);
 
     // .mcp.json — MCP server config pointing to the Aether stdio bridge
-    const bridgeScript = path.resolve(__dirname, '../src/aether-mcp-bridge.ts');
-    const bridgeDist = path.resolve(__dirname, './aether-mcp-bridge.js');
+    // Bridge lives at server/src/aether-mcp-bridge.ts (relative to project root)
+    const projectRoot = path.resolve(__dirname, '../..');
+    const bridgeScript = path.join(projectRoot, 'server', 'src', 'aether-mcp-bridge.ts');
+    const bridgeDist = path.join(projectRoot, 'server', 'dist', 'aether-mcp-bridge.js');
     const bridgePath = fs.existsSync(bridgeDist) ? bridgeDist : bridgeScript;
     const kernelPort = process.env.AETHER_PORT || '3001';
 
@@ -368,8 +374,9 @@ export class AgentSubprocess {
     fs.writeFileSync(path.join(instructionsDir, 'INSTRUCTIONS.md'), instructions);
 
     // .mcp.json — same bridge config as Claude Code
-    const bridgeScript = path.resolve(__dirname, '../src/aether-mcp-bridge.ts');
-    const bridgeDist = path.resolve(__dirname, './aether-mcp-bridge.js');
+    const projectRoot = path.resolve(__dirname, '../..');
+    const bridgeScript = path.join(projectRoot, 'server', 'src', 'aether-mcp-bridge.ts');
+    const bridgeDist = path.join(projectRoot, 'server', 'dist', 'aether-mcp-bridge.js');
     const bridgePath = fs.existsSync(bridgeDist) ? bridgeDist : bridgeScript;
     const kernelPort = process.env.AETHER_PORT || '3001';
 
