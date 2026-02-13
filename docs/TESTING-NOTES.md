@@ -14,7 +14,7 @@
 ## Agent ↔ Human Interaction (The Big Gap)
 
 - [x] **VNC is view-only** — could watch but not interact. *(Fixed — VNC switches to interactive mode when agent is paused. viewOnly prop toggled on RFB instance.)*
-- [ ] **No live chat with running agent** — once an agent is deployed, you can't steer it, give it feedback, or ask it to change direction mid-task. Only option is abort.
+- [x] **No live chat with running agent** — once an agent is deployed, you can't steer it, give it feedback, or ask it to change direction mid-task. Only option is abort. *(Fixed — chat panel in VirtualDesktop, POST /api/v1/agents/:pid/message endpoint, message queue in ProcessManager, AgentLoop drains messages each tick.)*
 - [x] **Can't close apps in agent's desktop** — container desktop was not interactive. *(Fixed — when agent is paused, human has full mouse/keyboard control via VNC.)*
 - [x] **No pause/resume** — could only abort agents. *(Fixed — pause/resume protocol added to ProcessManager, REST endpoints, EventBus events, and agent loop checks for paused state.)*
 
@@ -22,7 +22,7 @@
 
 - [ ] **Agent uses container apps, not OS apps** — the Coder agent opened VS Code inside the Linux container, not the React CodeEditor app. The React apps and container apps are two separate worlds. Agent has `write_file` tool which writes to container filesystem, completely unaware of the React shell.
 - [ ] **Agent has different app set than user** — the VM shows a standard Linux desktop with XFCE apps. The user's Aether dock has 15+ custom React apps. No connection between them.
-- [ ] **No shared filesystem view** — files the agent creates in the container aren't visible in the OS file explorer without manual sync.
+- [x] **No shared filesystem view** — files the agent creates in the container aren't visible in the OS file explorer without manual sync. *(Fixed — containers mount ~/.aether/shared at /home/agent/shared, VirtualFS watches for changes, FileExplorer shows Shared directory with auto-refresh.)*
 
 ## Agent ↔ Agent Collaboration
 
@@ -42,18 +42,18 @@
 
 ---
 
-## Fixed This Session: 9/16
+## Fixed This Session: 11/16
 
-## Remaining Open Issues: 7
+## Remaining Open Issues: 5
 
 ---
 
 ## Priority Order (for when development resumes)
 
 1. ~~**Agent takeover** (pause → interact → resume)~~ — **Done!** Phase 1 shipped.
-2. **Live agent chat** — steer agents mid-task
+2. ~~**Live agent chat** — steer agents mid-task~~ — **Done!** Phase 2 shipped.
 3. **Agent success tracking** — know what works and what doesn't
-4. **Bridge React apps ↔ container** — shared filesystem, unified app launcher
+4. ~~**Bridge React apps ↔ container** — shared filesystem, unified app launcher~~ — **Partial!** Shared filesystem done, unified app launcher still open.
 5. **Inter-agent messaging** — let agents collaborate
 6. **401 console noise** — minor, but clean up for polish
 
