@@ -1,6 +1,6 @@
 # Aether OS Architecture
 
-> Last updated: 2026-02-13 (comprehensive deep-dive, post-v0.7 Self-Modification)
+> Last updated: 2026-02-13 (comprehensive deep-dive, post-v0.8 External Agent Runtime Integration)
 
 ---
 
@@ -22,7 +22,7 @@
 
 ## System Overview
 
-Aether OS is a three-tier agent operating system: a **React PWA desktop UI**, a **WebSocket/HTTP transport server**, and a **kernel** with 29 subsystems that orchestrate agent execution, memory, containers, and persistence.
+Aether OS is a three-tier agent operating system: a **React PWA desktop UI**, a **WebSocket/HTTP transport server**, and a **kernel** with 30 subsystems that orchestrate agent execution, memory, containers, and persistence.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -49,7 +49,7 @@ Aether OS is a three-tier agent operating system: a **React PWA desktop UI**, a 
 │   WebSocket: /kernel (UI <-> kernel), /cluster (node <-> hub)      │
 │                                                                     │
 ├─────────────────────────────────────────────────────────────────────┤
-│                        KERNEL (29 subsystems)                       │
+│                        KERNEL (30 subsystems)                       │
 │                                                                     │
 │   CORE                          INTELLIGENCE                        │
 │   ┌────────────────┐            ┌──────────────────┐                │
@@ -84,11 +84,11 @@ Aether OS is a three-tier agent operating system: a **React PWA desktop UI**, a 
 │   └────────────────┘                                                │
 │                                                                     │
 │   INTEROPERABILITY                                                  │
-│   ┌────────────────┐  ┌──────────────────┐                          │
-│   │ MCPManager     │  │ OpenClawAdapter  │                          │
-│   │ (MCP client,   │  │ (SKILL.md import │                          │
-│   │  tool bridge)  │  │  + dep check)    │                          │
-│   └────────────────┘  └──────────────────┘                          │
+│   ┌────────────────┐  ┌──────────────────┐  ┌─────────────────┐    │
+│   │ MCPManager     │  │ OpenClawAdapter  │  │ AetherMCPServer │    │
+│   │ (MCP client,   │  │ (SKILL.md import │  │ (MCP server for │    │
+│   │  tool bridge)  │  │  + dep check)    │  │  ext. runtimes) │    │
+│   └────────────────┘  └──────────────────┘  └─────────────────┘    │
 │                                                                     │
 │   INFRASTRUCTURE                                                    │
 │   ┌────────────────┐  ┌────────────┐  ┌──────────────────────┐     │
@@ -119,8 +119,8 @@ Aether OS is a three-tier agent operating system: a **React PWA desktop UI**, a 
 ├─────────────────────────────────────────────────────────────────────┤
 │                     SHARED PROTOCOL                                 │
 │                                                                     │
-│   110+ command types (UI -> Kernel)                                │
-│   90+ event types   (Kernel -> UI)                                 │
+│   112+ command types (UI -> Kernel)                                │
+│   98+ event types   (Kernel -> UI)                                 │
 │   Discriminated unions -- fully typed, no guessing                 │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -129,12 +129,12 @@ Aether OS is a three-tier agent operating system: a **React PWA desktop UI**, a 
 
 ## Kernel Subsystems
 
-The kernel (`kernel/src/Kernel.ts`) is the central orchestrator. It instantiates all 28 subsystems in its constructor and wires them via dependency injection. The `boot()` method initializes subsystems in order; `shutdown()` tears them down in reverse. The `handleCommand(cmd, user)` method dispatches ~110 command types as a giant discriminated-union switch.
+The kernel (`kernel/src/Kernel.ts`) is the central orchestrator. It instantiates all 30 subsystems in its constructor and wires them via dependency injection. The `boot()` method initializes subsystems in order; `shutdown()` tears them down in reverse. The `handleCommand(cmd, user)` method dispatches ~112 command types as a giant discriminated-union switch.
 
 ### EventBus
 
 **File:** `kernel/src/EventBus.ts`
-**Purpose:** Central pub/sub nervous system. All 28 subsystems communicate through typed events on this bus, not direct calls.
+**Purpose:** Central pub/sub nervous system. All 30 subsystems communicate through typed events on this bus, not direct calls.
 
 | Method | Description |
 |--------|-------------|
@@ -305,6 +305,7 @@ The kernel (`kernel/src/Kernel.ts`) is the central orchestrator. It instantiates
 | **MCPManager** | Model Context Protocol client. Connects to external MCP servers (stdio/SSE), discovers tools, bridges tool calls. 27th subsystem (v0.6). |
 | **OpenClawAdapter** | Imports OpenClaw SKILL.md files. Parses frontmatter, validates dependencies (bins, env, OS), maps to PluginRegistryManifest. 28th subsystem (v0.6). |
 | **SkillForge** | Agent self-modification subsystem. Skill discovery, creation, composition, versioning, sharing, and reputation tracking. Voyager-inspired iterative refinement. 29th subsystem (v0.7). |
+| **AetherMCPServer** | Exposes kernel capabilities as MCP tools for external agent runtimes (OpenClaw, Claude Code). Memory, skills, collaboration, and OS tools available via MCP protocol. 30th subsystem (v0.8). |
 
 ---
 
@@ -637,7 +638,7 @@ All messages are JSON with a `type` discriminator field:
 { type: 'browser.navigate', sessionId: string, url: string }
 { type: 'memory.store', request: MemoryStoreRequest }
 { type: 'memory.recall', query: MemoryQuery }
-// ... ~110 total command types
+// ... ~112 total command types
 ```
 
 **Events (Kernel -> UI):**
@@ -649,7 +650,7 @@ All messages are JSON with a `type` discriminator field:
 { type: 'agent.action', pid: number, tool: string, args: any }
 { type: 'browser:screenshot', sessionId: string, data: string }
 { type: 'memory.stored', memoryId: string }
-// ... ~90 total event types
+// ... ~98 total event types
 ```
 
 ### Command Categories
@@ -670,6 +671,7 @@ All messages are JSON with a `type` discriminator field:
 | Org/Team | create, invite, remove, listMembers, updateRole | ~10 |
 | MCP | addServer, connect, disconnect, listTools, callTool | ~8 |
 | OpenClaw | importSkill, importDirectory, listImported, removeImport, getInstructions | ~5 |
+| AetherMCP | status, listTools | ~2 |
 
 ### Batching
 
@@ -934,7 +936,7 @@ Each agent has a persistent profile tracking:
 |----------|-----------|
 | **TypeScript everywhere** | Single type system from UI to kernel. Protocol changes caught at compile time. |
 | **Discriminated unions for protocol** | Every message has a `type` field. Exhaustive switch matching, no ambiguity. |
-| **Event-driven kernel** | Loose coupling -- 28 subsystems communicate via EventBus, not direct calls. |
+| **Event-driven kernel** | Loose coupling -- 30 subsystems communicate via EventBus, not direct calls. |
 | **SQLite (not Postgres)** | Zero config, embedded, synchronous reads. Scales to 100+ agents on single node. |
 | **Real filesystem at ~/.aether** | Agents use standard file I/O. Survives reboots. Can inspect from host. |
 | **node-pty for terminals** | Real terminal emulation -- ANSI colors, cursor, interactive programs. |
@@ -960,7 +962,7 @@ Aether_Agent_OS/
 │       ├── protocol.ts      # ALL message types (110+ commands, 90+ events)
 │       └── constants.ts     # Version, ports, limits, intervals
 │
-├── kernel/                  # The OS kernel (28 subsystems)
+├── kernel/                  # The OS kernel (30 subsystems)
 │   └── src/
 │       ├── Kernel.ts            # Orchestrator -- boots and wires everything
 │       ├── EventBus.ts          # Typed event pub/sub (dedup, wildcard)
@@ -991,6 +993,8 @@ Aether_Agent_OS/
 │       ├── ToolCompatLayer.ts        # LangChain/OpenAI tool import/export
 │       ├── MCPManager.ts            # MCP protocol client (stdio/SSE transports)
 │       ├── OpenClawAdapter.ts       # OpenClaw SKILL.md import adapter
+│       ├── AetherMCPServer.ts       # MCP server exposing kernel to external agents (v0.8)
+│       ├── AgentSubprocess.ts       # External agent subprocess lifecycle (v0.8)
 │       └── __tests__/               # Unit tests
 │
 ├── runtime/                 # Agent execution engine
@@ -1091,6 +1095,7 @@ Aether_Agent_OS/
 | v0.5 | Production | Resource governance, audit logging, Prometheus, TLS, MFA, Helm, RBAC, PWA, LangChain compat |
 | v0.6 | Interoperability | MCP protocol client (stdio/SSE), OpenClaw SKILL.md adapter, tool bridging, 28 subsystems |
 | v0.7 | Self-Modification | SkillForge subsystem, 8 agent tools (discover/install/create/compose/share/spawn/connect_mcp/update_profile), skill proposals, reflection-to-skill pipeline, multi-agent skill sharing, reputation tracking, 29 subsystems |
+| v0.8 | External Agent Runtime Integration | AetherMCPServer (kernel as MCP tool provider), AgentSubprocess (external process lifecycle), OpenClaw/Claude Code runtime support, runtime-specific config generation, subprocess output streaming, 30 subsystems |
 
 ---
 

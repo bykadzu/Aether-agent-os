@@ -49,6 +49,8 @@ import { ToolCompatLayer } from './ToolCompatLayer.js';
 import { MCPManager } from './MCPManager.js';
 import { OpenClawAdapter } from './OpenClawAdapter.js';
 import { SkillForge } from './SkillForge.js';
+import { AetherMCPServer } from './AetherMCPServer.js';
+import { AgentSubprocess } from './AgentSubprocess.js';
 import {
   KernelCommand,
   KernelEvent,
@@ -92,6 +94,8 @@ export class Kernel {
   readonly mcp: MCPManager;
   readonly openClaw: OpenClawAdapter;
   readonly skillForge: SkillForge;
+  readonly aetherMcp: AetherMCPServer;
+  readonly subprocess: AgentSubprocess;
 
   private startTime: number;
   private running = false;
@@ -131,6 +135,15 @@ export class Kernel {
       this.openClaw,
       this.containers,
     );
+    this.aetherMcp = new AetherMCPServer(
+      this.bus,
+      this.state,
+      this.memory,
+      this.skillForge,
+      this.processes,
+      this.openClaw,
+    );
+    this.subprocess = new AgentSubprocess(this.bus, this.aetherMcp);
     this.snapshots = new SnapshotManager(
       this.bus,
       this.processes,
@@ -321,6 +334,19 @@ export class Kernel {
     await this.skillForge.init();
     console.log('[Kernel] SkillForge initialized');
 
+    // AetherMCPServer — exposes kernel as MCP tools for external agents (v0.8)
+    await this.aetherMcp.init();
+    console.log('[Kernel] AetherMCP server initialized');
+
+    // Subscribe to subprocess exit events to update process state
+    this.bus.on('subprocess.exited', (evt: any) => {
+      const subPid = evt.pid;
+      const proc = this.processes.get(subPid);
+      if (proc) {
+        this.processes.setState(subPid, 'zombie', evt.code === 0 ? 'completed' : 'failed');
+      }
+    });
+
     // Wire procedural memory integration for reflection-sourced skills (v0.7 Sprint 3)
     if (this.memory) {
       this.memory.registerEventListeners();
@@ -400,6 +426,23 @@ export class Kernel {
           // Create home directory for the agent
           await this.fs.createHome(proc.info.uid);
 
+          const runtime = cmd.config.runtime || 'builtin';
+
+          if (runtime !== 'builtin') {
+            // External runtime — spawn as a real OS subprocess
+            const workDir = path.join(this.fs.getRealRoot(), 'home', proc.info.uid);
+            await this.subprocess.start(pid, cmd.config, workDir);
+            this.processes.setState(pid, 'running', 'executing');
+
+            events.push({
+              type: 'response.ok',
+              id: cmd.id,
+              data: { pid, runtime },
+            });
+            break;
+          }
+
+          // Builtin runtime — container + PTY setup
           // Pre-create container at spawn time (not lazily on first run_command).
           // This prevents the first command from accidentally running on the host OS.
           const sandbox = cmd.config.sandbox;
@@ -466,6 +509,14 @@ export class Kernel {
             });
             break;
           }
+          // If this is an external runtime process, route signal to subprocess
+          if (this.subprocess.isRunning(cmd.pid)) {
+            if (cmd.signal === 'SIGSTOP') this.subprocess.pause(cmd.pid);
+            else if (cmd.signal === 'SIGCONT') this.subprocess.resume(cmd.pid);
+            else if (cmd.signal === 'SIGTERM' || cmd.signal === 'SIGKILL')
+              await this.subprocess.stop(cmd.pid);
+          }
+
           const success = this.processes.signal(cmd.pid, cmd.signal);
 
           // If killing a process, also clean up its container and VNC proxy
@@ -2538,6 +2589,29 @@ export class Kernel {
           break;
         }
 
+        // ----- AetherMCPServer Commands (v0.8) -----
+        case 'aether-mcp.status': {
+          const subprocessCount = this.subprocess.getAll().length;
+          events.push({
+            type: 'response.ok',
+            id: cmd.id,
+            data: { running: true, connectedAgents: subprocessCount },
+          });
+          events.push({
+            type: 'aether-mcp.status',
+            running: true,
+            connectedAgents: subprocessCount,
+          });
+          break;
+        }
+
+        case 'aether-mcp.listTools': {
+          const tools = this.aetherMcp.getToolSchemas();
+          events.push({ type: 'response.ok', id: cmd.id, data: tools });
+          events.push({ type: 'aether-mcp.tools.list', tools });
+          break;
+        }
+
         default:
           events.push({
             type: 'response.error',
@@ -2616,6 +2690,8 @@ export class Kernel {
       ['MCPManager', true],
       ['OpenClawAdapter', true],
       ['SkillForge', true],
+      ['AetherMCPServer', true],
+      ['AgentSubprocess', true],
     ];
 
     const port = process.env.AETHER_PORT || String(DEFAULT_PORT);
@@ -2677,6 +2753,7 @@ export class Kernel {
       /* ignore metric errors during shutdown */
     }
 
+    await this.subprocess.stopAll();
     await this.remoteAccess.shutdown();
     this.openClaw.shutdown();
     await this.mcp.shutdown();

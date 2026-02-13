@@ -123,6 +123,12 @@ export const SKILLFORGE_MAX_RETRIES = 3; // Iterative refinement attempts
 export const SKILLFORGE_DEFAULT_ENFORCEMENT: 'allow' | 'warn' | 'prompt' | 'deny' = 'warn';
 export const SKILLFORGE_SKILL_ID_PREFIX = 'forge-';
 
+// AetherMCPServer — v0.8
+export const AETHER_MCP_SERVER_NAME = 'aether-os';
+export const AETHER_MCP_SERVER_VERSION = '0.1.0';
+export const SUBPROCESS_OUTPUT_MAX_BUFFER = 100_000; // Max chars to buffer from subprocess
+export const SUBPROCESS_GRACEFUL_TIMEOUT = 10_000; // 10s before SIGKILL after SIGTERM
+
 // ClawHub API cache TTL (v0.7 Sprint 2)
 export const CLAWHUB_CACHE_TTL = 3_600_000; // 1 hour cache for ClawHub API responses
 export const SKILLFORGE_EMBEDDING_DIMENSIONS = 64; // Lightweight embedding dimensions

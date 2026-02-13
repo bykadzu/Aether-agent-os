@@ -56,6 +56,9 @@ export type AgentPhase =
   | 'completed' // Goal achieved
   | 'failed'; // Unrecoverable error
 
+/** Agent runtime — which execution engine runs the agent */
+export type AgentRuntime = 'builtin' | 'claude-code' | 'openclaw';
+
 /** File types in the virtual filesystem */
 export type FileType = 'file' | 'directory' | 'symlink' | 'pipe' | 'device';
 
@@ -311,6 +314,7 @@ export interface AgentConfig {
   priority?: number; // 1-5, default 3 (1 = highest)
   sandbox?: SandboxConfig;
   skills?: string[]; // Skill IDs to pre-load into agent system prompt (v0.7)
+  runtime?: AgentRuntime; // Which execution engine (default: 'builtin')
 }
 
 export interface SandboxConfig {
@@ -1359,6 +1363,10 @@ export type KernelCommand =
       agentPid?: number;
     }
 
+  // AetherMCPServer commands (v0.8)
+  | { type: 'aether-mcp.status'; id: string }
+  | { type: 'aether-mcp.listTools'; id: string }
+
   // System
   | { type: 'kernel.status'; id: string }
   | { type: 'kernel.shutdown'; id: string };
@@ -1636,6 +1644,18 @@ type KernelEventBase =
 
   // SkillForge Share events (v0.7 Sprint 4)
   | { type: 'skillforge.skill.shared'; skillId: string; target: 'all' | 'agent'; sharedBy: string }
+
+  // AetherMCPServer events (v0.8)
+  | { type: 'aether-mcp.status'; running: boolean; connectedAgents: number }
+  | { type: 'aether-mcp.tools.list'; tools: Array<{ name: string; description: string }> }
+  | { type: 'aether-mcp.agent.connected'; pid: number; runtime: AgentRuntime }
+  | { type: 'aether-mcp.agent.disconnected'; pid: number }
+  | { type: 'aether-mcp.tool.called'; pid: number; tool: string; args: Record<string, any> }
+
+  // AgentSubprocess events (v0.8)
+  | { type: 'subprocess.started'; pid: number; runtime: AgentRuntime; processId: number }
+  | { type: 'subprocess.output'; pid: number; stream: 'stdout' | 'stderr'; data: string }
+  | { type: 'subprocess.exited'; pid: number; code: number | null; signal: string | null }
 
   // System events
   | { type: 'kernel.ready'; version: string; uptime: number }

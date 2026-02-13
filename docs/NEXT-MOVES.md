@@ -1,18 +1,52 @@
 # Aether OS — What Now?
 
-> Written 2026-02-11, after completing v0.5 (all 4 phases). This is not a coding roadmap — it's a thinking document about what to do next with the project.
+> Written 2026-02-11, updated 2026-02-13 (post-v0.8 External Agent Runtime Integration). This is not a coding roadmap — it's a thinking document about strategic direction.
 
 ---
 
 ## Where We Are
 
-Aether OS is a working AI agent operating system. Not a mockup, not a demo — agents can genuinely spawn, think, write code, browse the web, use terminals, and collaborate. It has 26 kernel subsystems, 20+ desktop apps, 900+ tests, and runs on Windows/macOS/Linux.
+Aether OS is a working AI agent operating system with 30 kernel subsystems, 20+ desktop apps, and runs on Windows/macOS/Linux.
 
-But "working" and "ready for others" are different things. The AGENT-FUNCTIONALITY-ANALYSIS.md is honest about the gaps: setup friction, Playwright dependency, mock mode limitations, no automated E2E testing. The system was built fast across v0.1–v0.5 and needs breathing room.
+As of v0.8, the strategic direction has shifted. Rather than competing with OpenClaw and Claude Code by building a custom agent loop, **Aether OS now positions itself as an agent OS platform that hosts external runtimes.** The kernel exposes its 30 subsystems (memory, skills, collaboration, audit, metrics, etc.) as MCP tools that external agents can call. OpenClaw and Claude Code run as real OS subprocesses managed by the kernel.
 
-As of Feb 13, agents now have **self-knowledge** — a comprehensive CODEBASE.md is auto-seeded into the shared directory on boot, and the system prompt tells agents about Aether OS. The **Linux desktop** is also functional: Dockerfile.desktop builds a full XFCE4 environment with Firefox, code-server, and dev tools, and the VNCManager has been rewritten with a proper WebSocket-to-TCP proxy so noVNC can actually connect.
+Key v0.8 additions:
+- **AetherMCPServer** — exposes kernel capabilities as MCP tools for external agent runtimes
+- **AgentSubprocess** — manages the lifecycle of external agent processes (spawn, stop, pause, resume, stdin injection, output streaming)
+- **AgentRuntime type** — agents can now be spawned with `runtime: 'builtin' | 'claude-code' | 'openclaw'`
+- The builtin `AgentLoop` remains as a fallback for simple tasks or when external runtimes aren't installed
 
-**Current state in one sentence:** The engine works, but the car doesn't have a dashboard manual or a gas station nearby.
+**Current state in one sentence:** Aether OS is no longer just an agent runtime — it's an agent operating system that hosts the best runtimes available.
+
+---
+
+## Runtime Integration Roadmap
+
+The full plan is in `PLAN-AGENT-RUNTIME-INTEGRATION.md`. Here's the phase summary:
+
+### Phase 1: MCP Server Foundation -- DONE (v0.8)
+
+AetherMCPServer exposes kernel subsystems as MCP tools. AgentSubprocess manages external process lifecycle. Agents can be spawned with `runtime: 'claude-code'` or `runtime: 'openclaw'`. Config files (CLAUDE.md, .openclaw/INSTRUCTIONS.md) are auto-generated. stdout/stderr piped through EventBus for live UI streaming.
+
+### Phase 2: Full MCP stdio Bridge -- NEXT
+
+Wire the AetherMCPServer as an actual stdio MCP transport so that Claude Code and OpenClaw can **call** aether_* tools during execution (memory recall, skill discovery, IPC, etc.). Phase 1 writes the config files; Phase 2 makes the tools actually callable in real time.
+
+### Phase 3: OpenClaw Computer Use Integration
+
+OpenClaw's full computer use (screen interaction, browser, terminal) running inside Aether's graphical containers (Xvfb + x11vnc). The agent gets a real desktop and Aether's brain.
+
+### Phase 4: Agent Takeover UX Redesign
+
+Replace the current AgentVM with a real terminal/VNC viewer showing the actual agent's output. Pause/resume with message injection. Take Over button that hands control to the user.
+
+### Phase 5: Self-Modification via Repo Access
+
+Agents can read Aether OS source code, propose patches (on feature branches), run the test suite, and create PRs. Human approval required before merge. The OS evolves through the agents it runs.
+
+### The End State
+
+Agents running inside Aether OS get the best coding/computer-use runtimes available (Claude Code, OpenClaw) plus Aether's persistent memory, skill system, multi-agent collaboration, and desktop UI. The builtin AgentLoop is deprecated for serious work but remains as a lightweight fallback.
 
 ---
 
@@ -124,49 +158,31 @@ MIT is probably right for this stage. You want adoption, not protection.
 
 ---
 
-## Product Direction — Three Paths
+## Product Direction — The Platform Play
 
-You said this isn't just a portfolio piece. Here are three directions it could go, and they're not mutually exclusive:
+With v0.8, the strategic direction has crystallized. Aether OS is not competing with Claude Code or OpenClaw -- it's the **operating system layer beneath them**. The three paths from the original doc are still valid, but the value proposition is now clearer:
 
-### Path 1: Personal AI Workstation
+### What Aether OS Is
 
-**What:** You use Aether OS as your own AI-powered development environment. Agents do grunt work (research, boilerplate, testing), you supervise and steer.
+An agent operating system that:
+- **Hosts** external runtimes (Claude Code, OpenClaw) as managed subprocesses
+- **Augments** those runtimes with persistent memory, skills, multi-agent collaboration, and audit trails via MCP tools
+- **Orchestrates** multiple agents working together (IPC, shared workspaces, delegation)
+- **Provides** a desktop UI for observing, controlling, and taking over agents
 
-**What matters:** Reliability > features. You need agents to actually complete tasks, not crash at step 7. Focus on:
-- Making the top 5 agent templates bulletproof
-- Fixing the real failure modes you hit during testing
-- Context compaction + memory so agents learn from past sessions
-- Maybe a "resume from failure" mechanism
+### What Aether OS Is NOT
 
-**What doesn't matter:** Marketplace, plugins, multi-user, RBAC. It's just you.
+- Not another agent loop (stop building a worse AgentLoop.ts)
+- Not a chat UI wrapper around an LLM
+- Not a no-code agent builder
 
-### Path 2: Team/Small Group Tool
+### The Path Forward
 
-**What:** A few devs (you, friends, maybe a small team) use it collaboratively. Agents are shared resources, the dashboard is a shared control plane.
+1. **Personal workstation first** — you use it daily with Claude Code as the runtime
+2. **Validate with testers** — the agent takeover UX is the killer demo
+3. **Open platform later** — once the MCP bridge is solid, others can build on it
 
-**What matters:** Multi-user reliability, reasonable security, easy deployment.
-- The auth + RBAC system you just built becomes critical
-- Docker Compose deployment needs to "just work"
-- Each user needs their own API key or a shared budget
-- Need some basic usage monitoring (who's burning tokens)
-
-**What doesn't matter:** Scale (you're not running 1000 agents), marketplace, public API.
-
-### Path 3: Open Platform
-
-**What:** Aether OS becomes a platform others build on. Think "OS for AI agents" that anyone can deploy, extend with plugins, and connect to their tools.
-
-**What matters:** Developer experience, documentation, plugin API stability.
-- The LangChain/OpenAI compat layer becomes a key selling point
-- OpenAPI spec + SDK need to be solid
-- Plugin system needs real-world plugins (not just reference ones)
-- Community building (Discord, GitHub issues, contributor guides)
-
-**What doesn't matter:** Your personal workflow. The product is for others.
-
-### The Smart Move
-
-Start with **Path 1**, validate with **Path 2** (your two testers), and see if interest grows toward **Path 3**. Don't build for Path 3 until Path 1 is rock solid. Too many projects die because they built a platform before they built a product.
+The key insight from v0.8: Aether's 30 kernel subsystems are the real product. The agent runtime is a commodity -- let OpenClaw and Claude Code compete on that. Aether competes on what happens around the agent: memory across sessions, skill accumulation, multi-agent coordination, and the desktop control plane.
 
 ---
 
@@ -207,43 +223,44 @@ For personal use, budget ~$20-50/mo in API costs. For a shared instance with act
 
 ## The Killer Feature: Agent Takeover
 
-Right now you can watch agents work in their containers via VNC, but you can't interact. The flow that would make Aether OS click:
+With v0.8's AgentSubprocess, the agent takeover flow is now architecturally possible:
 
-1. **Pause agent** — freeze its action loop, not kill it
-2. **Interactive VNC** — you click, type, log into your accounts (Cursor, GitHub, etc.)
-3. **Resume agent** — it picks up from current desktop state, not from scratch
+1. **Pause agent** — `AgentSubprocess.pause(pid)` sends SIGSTOP, freezing the real subprocess
+2. **Interactive VNC / Terminal** — user gets direct access to the agent's terminal or graphical desktop
+3. **Inject message** — `AgentSubprocess.sendInput(pid, text)` writes to stdin
+4. **Resume agent** — `AgentSubprocess.resume(pid)` sends SIGCONT, agent continues from current state
 
-This turns "watch an agent work" into "work alongside an agent." That's the demo. That's the pitch. That's what separates Aether from every other agent platform that gives you either a chat box or a black box.
+This turns "watch an agent work" into "work alongside an agent." That's the demo. That's the pitch. That separates Aether from every other agent platform that gives you either a chat box or a black box.
 
-As of v0.5.1, the VNC proxy is functional (VNCManager rewritten with ws library), desktop containers work (XFCE4 + Firefox), and agents have self-knowledge (CODEBASE.md). View-only streaming works, and interactive mode is enabled when the agent is paused.
+**Status:** VNC proxy functional, desktop containers work (XFCE4 + Firefox), agents have self-knowledge (CODEBASE.md), and the subprocess lifecycle management is in place. What's remaining is the Phase 4 UX work (replacing the simulated AgentVM with a real terminal/VNC viewer).
 
 ---
 
 ## Things That Would Make the Biggest Difference
 
-Ranked by impact for the "test and share" phase:
+Ranked by impact:
 
-1. **Agent takeover UX** — pause, interact, resume (see above)
-2. **Fix whatever breaks during your testing session** — real bugs trump new features
-3. **One-command setup script** — `./setup.sh` or `setup.bat` that handles everything
-3. **Agent success rate** — if agents fail 50% of the time, nothing else matters. Track and improve this.
-4. **Better error messages** — when something fails, tell the user what went wrong and how to fix it
-5. **A "getting started" walkthrough** — first 5 minutes after login, guided experience
-6. **Usage dashboard** — who's running what, how many tokens burned, what succeeded/failed
+1. **Phase 2 MCP stdio bridge** — make aether_* tools actually callable from Claude Code/OpenClaw in real time
+2. **Agent takeover UX** — pause, interact, resume with real terminal/VNC (Phase 4)
+3. **Fix whatever breaks during testing** — real bugs trump new features
+4. **Agent success rate** — with Claude Code/OpenClaw as runtimes, success rate should jump significantly vs the builtin loop
+5. **One-command setup script** — `./setup.sh` or `setup.bat` that handles everything
+6. **Better error messages** — when something fails, tell the user what went wrong and how to fix it
+7. **A "getting started" walkthrough** — first 5 minutes after login, guided experience
 
 ---
 
 ## What NOT to Do Right Now
 
-- Don't add more features. v0.5 has enough.
+- Don't invest more in the builtin AgentLoop. External runtimes are the future.
 - Don't optimize performance. It's fast enough for 5 users.
 - Don't build an Electron wrapper. PWA works fine.
 - Don't migrate to PostgreSQL. SQLite is fine at this scale.
 - Don't build a landing page or marketing site. The README is your landing page.
-- Don't spend time on CI/CD. Manual deploys are fine for now.
+- Don't skip straight to Phase 5 (self-modification). Get Phase 2 (MCP bridge) solid first.
 
-**The only work that matters right now is: does it actually work when a real person sits down and tries to use it?**
+**The work that matters now: complete the MCP stdio bridge (Phase 2) so agents can actually use Aether's memory, skills, and collaboration tools in real time.**
 
 ---
 
-*Revisit this doc after your testing session and after getting feedback from your two testers. Update it with what you learned.*
+*Revisit this doc after completing Phase 2 (MCP stdio bridge) and after testing Claude Code as a runtime. Update it with what you learned.*
