@@ -19,8 +19,8 @@ export const DEFAULT_AGENT_MAX_STEPS = 50;
 export const AGENT_STEP_INTERVAL = 3_000; // 3 seconds between steps
 
 // Command execution
-export const DEFAULT_COMMAND_TIMEOUT = 30_000; // 30 seconds
-export const MAX_COMMAND_TIMEOUT = 300_000; // 5 minutes cap
+export const DEFAULT_COMMAND_TIMEOUT = 120_000; // 2 minutes (was 30s — too short for installs & builds)
+export const MAX_COMMAND_TIMEOUT = 600_000; // 10 minutes cap
 
 // Filesystem — defaults to ~/.aether for persistence across reboots
 // Override with AETHER_FS_ROOT env var (e.g. /tmp/aether for testing)
@@ -42,7 +42,7 @@ export const IPC_MESSAGE_MAX_SIZE = 1024 * 1024; // 1MB per IPC message
 export const IPC_QUEUE_MAX_LENGTH = 100; // Max queued messages per process
 
 // Container defaults
-export const DEFAULT_CONTAINER_IMAGE = 'ubuntu:22.04';
+export const DEFAULT_CONTAINER_IMAGE = 'aether-agent:latest'; // Custom image with Python, Node.js, pip, git pre-installed
 export const DEFAULT_GRAPHICAL_IMAGE = 'aether-desktop:latest'; // Xvfb + x11vnc + X11 utils
 export const DEFAULT_CONTAINER_MEMORY_MB = 512;
 export const DEFAULT_CONTAINER_CPU_LIMIT = 0.5; // 50% of one core

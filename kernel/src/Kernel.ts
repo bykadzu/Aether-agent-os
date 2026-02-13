@@ -340,10 +340,11 @@ export class Kernel {
           // Create home directory for the agent
           await this.fs.createHome(proc.info.uid);
 
-          // If sandbox type is 'container' and Docker is available, create container
+          // Pre-create container at spawn time (not lazily on first run_command).
+          // This prevents the first command from accidentally running on the host OS.
           const sandbox = cmd.config.sandbox;
           let vncWsPort: number | undefined;
-          if (sandbox?.type === 'container' && this.containers.isDockerAvailable()) {
+          if (this.containers.isDockerAvailable()) {
             // Create persistent workspace based on agent role/name
             const workspaceName = cmd.config.role.toLowerCase().replace(/\s+/g, '-') + `-${pid}`;
             const workspacePath = this.containers.createWorkspace(workspaceName);
@@ -353,7 +354,7 @@ export class Kernel {
               proc.info.containerStatus = 'running';
 
               // Start VNC proxy for graphical containers
-              if (sandbox.graphical && containerInfo.vncPort) {
+              if (sandbox?.graphical && containerInfo.vncPort) {
                 try {
                   const proxy = await this.vnc.startProxy(pid, containerInfo.vncPort);
                   vncWsPort = proxy.wsPort;
@@ -361,6 +362,10 @@ export class Kernel {
                   console.error(`[Kernel] Failed to start VNC proxy for PID ${pid}:`, err.message);
                 }
               }
+            } else {
+              console.warn(
+                `[Kernel] Container creation failed for PID ${pid}, agent will use host fallback`,
+              );
             }
           }
 

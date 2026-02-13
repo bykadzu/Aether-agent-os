@@ -43,30 +43,31 @@
 
 ## Container / Environment (NEW — found during testing)
 
-- [ ] **First run_command executes on HOST, not container** — lazy container creation means the first command runs via Windows child_process (shows Windows pip paths), then subsequent commands go to Docker. The agent gets confused by mixed environments. Need to either pre-create containers at agent spawn, or queue the first command until the container is ready.
+- [x] **First run_command executes on HOST, not container** — *(Fixed — containers are now pre-created at spawn time in Kernel.ts, not lazily on first run_command. Removed lazy creation from tools.ts.)*
 - [x] **Docker containers had no network** — networkAccess defaulted to false, containers had only loopback interface. *(Fixed — default changed to true.)*
-- [ ] **Docker image has no Python** — the base Ubuntu image has no Python, pip, or dev tools pre-installed. Every agent wastes 15+ steps installing Python before it can do real work. Need a custom Docker image with Python, Node.js, pip, common tools pre-installed.
-- [ ] **30-second command timeout kills long-running processes** — starting a web server (`python3 app.py`) always "times out" because the server doesn't exit. Agents need to learn to background processes (`&`), or the timeout should be configurable per-command.
+- [x] **Docker image has no Python** — *(Fixed — created Dockerfile.agent with Python 3.12, Node.js 22, pip, git, curl, vim, build-essential, and common pip packages pre-installed. Updated DEFAULT_CONTAINER_IMAGE to aether-agent:latest.)*
+- [x] **30-second command timeout kills long-running processes** — *(Fixed — DEFAULT_COMMAND_TIMEOUT increased to 120s, MAX_COMMAND_TIMEOUT increased to 600s. Agents can also pass per-command timeout via args.)*
 - [ ] **browse_web is nearly useless without Playwright** — falls back to HTTP fetch which returns raw HTML. type_text, click_element, screenshot_page all fail. Google search redirects don't resolve. Agent wastes many steps trying to make browsing work.
 - [ ] **Agent writes files in wrong location** — some files go to /home/agent/shared/ (correct), some to /home/agent_1/ (agent home). No clear guidance in system prompt about where to save work.
 
 ---
 
-## Fixed This Session: 13/22
+## Fixed This Session: 16/22
 
-## Remaining Open Issues: 9
+## Remaining Open Issues: 6
 
 ---
 
 ## Priority Order
 
-1. **Fix container startup** — pre-create container at spawn, not lazily on first run_command
-2. **Custom Docker image** — Python, Node.js, pip, curl, git pre-installed
-3. **Agent success tracking** — completions table, dashboard stats
-4. **Inter-agent messaging** — let agents collaborate
-5. **Better browse_web fallback** — or install Playwright in container image
-6. **Configurable command timeout** — or teach agents to background long processes
-7. **401 console noise** — minor polish
+1. ~~**Fix container startup**~~ DONE — containers pre-created at spawn
+2. ~~**Custom Docker image**~~ DONE — Dockerfile.agent with Python, Node.js, pip, common packages
+3. ~~**Configurable command timeout**~~ DONE — 120s default, 600s max, per-command override
+4. **Agent success tracking** — completions table, dashboard stats
+5. **Inter-agent messaging** — let agents collaborate at container level
+6. **Better browse_web fallback** — or install Playwright in container image
+7. **Agent file location guidance** — system prompt update for consistent output paths
+8. **401 console noise** — minor polish
 
 ---
 

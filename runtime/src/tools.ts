@@ -233,33 +233,19 @@ export function createToolSet(): ToolDefinition[] {
           };
         }
         try {
-          // Try container execution first via ContainerManager
-          if (ctx.kernel.containers?.isDockerAvailable()) {
-            let containerInfo = ctx.kernel.containers.get(ctx.pid);
-            if (containerInfo) {
-              const output = await ctx.kernel.containers.exec(ctx.pid, args.command);
-              return { success: true, output };
-            }
-
-            // Lazy container creation: auto-create sandbox if Docker is available
-            try {
-              const proc = ctx.kernel.processes.get(ctx.pid);
-              const hostPath = ctx.kernel.fs.getRealRoot() + (proc?.info.cwd || '/tmp');
-              await ctx.kernel.containers.create(ctx.pid, hostPath);
-              console.log(`[Tools] Created sandbox container for PID ${ctx.pid}`);
-              containerInfo = ctx.kernel.containers.get(ctx.pid);
-              if (containerInfo) {
-                const output = await ctx.kernel.containers.exec(ctx.pid, args.command);
-                return { success: true, output };
-              }
-            } catch (containerErr: any) {
-              // Container creation failed (image missing, Docker error, etc.) — fall through to child_process
-              console.warn(
-                `[Tools] Container creation failed for PID ${ctx.pid}: ${containerErr.message}`,
-              );
-            }
+          // Execute inside pre-created container (containers are created at spawn time)
+          const containerInfo = ctx.kernel.containers?.get(ctx.pid);
+          if (containerInfo) {
+            const requestedTimeout = args.timeout
+              ? Math.min(Number(args.timeout) * 1000, MAX_COMMAND_TIMEOUT)
+              : DEFAULT_COMMAND_TIMEOUT;
+            const output = await ctx.kernel.containers.exec(ctx.pid, args.command, {
+              timeout: requestedTimeout,
+            });
+            return { success: true, output };
           }
 
+          // Fallback: no container (Docker unavailable or creation failed at spawn)
           // Use child_process.exec for reliable output capture
           const proc = ctx.kernel.processes.get(ctx.pid);
           // proc.info.cwd is a virtual path — resolve to real path via FS root
@@ -283,7 +269,7 @@ export function createToolSet(): ToolDefinition[] {
         } catch (err: any) {
           // If process was killed due to timeout but produced stdout, treat as partial success
           if (err.killed && err.stdout) {
-            return { success: true, output: `(process timed out after 30s)\n${err.stdout}`.trim() };
+            return { success: true, output: `(process timed out)\n${err.stdout}`.trim() };
           }
           // If exit code is non-zero but there's stdout, include both
           const stdout = (err.stdout || '').trim();

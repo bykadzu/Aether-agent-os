@@ -1,0 +1,66 @@
+# =============================================================================
+# Aether Agent Container — Development Tools Image
+# Pre-installs Python, Node.js, and common dev tools so agents don't waste
+# 15+ steps installing packages on every run.
+# Image: aether-agent:latest
+# Build: docker build -f Dockerfile.agent -t aether-agent:latest .
+# =============================================================================
+
+FROM ubuntu:22.04
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+# ---------- All packages in a single layer ----------
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       # Python
+       python3 python3-pip python3-venv \
+       # Build tools
+       build-essential ca-certificates gnupg \
+       # Common CLI tools
+       curl wget git vim nano jq unzip \
+       # Networking
+       net-tools iputils-ping dnsutils \
+       # Process management
+       procps sudo \
+       # Locale
+       locales \
+    # Node.js 22 via NodeSource
+    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    # Locale setup
+    && sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && locale-gen \
+    # Create non-root agent user
+    && useradd -m -s /bin/bash -G sudo aether \
+    && echo "aether ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/aether \
+    # Pip alias: ensure `pip` works (not just pip3)
+    && ln -sf /usr/bin/python3 /usr/bin/python \
+    # Cleanup
+    && apt-get purge -y --auto-remove gnupg \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/* \
+       /usr/share/doc/* /usr/share/man/* /usr/share/info/* \
+       /var/log/* /tmp/* /root/.cache
+
+# ---------- Global pip packages (common agent needs) ----------
+RUN pip3 install --no-cache-dir \
+    requests \
+    flask \
+    fastapi \
+    uvicorn \
+    beautifulsoup4 \
+    httpx \
+    pydantic
+
+# ---------- Environment ----------
+ENV LANG=en_US.UTF-8
+ENV LANGUAGE=en_US:en
+ENV LC_ALL=en_US.UTF-8
+ENV HOME=/home/aether
+ENV USER=aether
+ENV PATH="/home/aether/.local/bin:${PATH}"
+
+USER aether
+WORKDIR /home/aether
+
+CMD ["tail", "-f", "/dev/null"]
