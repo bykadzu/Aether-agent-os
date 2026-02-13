@@ -321,6 +321,12 @@ export class Kernel {
     await this.skillForge.init();
     console.log('[Kernel] SkillForge initialized');
 
+    // Wire procedural memory integration for reflection-sourced skills (v0.7 Sprint 3)
+    if (this.memory) {
+      this.memory.registerEventListeners();
+      console.log('[Kernel] MemoryManager event listeners registered');
+    }
+
     // Listen for process cleanup events to remove agent home directories
     this.bus.on('process.cleanup', async (data: { pid: number; uid: string; cwd: string }) => {
       // Skip cleanup if a snapshot exists for this PID

@@ -1332,6 +1332,23 @@ export type KernelCommand =
   | { type: 'skillforge.rollback'; id: string; skillId: string; version: number }
   | { type: 'skillforge.listVersions'; id: string; skillId: string }
 
+  // SkillForge Proposal commands (v0.7 Sprint 3)
+  | {
+      type: 'skillforge.propose';
+      id: string;
+      suggestion: { name: string; description: string; instructions: string; tools_used: string[] };
+      agentUid: string;
+    }
+  | { type: 'skillforge.approveProposal'; id: string; proposalId: string; reviewerUid?: string }
+  | {
+      type: 'skillforge.rejectProposal';
+      id: string;
+      proposalId: string;
+      reason?: string;
+      reviewerUid?: string;
+    }
+  | { type: 'skillforge.listProposals'; id: string; status?: SkillProposalStatus }
+
   // System
   | { type: 'kernel.status'; id: string }
   | { type: 'kernel.shutdown'; id: string };
@@ -1595,6 +1612,18 @@ type KernelEventBase =
   | { type: 'skillforge.versions.list'; skillId: string; versions: SkillVersion[] }
   | { type: 'skillforge.skill.rollback'; skillId: string; version: number }
 
+  // SkillForge Proposal events (v0.7 Sprint 3)
+  | {
+      type: 'skillforge.skill.proposed';
+      proposalId: string;
+      name: string;
+      agentUid: string;
+      riskLevel: SkillRiskLevel;
+    }
+  | { type: 'skillforge.proposal.approved'; proposalId: string; skillId?: string }
+  | { type: 'skillforge.proposal.rejected'; proposalId: string; reason?: string }
+  | { type: 'skillforge.proposals.list'; proposals: SkillProposal[] }
+
   // System events
   | { type: 'kernel.ready'; version: string; uptime: number }
   | {
@@ -1781,6 +1810,26 @@ export interface SkillVersion {
   content: string;
   created_at: number;
   created_by: string;
+}
+
+// ---------------------------------------------------------------------------
+// Skill Proposal Types (v0.7 Sprint 3)
+// ---------------------------------------------------------------------------
+
+export type SkillProposalStatus = 'pending' | 'approved' | 'rejected';
+
+export interface SkillProposal {
+  id: string;
+  skill_name: string;
+  skill_description: string;
+  skill_instructions: string;
+  tools_used: string[];
+  proposing_agent: string;
+  status: SkillProposalStatus;
+  risk_score: SkillRiskLevel;
+  created_at: number;
+  reviewed_at?: number;
+  reviewed_by?: string;
 }
 
 // ---------------------------------------------------------------------------

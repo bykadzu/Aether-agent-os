@@ -32,7 +32,14 @@ IMPORTANT: Respond ONLY with a valid JSON object in this exact format:
   "quality_rating": <number 1-5>,
   "justification": "<why you gave this rating>",
   "lessons_learned": "<what you would do differently next time>",
-  "summary": "<brief summary of what you did>"
+  "summary": "<brief summary of what you did>",
+  "reusable_pattern": "<describe the reusable procedure if one exists, or null if not>",
+  "skill_suggestion": {
+    "name": "<skill-identifier-lowercase-hyphens>",
+    "description": "<one-line description>",
+    "instructions": "<step-by-step markdown instructions>",
+    "tools_used": ["<tool1>", "<tool2>"]
+  }
 }
 
 Rating scale:
@@ -41,6 +48,8 @@ Rating scale:
 3 = Completed adequately but with room for improvement
 4 = Completed well with minor issues
 5 = Completed excellently, efficient and thorough
+
+If you identified a reusable procedure that could help with similar future tasks, describe it in "reusable_pattern" and provide a skill suggestion. If not, set both to null.
 
 Task details:
 - Role: {role}
@@ -57,11 +66,20 @@ export interface ReflectionInput {
   lastObservation: string;
 }
 
+export interface SkillSuggestion {
+  name: string;
+  description: string;
+  instructions: string;
+  tools_used: string[];
+}
+
 export interface ReflectionResult {
   quality_rating: number;
   justification: string;
   lessons_learned: string;
   summary: string;
+  reusable_pattern: string | null;
+  skill_suggestion: SkillSuggestion | null;
 }
 
 /**
@@ -105,6 +123,22 @@ export function parseReflectionResponse(content: string): ReflectionResult {
     justification: 'Unable to parse structured reflection from LLM response.',
     lessons_learned: content.substring(0, 500),
     summary: 'Task completed but reflection parsing failed.',
+    reusable_pattern: null,
+    skill_suggestion: null,
+  };
+}
+
+/**
+ * Validate a skill suggestion object from parsed reflection JSON.
+ */
+function validateSkillSuggestion(raw: any): SkillSuggestion | null {
+  if (!raw || typeof raw !== 'object') return null;
+  if (!raw.name || !raw.description || !raw.instructions) return null;
+  return {
+    name: String(raw.name),
+    description: String(raw.description),
+    instructions: String(raw.instructions),
+    tools_used: Array.isArray(raw.tools_used) ? raw.tools_used.map(String) : [],
   };
 }
 
@@ -118,6 +152,8 @@ function validateReflectionResult(parsed: any): ReflectionResult {
     justification: String(parsed.justification || 'No justification provided.'),
     lessons_learned: String(parsed.lessons_learned || ''),
     summary: String(parsed.summary || 'Task completed.'),
+    reusable_pattern: typeof parsed.reusable_pattern === 'string' ? parsed.reusable_pattern : null,
+    skill_suggestion: validateSkillSuggestion(parsed.skill_suggestion),
   };
 }
 
@@ -150,6 +186,8 @@ export async function runReflection(
       justification: 'No LLM available for self-evaluation.',
       lessons_learned: '',
       summary: `Completed task: ${config.goal}`,
+      reusable_pattern: null,
+      skill_suggestion: null,
     });
   }
 
@@ -185,6 +223,8 @@ export async function runReflection(
       justification: `Reflection failed: ${err.message}`,
       lessons_learned: '',
       summary: `Completed task: ${config.goal}`,
+      reusable_pattern: null,
+      skill_suggestion: null,
     });
   }
 }
@@ -244,6 +284,25 @@ function storeReflection(
 
   // Emit event
   kernel.bus.emit('reflection.stored', { reflection: record });
+
+  // Auto-propose skill from reflection (v0.7 Sprint 3)
+  if (
+    result.reusable_pattern &&
+    result.quality_rating >= 4 &&
+    result.skill_suggestion &&
+    kernel.skillForge
+  ) {
+    try {
+      const { proposalId } = kernel.skillForge.propose(result.skill_suggestion, input.agentUid);
+      kernel.bus.emit('reflection.skill.proposed', {
+        proposalId,
+        agentUid: input.agentUid,
+        skillName: result.skill_suggestion.name,
+      });
+    } catch (err) {
+      console.warn(`[Reflection] Failed to propose skill:`, err);
+    }
+  }
 
   // Update agent profile with task outcome (v0.3 Wave 4)
   if (kernel.memory) {

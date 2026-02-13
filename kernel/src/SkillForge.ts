@@ -25,6 +25,7 @@ import type {
   SkillRiskLevel,
   SkillPermissionManifest,
   SkillVersion,
+  SkillProposalStatus,
 } from '@aether/shared';
 import {
   SKILLFORGE_MAX_CREATES_PER_HOUR,
@@ -720,6 +721,104 @@ export class SkillForge {
     if (hasReadFs || hasEnv) return 'low';
 
     return 'minimal';
+  }
+
+  // -------------------------------------------------------------------------
+  // Proposals (v0.7 Sprint 3)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Propose a new skill from a reflection suggestion.
+   * Stores the proposal and emits an event. The proposal can then be
+   * approved (auto or manually) or rejected.
+   */
+  propose(
+    suggestion: { name: string; description: string; instructions: string; tools_used: string[] },
+    agentUid: string,
+  ): { proposalId: string; status: string } {
+    const id = crypto.randomUUID();
+    const risk = this.scoreRisk(); // minimal since no permissions declared yet
+
+    this.state.insertProposal({
+      id,
+      skill_name: suggestion.name,
+      skill_description: suggestion.description,
+      skill_instructions: suggestion.instructions,
+      tools_used: JSON.stringify(suggestion.tools_used || []),
+      proposing_agent: agentUid,
+      status: 'pending',
+      risk_score: risk,
+      created_at: Math.floor(Date.now() / 1000),
+    });
+
+    this.bus.emit('skillforge.skill.proposed', {
+      proposalId: id,
+      name: suggestion.name,
+      agentUid,
+      riskLevel: risk,
+    });
+
+    return { proposalId: id, status: 'pending' };
+  }
+
+  /**
+   * Approve a pending skill proposal, creating the actual skill.
+   */
+  async approve(
+    proposalId: string,
+    reviewerUid?: string,
+  ): Promise<{ success: boolean; skillId?: string; message: string }> {
+    const proposal = this.state.getProposal(proposalId);
+    if (!proposal) return { success: false, message: 'Proposal not found' };
+    if (proposal.status !== 'pending')
+      return { success: false, message: `Proposal already ${proposal.status}` };
+
+    // Create the skill from the proposal
+    const result = await this.create(
+      {
+        name: proposal.skill_name,
+        description: proposal.skill_description,
+        instructions: proposal.skill_instructions,
+        tools_used: JSON.parse(proposal.tools_used),
+      },
+      proposal.proposing_agent,
+    );
+
+    if (result.success) {
+      this.state.updateProposalStatus(proposalId, 'approved', reviewerUid);
+      this.bus.emit('skillforge.proposal.approved', {
+        proposalId,
+        skillId: result.skillId,
+      });
+    }
+
+    return result;
+  }
+
+  /**
+   * Reject a pending skill proposal.
+   */
+  reject(
+    proposalId: string,
+    reason?: string,
+    reviewerUid?: string,
+  ): { success: boolean; message: string } {
+    const proposal = this.state.getProposal(proposalId);
+    if (!proposal) return { success: false, message: 'Proposal not found' };
+    if (proposal.status !== 'pending')
+      return { success: false, message: `Proposal already ${proposal.status}` };
+
+    this.state.updateProposalStatus(proposalId, 'rejected', reviewerUid);
+    this.bus.emit('skillforge.proposal.rejected', { proposalId, reason });
+    return { success: true, message: `Proposal rejected${reason ? ': ' + reason : ''}` };
+  }
+
+  /**
+   * List skill proposals, optionally filtered by status.
+   */
+  listProposals(status?: string): any[] {
+    if (status) return this.state.getProposalsByStatus(status);
+    return this.state.getAllProposals();
   }
 
   // -------------------------------------------------------------------------

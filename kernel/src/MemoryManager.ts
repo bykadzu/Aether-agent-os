@@ -435,6 +435,55 @@ export class MemoryManager {
   }
 
   // ---------------------------------------------------------------------------
+  // Skill-to-Memory Integration (v0.7 Sprint 3)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Register event listeners for cross-subsystem integration.
+   * Called by Kernel after all subsystems are initialized.
+   */
+  registerEventListeners(): void {
+    // Auto-store created skills as procedural memory for the creating agent
+    this.bus.on('skillforge.skill.created', (data: any) => {
+      if (data.agentUid) {
+        try {
+          this.storeSkillAsProceduralMemory(
+            data.agentUid,
+            data.name || data.skillId,
+            `Auto-created skill: ${data.name}`,
+            [],
+          );
+        } catch (err) {
+          console.warn('[MemoryManager] Failed to store skill as procedural memory:', err);
+        }
+      }
+    });
+  }
+
+  /**
+   * Store a newly created skill as procedural memory with high importance.
+   */
+  storeSkillAsProceduralMemory(
+    agentUid: string,
+    skillName: string,
+    skillDescription: string,
+    toolsUsed: string[],
+    taskCategory?: string,
+  ): MemoryRecord {
+    const tags = ['skill', 'auto-created', 'reflection-sourced'];
+    if (taskCategory) tags.push(taskCategory);
+    for (const tool of toolsUsed) tags.push(`tool:${tool}`);
+
+    return this.store({
+      agent_uid: agentUid,
+      layer: 'procedural',
+      content: `[Skill Created] ${skillName}: ${skillDescription}\nTools: ${toolsUsed.join(', ')}\nThis skill was auto-created from a successful task reflection.`,
+      tags,
+      importance: 0.9,
+    });
+  }
+
+  // ---------------------------------------------------------------------------
   // Internals
   // ---------------------------------------------------------------------------
 

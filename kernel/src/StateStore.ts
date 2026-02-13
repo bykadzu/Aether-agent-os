@@ -246,6 +246,12 @@ export class StateStore {
     getSkillEmbedding: Database.Statement;
     getAllSkillEmbeddings: Database.Statement;
     deleteSkillEmbedding: Database.Statement;
+    // Skill proposal statements (v0.7 Sprint 3)
+    insertProposal: Database.Statement;
+    getProposal: Database.Statement;
+    getProposalsByStatus: Database.Statement;
+    getAllProposals: Database.Statement;
+    updateProposalStatus: Database.Statement;
   };
 
   private _persistenceDisabled = false;
@@ -811,6 +817,23 @@ export class StateStore {
         skill_id TEXT PRIMARY KEY,
         embedding TEXT NOT NULL,
         updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+      );
+    `);
+
+    // Skill proposals table (v0.7 Sprint 3)
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS skill_proposals (
+        id TEXT PRIMARY KEY,
+        skill_name TEXT NOT NULL,
+        skill_description TEXT NOT NULL,
+        skill_instructions TEXT NOT NULL,
+        tools_used TEXT NOT NULL DEFAULT '[]',
+        proposing_agent TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        risk_score TEXT NOT NULL DEFAULT 'minimal',
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        reviewed_at INTEGER,
+        reviewed_by TEXT
       );
     `);
   }
@@ -1450,6 +1473,18 @@ export class StateStore {
       getSkillEmbedding: this.db.prepare(`SELECT * FROM skill_embeddings WHERE skill_id = ?`),
       getAllSkillEmbeddings: this.db.prepare(`SELECT * FROM skill_embeddings`),
       deleteSkillEmbedding: this.db.prepare(`DELETE FROM skill_embeddings WHERE skill_id = ?`),
+      // Skill proposal statements (v0.7 Sprint 3)
+      insertProposal: this.db.prepare(
+        `INSERT INTO skill_proposals (id, skill_name, skill_description, skill_instructions, tools_used, proposing_agent, status, risk_score, created_at) VALUES (@id, @skill_name, @skill_description, @skill_instructions, @tools_used, @proposing_agent, @status, @risk_score, @created_at)`,
+      ),
+      getProposal: this.db.prepare(`SELECT * FROM skill_proposals WHERE id = ?`),
+      getProposalsByStatus: this.db.prepare(
+        `SELECT * FROM skill_proposals WHERE status = ? ORDER BY created_at DESC`,
+      ),
+      getAllProposals: this.db.prepare(`SELECT * FROM skill_proposals ORDER BY created_at DESC`),
+      updateProposalStatus: this.db.prepare(
+        `UPDATE skill_proposals SET status = ?, reviewed_at = ?, reviewed_by = ? WHERE id = ?`,
+      ),
     };
   }
 
@@ -3033,6 +3068,41 @@ export class StateStore {
 
   deleteSkillEmbedding(skillId: string): void {
     this.stmts.deleteSkillEmbedding.run(skillId);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Skill Proposal Persistence (v0.7 Sprint 3)
+  // ---------------------------------------------------------------------------
+
+  insertProposal(proposal: {
+    id: string;
+    skill_name: string;
+    skill_description: string;
+    skill_instructions: string;
+    tools_used: string;
+    proposing_agent: string;
+    status: string;
+    risk_score: string;
+    created_at: number;
+  }): void {
+    this.stmts.insertProposal.run(proposal);
+  }
+
+  getProposal(id: string): any | undefined {
+    return this.stmts.getProposal.get(id);
+  }
+
+  getProposalsByStatus(status: string): any[] {
+    return this.stmts.getProposalsByStatus.all(status);
+  }
+
+  getAllProposals(): any[] {
+    return this.stmts.getAllProposals.all();
+  }
+
+  updateProposalStatus(id: string, status: string, reviewedBy?: string): void {
+    const now = Math.floor(Date.now() / 1000);
+    this.stmts.updateProposalStatus.run(status, now, reviewedBy || null, id);
   }
 
   /**
