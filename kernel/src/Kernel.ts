@@ -18,6 +18,8 @@
  * the EventBus. The server layer handles transport.
  */
 
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { EventBus } from './EventBus.js';
 import { ProcessManager } from './ProcessManager.js';
 import { VirtualFS } from './VirtualFS.js';
@@ -49,6 +51,7 @@ import {
   KernelEvent,
   UserInfo,
   AETHER_VERSION,
+  AETHER_ROOT,
   DEFAULT_PORT,
   ProcessInfo,
   AgentProfile,
@@ -153,6 +156,29 @@ export class Kernel {
     // Initialize filesystem
     await this.fs.init();
     console.log('[Kernel] Filesystem initialized');
+
+    // Seed CODEBASE.md into the shared directory for agent self-knowledge
+    try {
+      const sharedDir = path.join(AETHER_ROOT, 'shared');
+      if (!fs.existsSync(sharedDir)) {
+        fs.mkdirSync(sharedDir, { recursive: true });
+      }
+      // Server runs from <project>/server/, so cwd parent is the project root
+      const candidates = [
+        path.resolve(process.cwd(), 'docs', 'CODEBASE.md'),
+        path.resolve(process.cwd(), '..', 'docs', 'CODEBASE.md'),
+      ];
+      for (const src of candidates) {
+        if (fs.existsSync(src)) {
+          const dest = path.join(sharedDir, 'CODEBASE.md');
+          fs.copyFileSync(src, dest);
+          console.log('[Kernel] Agent self-knowledge seeded to shared/CODEBASE.md');
+          break;
+        }
+      }
+    } catch (err: any) {
+      console.warn('[Kernel] Could not seed CODEBASE.md:', err.message);
+    }
 
     // Initialize container manager (detects Docker + GPU availability)
     await this.containers.init();

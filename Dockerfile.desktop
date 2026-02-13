@@ -1,6 +1,7 @@
 # Aether Desktop Container
 # Ubuntu 24.04 with XFCE4, VNC, and development tools for agent graphical sessions.
 # Image: aether-desktop:latest
+# Build: docker build -f Dockerfile.desktop -t aether-desktop:latest .
 
 FROM ubuntu:24.04
 
@@ -11,20 +12,26 @@ RUN apt-get update \
     # Core X11, VNC, desktop
     && apt-get install -y --no-install-recommends \
        xvfb x11vnc dbus-x11 \
-       xfce4 xfce4-terminal \
+       xfce4 xfce4-terminal mousepad thunar \
        firefox \
-       python3.12 git curl wget ca-certificates gnupg sudo locales \
-       xdg-utils procps net-tools \
+    # Dev tools (matching Dockerfile.agent)
+       python3 python3-pip python3-venv \
+       build-essential ca-certificates gnupg \
+       git curl wget vim nano jq unzip \
+       net-tools iputils-ping procps sudo locales \
+       xdg-utils \
     # Locale
     && sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && locale-gen \
     # Node.js 22 via NodeSource
     && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
-    # code-server (VS Code)
+    # code-server (VS Code in browser)
     && curl -fsSL https://code-server.dev/install.sh | sh \
     # Create non-root user
     && useradd -m -s /bin/bash -G sudo aether \
     && echo "aether ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/aether \
+    # Pip alias
+    && ln -sf /usr/bin/python3 /usr/bin/python \
     # ---------- Aggressive cleanup ----------
     && apt-get purge -y --auto-remove gnupg \
     && apt-get clean \
@@ -39,6 +46,16 @@ RUN apt-get update \
        /usr/share/locale/e[o-z]* \
        /usr/share/fonts/truetype/noto
 
+# ---------- Global pip packages (common agent needs) ----------
+RUN pip3 install --no-cache-dir --break-system-packages \
+    requests \
+    flask \
+    fastapi \
+    uvicorn \
+    beautifulsoup4 \
+    httpx \
+    pydantic
+
 # ---------- Environment ----------
 ENV DISPLAY=:99
 ENV LANG=en_US.UTF-8
@@ -46,6 +63,7 @@ ENV LANGUAGE=en_US:en
 ENV LC_ALL=en_US.UTF-8
 ENV HOME=/home/aether
 ENV USER=aether
+ENV PATH="/home/aether/.local/bin:${PATH}"
 
 # ---------- Entrypoint ----------
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh

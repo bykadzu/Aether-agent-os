@@ -1,15 +1,17 @@
 /**
  * Aether Kernel - VNC Manager
  *
- * Manages noVNC WebSocket-to-TCP proxies for graphical agent containers.
+ * Manages WebSocket-to-TCP proxies (websockify) for graphical agent containers.
  * Each graphical agent runs Xvfb + x11vnc inside its container. This manager
- * creates a WebSocket proxy on the host that bridges the browser (noVNC client)
+ * creates a WebSocket server on the host that bridges the browser (noVNC client)
  * to the container's VNC TCP port.
  *
- * Data flow: Browser (noVNC/RFB over WS) → VNCManager proxy → TCP → x11vnc in container
+ * Data flow: Browser (noVNC/RFB over WS) → VNCManager WebSocket proxy → TCP → x11vnc in container
  */
 
-import { createServer, Server as NetServer, Socket } from 'node:net';
+import { Socket } from 'node:net';
+import { createServer as createHttpServer, IncomingMessage, Server as HttpServer } from 'node:http';
+import { WebSocketServer, WebSocket } from 'ws';
 import { EventBus } from './EventBus.js';
 import { PID } from '@aether/shared';
 import type { ContainerManager } from './ContainerManager.js';
@@ -18,8 +20,9 @@ interface ProxyInfo {
   pid: PID;
   vncPort: number; // Target TCP port (container's VNC)
   wsPort: number; // WebSocket proxy port for browser
-  server: NetServer;
-  connections: Set<Socket>;
+  httpServer: HttpServer;
+  wss: WebSocketServer;
+  connections: Set<WebSocket>;
 }
 
 export class VNCManager {
@@ -42,12 +45,8 @@ export class VNCManager {
 
   /**
    * Start a WebSocket-to-TCP proxy for a graphical agent's VNC stream.
-   * The proxy listens on a free port and forwards data bidirectionally
-   * between incoming TCP connections and the VNC server in the container.
-   *
-   * Note: noVNC can connect to a raw TCP socket via websockify protocol,
-   * but for simplicity we create a TCP proxy here. The actual WebSocket
-   * upgrade is handled by noVNC's built-in websockify or the server layer.
+   * The proxy listens on a free port and bridges WebSocket connections (from noVNC)
+   * to the VNC TCP server running inside the container.
    */
   async startProxy(pid: PID, vncPort: number): Promise<{ wsPort: number }> {
     if (this.proxies.has(pid)) {
@@ -56,49 +55,86 @@ export class VNCManager {
     }
 
     const wsPort = this.nextWsPort++;
-    const connections = new Set<Socket>();
+    const connections = new Set<WebSocket>();
 
-    const server = createServer((clientSocket: Socket) => {
-      connections.add(clientSocket);
+    // Create HTTP server for WebSocket upgrade
+    const httpServer = createHttpServer((_req, res) => {
+      res.writeHead(426, { 'Content-Type': 'text/plain' });
+      res.end('WebSocket connection required');
+    });
 
-      // Connect to the VNC server in the container
+    // Create WebSocket server attached to the HTTP server
+    const wss = new WebSocketServer({ server: httpServer });
+
+    wss.on('connection', (ws: WebSocket, _req: IncomingMessage) => {
+      connections.add(ws);
+
+      // Connect to the VNC server in the container via TCP
       const vncSocket = new Socket();
       vncSocket.connect(vncPort, '127.0.0.1');
 
-      // Pipe data bidirectionally
-      clientSocket.pipe(vncSocket);
-      vncSocket.pipe(clientSocket);
+      // Forward WebSocket messages (binary) to VNC TCP
+      ws.on('message', (data: Buffer) => {
+        if (vncSocket.writable) {
+          vncSocket.write(data);
+        }
+      });
 
+      // Forward VNC TCP data to WebSocket
+      vncSocket.on('data', (data: Buffer) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(data);
+        }
+      });
+
+      // Cleanup
       const cleanup = () => {
-        connections.delete(clientSocket);
-        clientSocket.destroy();
-        vncSocket.destroy();
+        connections.delete(ws);
+        if (!vncSocket.destroyed) vncSocket.destroy();
+        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+          ws.close();
+        }
       };
 
-      clientSocket.on('error', cleanup);
-      clientSocket.on('close', cleanup);
+      ws.on('close', cleanup);
+      ws.on('error', cleanup);
+      vncSocket.on('close', cleanup);
       vncSocket.on('error', () => {
         // VNC server disconnected — attempt reconnect after delay
         setTimeout(() => {
-          if (!clientSocket.destroyed) {
+          if (ws.readyState === WebSocket.OPEN) {
             const retry = new Socket();
             retry.connect(vncPort, '127.0.0.1');
-            clientSocket.pipe(retry);
-            retry.pipe(clientSocket);
+
+            retry.on('data', (data: Buffer) => {
+              if (ws.readyState === WebSocket.OPEN) {
+                ws.send(data);
+              }
+            });
+
+            // Re-wire WebSocket → new VNC socket
+            ws.removeAllListeners('message');
+            ws.on('message', (data: Buffer) => {
+              if (retry.writable) {
+                retry.write(data);
+              }
+            });
+
             retry.on('error', cleanup);
+            retry.on('close', cleanup);
           }
         }, 1000);
       });
-      vncSocket.on('close', cleanup);
     });
 
     return new Promise((resolve, reject) => {
-      server.listen(wsPort, '0.0.0.0', () => {
+      httpServer.listen(wsPort, '0.0.0.0', () => {
         const proxyInfo: ProxyInfo = {
           pid,
           vncPort,
           wsPort,
-          server,
+          httpServer,
+          wss,
           connections,
         };
 
@@ -111,14 +147,14 @@ export class VNCManager {
         });
 
         console.log(
-          `[VNCManager] Proxy started for PID ${pid}: ws://0.0.0.0:${wsPort} → tcp://127.0.0.1:${vncPort}`,
+          `[VNCManager] WebSocket proxy started for PID ${pid}: ws://0.0.0.0:${wsPort} → tcp://127.0.0.1:${vncPort}`,
         );
         resolve({ wsPort });
       });
 
-      server.on('error', (err: Error) => {
+      httpServer.on('error', (err: Error) => {
         console.error(`[VNCManager] Failed to start proxy for PID ${pid}:`, err.message);
-        // Try next port
+        // Try next port on EADDRINUSE
         this.nextWsPort++;
         reject(err);
       });
@@ -132,14 +168,17 @@ export class VNCManager {
     const proxy = this.proxies.get(pid);
     if (!proxy) return;
 
-    // Close all active connections
-    for (const conn of proxy.connections) {
-      conn.destroy();
+    // Close all active WebSocket connections
+    for (const ws of proxy.connections) {
+      try {
+        ws.close();
+      } catch {}
     }
     proxy.connections.clear();
 
-    // Close the server
-    proxy.server.close();
+    // Close the WebSocket server and HTTP server
+    proxy.wss.close();
+    proxy.httpServer.close();
 
     this.proxies.delete(pid);
 

@@ -252,8 +252,15 @@ export class ContainerManager {
       args.push('--network', 'none');
     }
 
-    // Image and keep-alive command
-    args.push(image, 'tail', '-f', '/dev/null');
+    // Image and keep-alive command.
+    // Desktop image has its own entrypoint that starts Xvfb/XFCE/x11vnc,
+    // so we don't pass a CMD override — the entrypoint handles everything.
+    const hasEntrypoint = image === DEFAULT_GRAPHICAL_IMAGE;
+    if (hasEntrypoint) {
+      args.push(image);
+    } else {
+      args.push(image, 'tail', '-f', '/dev/null');
+    }
 
     try {
       const containerId = await this.dockerExec('docker', args);
@@ -275,8 +282,10 @@ export class ContainerManager {
 
       this.containers.set(pid, info);
 
-      // Start Xvfb and x11vnc inside the container for graphical agents
-      if (graphical) {
+      // Start Xvfb and x11vnc inside the container for graphical agents.
+      // The desktop image (aether-desktop:latest) has an entrypoint that handles
+      // this automatically, so we only manually start for custom graphical images.
+      if (graphical && !hasEntrypoint) {
         try {
           await this.dockerExec(
             'docker',
@@ -313,6 +322,12 @@ export class ContainerManager {
             err.message,
           );
         }
+      } else if (graphical && hasEntrypoint) {
+        // Desktop image entrypoint needs a moment to start Xvfb + XFCE + x11vnc
+        await new Promise((r) => setTimeout(r, 3000));
+        console.log(
+          `[ContainerManager] Desktop entrypoint started for PID ${pid} (VNC port ${vncPort})`,
+        );
       }
 
       this.bus.emit('container.created', {

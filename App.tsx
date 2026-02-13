@@ -946,7 +946,29 @@ const App: React.FC = () => {
   const launchAgent = async (role: string, goal: string) => {
     if (runtimeMode === 'kernel') {
       try {
-        await kernel.spawnAgent({ role, goal });
+        // Parse metadata encoded in goal string: "actual goal [graphical:true,gpu:true,model:gemini]"
+        let cleanGoal = goal;
+        const sandbox: any = {};
+        const metaMatch = goal.match(/\s*\[([^\]]+)\]\s*$/);
+        if (metaMatch) {
+          cleanGoal = goal.slice(0, metaMatch.index).trim();
+          const pairs = metaMatch[1].split(',');
+          let model: string | undefined;
+          for (const pair of pairs) {
+            const [key, val] = pair.split(':');
+            if (key === 'graphical' && val === 'true') sandbox.graphical = true;
+            if (key === 'gpu' && val === 'true') sandbox.gpu = { enabled: true };
+            if (key === 'model') model = val;
+          }
+          await kernel.spawnAgent({
+            role,
+            goal: cleanGoal,
+            sandbox: Object.keys(sandbox).length > 0 ? sandbox : undefined,
+            model,
+          });
+        } else {
+          await kernel.spawnAgent({ role, goal });
+        }
       } catch (err) {
         console.error('Failed to spawn agent via kernel:', err);
       }
