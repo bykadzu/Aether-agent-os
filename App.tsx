@@ -1314,6 +1314,13 @@ const App: React.FC = () => {
                 const a = agents.find((ag) => ag.id === id);
                 if (a?.pid) kernel.resumeAgent(a.pid);
               }}
+              onSendMessage={async (id, message) => {
+                const a = agents.find((ag) => ag.id === id);
+                if (a?.pid) {
+                  await kernel.sendAgentMessage(a.pid, message);
+                  await kernel.resumeAgent(a.pid);
+                }
+              }}
             />
           </Suspense>
         );
@@ -1452,10 +1459,10 @@ const App: React.FC = () => {
 
   return (
     <div
-      className="w-screen h-screen overflow-hidden bg-cover bg-center font-sans relative selection:bg-indigo-500/30"
+      className="w-screen h-screen overflow-hidden font-sans relative selection:bg-indigo-500/30"
       style={{
-        backgroundImage: `url('https://images.unsplash.com/photo-1550684848-fac1c5b4e853?q=80&w=2670&auto=format&fit=crop')`,
-      }} // Changed to a darker, more tech-focused wallpaper
+        background: 'linear-gradient(135deg, #0a0a0f 0%, #0d1117 40%, #0f0f18 70%, #0a0a0f 100%)',
+      }}
       onContextMenu={(e) => {
         e.preventDefault();
         setContextMenu({ isOpen: true, x: e.clientX, y: e.clientY });

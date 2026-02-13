@@ -23,7 +23,6 @@ export default defineConfig(({ mode }) => {
       },
     },
     optimizeDeps: {
-      exclude: ['@novnc/novnc'],
       esbuildOptions: {
         target: 'esnext',
       },

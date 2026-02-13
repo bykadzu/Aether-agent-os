@@ -162,7 +162,14 @@ export async function runAgentLoop(
   // System prompt
   state.history.push({
     role: 'system',
-    content: buildSystemPrompt(config, tools, contextMemories, planMarkdown, agentProfile),
+    content: buildSystemPrompt(
+      config,
+      tools,
+      contextMemories,
+      planMarkdown,
+      agentProfile,
+      proc.info.uid,
+    ),
     timestamp: Date.now(),
   });
 
@@ -504,7 +511,7 @@ export async function runAgentLoop(
           continue;
         }
         kernel.processes.setState(pid, 'running', 'executing');
-        const result = await tool.execute(decision.args, { kernel, pid, signal: options.signal });
+        const result = await tool.execute(decision.args, ctx);
         state.lastObservation = result.output;
         state.history.push({
           role: 'tool',
@@ -780,6 +787,7 @@ function buildSystemPrompt(
   memories: MemoryRecord[] = [],
   planMarkdown?: string,
   profile?: AgentProfile,
+  uid?: string,
 ): string {
   const toolList = tools.map((t) => `- ${t.name}: ${t.description}`).join('\n');
 
@@ -803,9 +811,9 @@ function buildSystemPrompt(
     `- You are running inside a Linux container with bash`,
     `- Use Linux / Unix commands (ls, cat, cp, rm, mkdir, etc.)`,
     `- Package managers: apt-get, pip, npm (Python 3, Node.js 22 pre-installed)`,
-    `- You have a real filesystem with your home directory at /home/aether/`,
+    `- You have a real filesystem with your home directory at /home/${uid || 'aether'}/`,
     `- **Shared workspace**: Save ALL deliverables to /home/agent/shared/ — this is visible to the user and persists across sessions`,
-    `- Your home directory (/home/aether/) is private to you; the shared directory is the handoff point`,
+    `- Your home directory (/home/${uid || 'aether'}/) is private to you; the shared directory is the handoff point`,
     `- You can create files, run commands, and browse the web`,
     `- If you have a graphical desktop (XFCE4), you can use Firefox, a file manager, and a terminal`,
     `- Your actions are observable by the human operator`,
@@ -819,7 +827,7 @@ function buildSystemPrompt(
     `1. Think step by step before acting`,
     `2. Use the simplest tool that accomplishes the task`,
     `3. Save all work output to /home/agent/shared/ so the user can access it`,
-    `4. Use /home/aether/ for temporary/scratch files only`,
+    `4. Use /home/${uid || 'aether'}/ for temporary/scratch files only`,
     `5. Call 'complete' when you've achieved your goal`,
     `6. Be efficient - don't repeat actions unnecessarily`,
     `7. Use 'remember' to save important discoveries for future sessions`,

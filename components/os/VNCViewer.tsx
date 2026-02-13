@@ -87,14 +87,18 @@ export const VNCViewer = forwardRef<VNCViewerHandle, VNCViewerProps>(
 
       const initRFB = async () => {
         try {
-          // Attempt to load noVNC's RFB class
-          // @ts-ignore - dynamic import of noVNC
-          const noVNC = await import('@novnc/novnc/lib/rfb.js').catch(() => null);
+          // Load noVNC RFB class from vendored ESM source (vendor/novnc/).
+          // The npm package (@novnc/novnc) ships CJS with top-level await which
+          // is incompatible with esbuild, so we vendor the original ESM source.
+          // @ts-ignore - dynamic import of vendored ESM module
+          const noVNC = await import(/* @vite-ignore */ '../../vendor/novnc/core/rfb.js').catch(
+            () => null,
+          );
 
           if (destroyed) return;
 
-          if (noVNC?.default && containerRef.current) {
-            const RFB = noVNC.default;
+          if ((noVNC?.default || noVNC) && containerRef.current) {
+            const RFB = noVNC.default || noVNC;
             rfb = new RFB(containerRef.current, wsUrl, {
               scaleViewport: true,
               resizeSession: false,

@@ -371,10 +371,17 @@ export class Kernel {
           const sandbox = cmd.config.sandbox;
           let vncWsPort: number | undefined;
           if (this.containers.isDockerAvailable()) {
-            // Create persistent workspace based on agent role/name
-            const workspaceName = cmd.config.role.toLowerCase().replace(/\s+/g, '-') + `-${pid}`;
-            const workspacePath = this.containers.createWorkspace(workspaceName);
-            const containerInfo = await this.containers.create(pid, workspacePath, sandbox);
+            // Mount the agent's VirtualFS home directory into the container
+            // at the same path VirtualFS uses, so read_file/write_file/list_files
+            // and run_command all see the same files at the same paths.
+            const agentHomePath = path.join(this.fs.getRealRoot(), 'home', proc.info.uid);
+            const internalHomePath = `/home/${proc.info.uid}`;
+            const containerInfo = await this.containers.create(
+              pid,
+              agentHomePath,
+              sandbox,
+              internalHomePath,
+            );
             if (containerInfo) {
               proc.info.containerId = containerInfo.containerId;
               proc.info.containerStatus = 'running';

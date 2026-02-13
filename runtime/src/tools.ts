@@ -57,8 +57,11 @@ async function ensureBrowserSession(ctx: ToolContext): Promise<string> {
   }
   try {
     await ctx.kernel.browser.createSession(sessionId, { width: 1280, height: 720 });
-  } catch {
-    // Session already exists
+  } catch (err: any) {
+    // Only swallow "already exists" — re-throw real failures (launch errors, etc.)
+    if (!err.message?.includes('already exists')) {
+      throw err;
+    }
   }
   return sessionId;
 }
@@ -295,22 +298,43 @@ export function createToolSet(): ToolDefinition[] {
 
           // Try real browser first
           if (ctx.kernel.browser?.isAvailable()) {
-            const sessionId = `browser_${ctx.pid}`;
-            try {
-              await ctx.kernel.browser.createSession(sessionId, { width: 1280, height: 720 });
-            } catch {
-              // Session might already exist, that's ok
-            }
+            const sessionId = await ensureBrowserSession(ctx);
 
             const pageInfo = await ctx.kernel.browser.navigateTo(sessionId, args.url);
-            const snapshot = await ctx.kernel.browser.getDOMSnapshot(sessionId);
 
-            // Extract text from DOM elements
-            const textContent = snapshot.elements
-              .map((el: any) => el.text)
-              .filter(Boolean)
-              .join('\n')
-              .substring(0, 4000);
+            // Extract full page text content (not just interactive elements)
+            // and links separately for richer agent context
+            const session = ctx.kernel.browser.getSessionPage(sessionId);
+            let textContent = '';
+            let links = '';
+            if (session) {
+              // Get all visible text on the page
+              textContent = (await session
+                .evaluate(
+                  `(() => {
+                return document.body.innerText || document.body.textContent || '';
+              })()`,
+                )
+                .catch(() => '')) as string;
+              textContent = (textContent as string).substring(0, 6000);
+
+              // Get top links with text
+              const linkData = (await session
+                .evaluate(
+                  `(() => {
+                const anchors = Array.from(document.querySelectorAll('a[href]'));
+                return anchors
+                  .map(a => ({ text: (a.textContent || '').trim().substring(0, 100), href: a.href }))
+                  .filter(l => l.text && l.href && !l.href.startsWith('javascript:'))
+                  .slice(0, 30);
+              })()`,
+                )
+                .catch(() => [])) as Array<{ text: string; href: string }>;
+              if (Array.isArray(linkData) && linkData.length > 0) {
+                links =
+                  '\n\nLinks:\n' + linkData.map((l: any) => `- [${l.text}](${l.href})`).join('\n');
+              }
+            }
 
             ctx.kernel.bus.emit('agent.browsing', {
               pid: ctx.pid,
@@ -320,7 +344,7 @@ export function createToolSet(): ToolDefinition[] {
 
             return {
               success: true,
-              output: `Page: ${pageInfo.title}\nURL: ${pageInfo.url}\n\n${textContent}`,
+              output: `Page: ${pageInfo.title}\nURL: ${pageInfo.url}\n\n${textContent}${links}`,
             };
           }
 
@@ -451,7 +475,8 @@ export function createToolSet(): ToolDefinition[] {
 
     {
       name: 'click_element',
-      description: 'Click at coordinates on the current browser page (requires Playwright)',
+      description:
+        'Click an element on the current browser page. Accepts EITHER {text: "Button label"} to click by visible text, {css: "#id"} for CSS selector, {xpath: "//button"} for XPath, OR {x: number, y: number} for coordinates. Optionally add {button: "right"} for right-click.',
       execute: async (args, ctx) => {
         if (!ctx.kernel.browser?.isAvailable()) {
           return {
@@ -462,11 +487,36 @@ export function createToolSet(): ToolDefinition[] {
         }
         try {
           const sessionId = await ensureBrowserSession(ctx);
-          await ctx.kernel.browser.click(sessionId, args.x, args.y, args.button || 'left');
-          const pageInfo = await ctx.kernel.browser.navigateTo(sessionId, '');
+          const btn = args.button || 'left';
+
+          // If x and y are valid numbers, click at coordinates
+          if (typeof args.x === 'number' && typeof args.y === 'number') {
+            await ctx.kernel.browser.click(sessionId, args.x, args.y, btn);
+            return {
+              success: true,
+              output: `Clicked at (${args.x}, ${args.y}) with ${btn} button.`,
+            };
+          }
+
+          // Otherwise, use selector-based click (text, css, or xpath)
+          const selector: { text?: string; css?: string; xpath?: string } = {};
+          if (args.text) selector.text = args.text;
+          else if (args.css) selector.css = args.css;
+          else if (args.xpath) selector.xpath = args.xpath;
+          else if (args.selector) selector.css = args.selector;
+
+          if (!selector.text && !selector.css && !selector.xpath) {
+            return {
+              success: false,
+              output:
+                'No valid target provided. Use {text: "label"}, {css: "#id"}, {xpath: "//el"}, or {x: number, y: number}.',
+            };
+          }
+
+          const coords = await ctx.kernel.browser.clickBySelector(sessionId, selector, btn);
           return {
             success: true,
-            output: `Clicked at (${args.x}, ${args.y}) with ${args.button || 'left'} button. Page: ${pageInfo.title} (${pageInfo.url})`,
+            output: `Clicked element at (${coords.x}, ${coords.y}) with ${btn} button.`,
           };
         } catch (err: any) {
           return { success: false, output: `Click failed: ${err.message}` };

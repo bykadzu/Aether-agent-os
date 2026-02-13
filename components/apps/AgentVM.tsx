@@ -23,6 +23,8 @@ import {
   ThumbsDown,
   Pause,
   Play,
+  Send,
+  MessageSquare,
 } from 'lucide-react';
 import { Agent } from '../../types';
 import { VirtualDesktop } from '../os/VirtualDesktop';
@@ -285,6 +287,7 @@ interface AgentVMProps {
   onSyncGithub: (id: string) => void;
   onPause?: (id: string) => void;
   onResume?: (id: string) => void;
+  onSendMessage?: (id: string, message: string) => void;
 }
 
 export const AgentVM: React.FC<AgentVMProps> = ({
@@ -295,6 +298,7 @@ export const AgentVM: React.FC<AgentVMProps> = ({
   onSyncGithub,
   onPause,
   onResume,
+  onSendMessage,
 }) => {
   const [isSidebarOpen, setSidebarOpen] = useState(true);
   const [activeTab, setActiveTab] = useState<'logs' | 'terminal' | 'timeline' | 'plan'>('logs');
@@ -304,6 +308,7 @@ export const AgentVM: React.FC<AgentVMProps> = ({
     null,
   );
   const [planData, setPlanData] = useState<PlanRecord | null>(null);
+  const [injectionText, setInjectionText] = useState('');
   const logEndRef = useRef<HTMLDivElement>(null);
   const exportMenuRef = useRef<HTMLDivElement>(null);
 
@@ -405,11 +410,13 @@ export const AgentVM: React.FC<AgentVMProps> = ({
         ? 'bg-blue-500'
         : agent.status === 'waiting_approval'
           ? 'bg-yellow-500'
-          : agent.status === 'completed'
-            ? 'bg-emerald-500'
-            : agent.status === 'error'
-              ? 'bg-red-500'
-              : 'bg-gray-500';
+          : agent.status === 'paused'
+            ? 'bg-amber-500'
+            : agent.status === 'completed'
+              ? 'bg-emerald-500'
+              : agent.status === 'error'
+                ? 'bg-red-500'
+                : 'bg-gray-500';
 
   const phaseLabel = agent.phase || agent.status;
 
@@ -553,6 +560,64 @@ export const AgentVM: React.FC<AgentVMProps> = ({
                 >
                   <Check size={12} /> Approve
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Prompt Injection Panel (when agent is paused) */}
+        {agent.status === 'paused' && onSendMessage && (
+          <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-[200] animate-slide-up">
+            <div className="bg-[#1a1d26]/90 backdrop-blur-xl border border-amber-500/30 rounded-2xl shadow-2xl p-4 w-[440px] flex flex-col gap-3">
+              <div className="flex items-start gap-3">
+                <div className="p-2 bg-amber-500/20 rounded-lg text-amber-400">
+                  <MessageSquare size={20} />
+                </div>
+                <div>
+                  <h3 className="text-white font-medium">Agent Paused</h3>
+                  <p className="text-xs text-gray-400">
+                    Inject a prompt before resuming, or resume without changes.
+                  </p>
+                </div>
+              </div>
+
+              <textarea
+                value={injectionText}
+                onChange={(e) => setInjectionText(e.target.value)}
+                placeholder="Type instructions for the agent..."
+                className="w-full h-20 bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-xs text-gray-200 placeholder-gray-600 resize-none focus:outline-none focus:border-amber-500/50"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && injectionText.trim()) {
+                    onSendMessage(agent.id, injectionText.trim());
+                    setInjectionText('');
+                  }
+                }}
+              />
+
+              <div className="flex justify-between items-center">
+                <span className="text-[9px] text-gray-600">Ctrl+Enter to send & resume</span>
+                <div className="flex gap-2">
+                  {onResume && (
+                    <button
+                      onClick={() => onResume(agent.id)}
+                      className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white transition-colors text-xs font-medium flex items-center gap-1.5"
+                    >
+                      <Play size={10} /> Resume
+                    </button>
+                  )}
+                  <button
+                    onClick={() => {
+                      if (injectionText.trim()) {
+                        onSendMessage(agent.id, injectionText.trim());
+                        setInjectionText('');
+                      }
+                    }}
+                    disabled={!injectionText.trim()}
+                    className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-30 disabled:cursor-not-allowed text-white font-bold text-xs transition-colors flex items-center gap-1.5"
+                  >
+                    <Send size={10} /> Send & Resume
+                  </button>
+                </div>
               </div>
             </div>
           </div>

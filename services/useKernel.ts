@@ -272,6 +272,25 @@ export function useKernel(wsUrl?: string) {
       }));
     });
 
+    // Pause/Resume events
+    const unsubPaused = client.on('agent.paused', (data: any) => {
+      setState((prev) => ({
+        ...prev,
+        processes: prev.processes.map((p) =>
+          p.pid === data.pid ? { ...p, state: 'paused', phase: 'waiting' } : p,
+        ),
+      }));
+    });
+
+    const unsubResumed = client.on('agent.resumed', (data: any) => {
+      setState((prev) => ({
+        ...prev,
+        processes: prev.processes.map((p) =>
+          p.pid === data.pid ? { ...p, state: 'running', phase: 'thinking' } : p,
+        ),
+      }));
+    });
+
     // VNC events
     const unsubVncStarted = client.on('vnc.started', (data: any) => {
       setState((prev) => ({
@@ -405,6 +424,8 @@ export function useKernel(wsUrl?: string) {
       unsubFileCreated();
       unsubBrowsing();
       unsubApproval();
+      unsubPaused();
+      unsubResumed();
       unsubVncStarted();
       unsubVncStopped();
       unsubGpuAllocated();
@@ -443,6 +464,30 @@ export function useKernel(wsUrl?: string) {
     return client.rejectAction(pid, reason);
   }, []);
 
+  const pauseAgent = useCallback(async (pid: number) => {
+    const client = clientRef.current;
+    if (!client) throw new Error('Kernel not connected');
+    return client.pauseAgent(pid);
+  }, []);
+
+  const resumeAgent = useCallback(async (pid: number) => {
+    const client = clientRef.current;
+    if (!client) throw new Error('Kernel not connected');
+    return client.resumeAgent(pid);
+  }, []);
+
+  const continueAgent = useCallback(async (pid: number, extraSteps?: number) => {
+    const client = clientRef.current;
+    if (!client) throw new Error('Kernel not connected');
+    return client.continueAgent(pid, extraSteps);
+  }, []);
+
+  const sendAgentMessage = useCallback(async (pid: number, content: string) => {
+    const client = clientRef.current;
+    if (!client) throw new Error('Kernel not connected');
+    return client.sendAgentMessage(pid, content);
+  }, []);
+
   const sendTerminalInput = useCallback((ttyId: string, data: string) => {
     const client = clientRef.current;
     if (!client) return;
@@ -466,6 +511,10 @@ export function useKernel(wsUrl?: string) {
     client: clientRef.current,
     spawnAgent,
     killProcess,
+    pauseAgent,
+    resumeAgent,
+    continueAgent,
+    sendAgentMessage,
     approveAction,
     rejectAction,
     sendTerminalInput,

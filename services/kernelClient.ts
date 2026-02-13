@@ -19,7 +19,7 @@
 
 type PID = number;
 type Signal = 'SIGTERM' | 'SIGKILL' | 'SIGSTOP' | 'SIGCONT' | 'SIGINT' | 'SIGUSR1' | 'SIGUSR2';
-type ProcessState = 'created' | 'running' | 'sleeping' | 'stopped' | 'zombie' | 'dead';
+type ProcessState = 'created' | 'running' | 'sleeping' | 'stopped' | 'paused' | 'zombie' | 'dead';
 type AgentPhase =
   | 'booting'
   | 'thinking'

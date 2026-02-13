@@ -69,62 +69,85 @@ export class VNCManager {
     wss.on('connection', (ws: WebSocket, _req: IncomingMessage) => {
       connections.add(ws);
 
-      // Connect to the VNC server in the container via TCP
-      const vncSocket = new Socket();
-      vncSocket.connect(vncPort, '127.0.0.1');
+      let retryCount = 0;
+      const MAX_RETRIES = 8;
+      let activeSocket: Socket | null = null;
+      let receivedData = false;
 
-      // Forward WebSocket messages (binary) to VNC TCP
-      ws.on('message', (data: Buffer) => {
-        if (vncSocket.writable) {
-          vncSocket.write(data);
-        }
-      });
-
-      // Forward VNC TCP data to WebSocket
-      vncSocket.on('data', (data: Buffer) => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(data);
-        }
-      });
-
-      // Cleanup
       const cleanup = () => {
         connections.delete(ws);
-        if (!vncSocket.destroyed) vncSocket.destroy();
+        if (activeSocket && !activeSocket.destroyed) activeSocket.destroy();
+        activeSocket = null;
         if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
           ws.close();
         }
       };
 
+      const connectVNC = () => {
+        if (ws.readyState !== WebSocket.OPEN) return;
+
+        const vncSocket = new Socket();
+        activeSocket = vncSocket;
+        receivedData = false;
+
+        vncSocket.connect(vncPort, '127.0.0.1');
+
+        // Forward WebSocket messages (binary) to VNC TCP
+        ws.removeAllListeners('message');
+        ws.on('message', (data: Buffer) => {
+          if (vncSocket.writable) {
+            vncSocket.write(data);
+          }
+        });
+
+        // Forward VNC TCP data to WebSocket
+        vncSocket.on('data', (data: Buffer) => {
+          receivedData = true;
+          retryCount = 0; // Reset retries once we get real data
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(data);
+          }
+        });
+
+        // On TCP close, retry if we haven't received data (x11vnc not ready yet)
+        vncSocket.on('close', () => {
+          if (!receivedData && retryCount < MAX_RETRIES && ws.readyState === WebSocket.OPEN) {
+            retryCount++;
+            const delay = Math.min(500 * retryCount, 3000);
+            console.log(
+              `[VNCManager] VNC TCP closed before data (attempt ${retryCount}/${MAX_RETRIES}), retrying in ${delay}ms...`,
+            );
+            setTimeout(connectVNC, delay);
+          } else if (receivedData && retryCount < MAX_RETRIES && ws.readyState === WebSocket.OPEN) {
+            // Was connected and lost connection — try once more
+            retryCount++;
+            console.log(`[VNCManager] VNC TCP dropped, reconnecting (attempt ${retryCount})...`);
+            setTimeout(connectVNC, 1000);
+          } else {
+            cleanup();
+          }
+        });
+
+        vncSocket.on('error', (err: Error) => {
+          if (retryCount < MAX_RETRIES && ws.readyState === WebSocket.OPEN) {
+            retryCount++;
+            const delay = Math.min(500 * retryCount, 3000);
+            console.log(
+              `[VNCManager] VNC TCP error: ${err.message} (attempt ${retryCount}/${MAX_RETRIES}), retrying in ${delay}ms...`,
+            );
+            if (!vncSocket.destroyed) vncSocket.destroy();
+            setTimeout(connectVNC, delay);
+          } else {
+            cleanup();
+          }
+        });
+      };
+
       ws.on('close', cleanup);
       ws.on('error', cleanup);
-      vncSocket.on('close', cleanup);
-      vncSocket.on('error', () => {
-        // VNC server disconnected — attempt reconnect after delay
-        setTimeout(() => {
-          if (ws.readyState === WebSocket.OPEN) {
-            const retry = new Socket();
-            retry.connect(vncPort, '127.0.0.1');
 
-            retry.on('data', (data: Buffer) => {
-              if (ws.readyState === WebSocket.OPEN) {
-                ws.send(data);
-              }
-            });
-
-            // Re-wire WebSocket → new VNC socket
-            ws.removeAllListeners('message');
-            ws.on('message', (data: Buffer) => {
-              if (retry.writable) {
-                retry.write(data);
-              }
-            });
-
-            retry.on('error', cleanup);
-            retry.on('close', cleanup);
-          }
-        }, 1000);
-      });
+      // Start first connection attempt
+      connectVNC();
     });
 
     return new Promise((resolve, reject) => {

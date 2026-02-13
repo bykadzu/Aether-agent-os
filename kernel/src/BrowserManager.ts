@@ -119,6 +119,15 @@ export class BrowserManager {
   }
 
   /**
+   * Get the Playwright page for a session (for direct evaluate calls).
+   * Returns null if the session doesn't exist.
+   */
+  getSessionPage(sessionId: string): any | null {
+    const session = this.sessions.get(sessionId);
+    return session?.page ?? null;
+  }
+
+  /**
    * Create a new browser session with its own page.
    */
   async createSession(sessionId: string, options?: BrowserSessionOptions): Promise<void> {
@@ -276,74 +285,51 @@ export class BrowserManager {
   async getDOMSnapshot(sessionId: string): Promise<DOMSnapshot> {
     const session = this.getSession(sessionId);
 
-    const elements = await session.page.evaluate(() => {
+    // NOTE: page.evaluate sends this function to the browser context.
+    // We must use a raw string to avoid esbuild injecting __name helpers
+    // for named functions, which don't exist in the browser context.
+    const elements = await session.page.evaluate(`(() => {
       const INTERACTIVE_TAGS = new Set([
-        'A',
-        'BUTTON',
-        'INPUT',
-        'SELECT',
-        'TEXTAREA',
-        'LABEL',
-        'H1',
-        'H2',
-        'H3',
-        'H4',
-        'H5',
-        'H6',
-        'P',
-        'LI',
-        'IMG',
+        'A', 'BUTTON', 'INPUT', 'SELECT', 'TEXTAREA', 'LABEL',
+        'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'P', 'LI', 'IMG',
       ]);
 
-      function extractElements(root: Element): any[] {
-        const result: any[] = [];
+      const extractElements = (root) => {
+        const result = [];
         const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, {
-          acceptNode(node: Node) {
-            const el = node as Element;
-            if (INTERACTIVE_TAGS.has(el.tagName)) {
+          acceptNode: (node) => {
+            const el = node;
+            if (INTERACTIVE_TAGS.has(el.tagName)) return NodeFilter.FILTER_ACCEPT;
+            if (el.getAttribute('role') || el.getAttribute('aria-label') || el.getAttribute('onclick'))
               return NodeFilter.FILTER_ACCEPT;
-            }
-            if (
-              el.getAttribute('role') ||
-              el.getAttribute('aria-label') ||
-              el.getAttribute('onclick')
-            ) {
-              return NodeFilter.FILTER_ACCEPT;
-            }
             return NodeFilter.FILTER_SKIP;
           },
         });
 
         let node = walker.nextNode();
         while (node) {
-          const el = node as Element;
-          const item: any = { tag: el.tagName.toLowerCase() };
-
-          const text = el.textContent?.trim().substring(0, 200);
+          const el = node;
+          const item = { tag: el.tagName.toLowerCase() };
+          const text = (el.textContent || '').trim().substring(0, 200);
           if (text) item.text = text;
-
-          if (el.tagName === 'A') item.href = (el as HTMLAnchorElement).href;
+          if (el.tagName === 'A') item.href = el.href;
           if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') {
-            item.type = (el as HTMLInputElement).type;
-            item.name = (el as HTMLInputElement).name;
-            item.value = (el as HTMLInputElement).value;
+            item.type = el.type;
+            item.name = el.name;
+            item.value = el.value;
           }
-
           const role = el.getAttribute('role');
           if (role) item.role = role;
-
           const ariaLabel = el.getAttribute('aria-label');
           if (ariaLabel) item.ariaLabel = ariaLabel;
-
           result.push(item);
           node = walker.nextNode();
         }
-
         return result;
-      }
+      };
 
       return extractElements(document.body);
-    });
+    })()`);
 
     const url = session.page.url();
     const title = await session.page.title();
@@ -364,6 +350,79 @@ export class BrowserManager {
   ): Promise<void> {
     const session = this.getSession(sessionId);
     await session.page.mouse.click(x, y, { button });
+  }
+
+  /**
+   * Find an element by text, CSS selector, or XPath, then click its center.
+   * Returns the resolved coordinates.
+   */
+  async clickBySelector(
+    sessionId: string,
+    selector: { text?: string; css?: string; xpath?: string },
+    button: 'left' | 'right' = 'left',
+  ): Promise<{ x: number; y: number }> {
+    const session = this.getSession(sessionId);
+
+    const selectorType = selector.text
+      ? 'text'
+      : selector.css
+        ? 'css'
+        : selector.xpath
+          ? 'xpath'
+          : null;
+    const selectorValue = selector.text || selector.css || selector.xpath;
+
+    if (!selectorType || !selectorValue) {
+      throw new Error('No valid selector provided. Use text, css, or xpath.');
+    }
+
+    const coords = (await session.page.evaluate(
+      `((sType, sVal) => {
+        let el = null;
+
+        if (sType === 'css') {
+          el = document.querySelector(sVal);
+        } else if (sType === 'xpath') {
+          const r = document.evaluate(sVal, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+          el = r.singleNodeValue;
+        } else if (sType === 'text') {
+          const all = document.querySelectorAll('a, button, input, select, textarea, [role="button"], [role="link"], [role="menuitem"], [onclick], label, summary, details, h1, h2, h3, h4, h5, h6, li, span, div, p');
+          let bestMatch = null;
+          let bestLen = Infinity;
+          for (const node of all) {
+            const t = (node.textContent || '').trim();
+            if (!t) continue;
+            const tLower = t.toLowerCase();
+            const vLower = sVal.toLowerCase();
+            if (t === sVal || tLower === vLower) {
+              if (t.length < bestLen) { bestMatch = node; bestLen = t.length; }
+            }
+          }
+          if (!bestMatch) {
+            for (const node of all) {
+              const t = (node.textContent || '').trim();
+              if (!t) continue;
+              if (t.toLowerCase().includes(sVal.toLowerCase())) {
+                if (t.length < bestLen) { bestMatch = node; bestLen = t.length; }
+              }
+            }
+          }
+          el = bestMatch;
+        }
+
+        if (!el) return null;
+        const rect = el.getBoundingClientRect();
+        if (rect.width === 0 && rect.height === 0) return null;
+        return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+      })(${JSON.stringify(selectorType)}, ${JSON.stringify(selectorValue)})`,
+    )) as { x: number; y: number } | null;
+
+    if (!coords) {
+      throw new Error(`Element not found with ${selectorType}: "${selectorValue}"`);
+    }
+
+    await session.page.mouse.click(coords.x, coords.y, { button });
+    return { x: Math.round(coords.x), y: Math.round(coords.y) };
   }
 
   /**

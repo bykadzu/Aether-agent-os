@@ -156,6 +156,7 @@ export class ContainerManager {
     pid: PID,
     hostVolumePath: string,
     sandbox?: SandboxConfig,
+    internalHomePath?: string,
   ): Promise<ContainerInfo | null> {
     if (!this.dockerAvailable) {
       this.bus.emit('container.fallback', { pid, reason: 'Docker not available' });
@@ -200,9 +201,9 @@ export class ContainerManager {
       `${memoryMB}m`,
       '--cpus',
       String(cpuLimit),
-      // Mount the agent's persistent workspace
+      // Mount the agent's persistent home directory (same path as VirtualFS)
       '-v',
-      `${hostVolumePath}:/home/aether:rw`,
+      `${hostVolumePath}:${internalHomePath || '/home/aether'}:rw`,
       // Mount shared directory for cross-agent file exchange
       ...(() => {
         const sharedDir = path.join(AETHER_ROOT, 'shared');
@@ -212,14 +213,14 @@ export class ContainerManager {
         return ['-v', `${sharedDir}:/home/agent/shared:rw`];
       })(),
       '-w',
-      '/home/aether',
+      internalHomePath || '/home/aether',
       // Environment
       '-e',
       `AETHER_PID=${pid}`,
       '-e',
       'TERM=xterm-256color',
       '-e',
-      'HOME=/home/aether',
+      `HOME=${internalHomePath || '/home/aether'}`,
       '-e',
       'USER=aether',
     ];
@@ -323,8 +324,8 @@ export class ContainerManager {
           );
         }
       } else if (graphical && hasEntrypoint) {
-        // Desktop image entrypoint needs a moment to start Xvfb + XFCE + x11vnc
-        await new Promise((r) => setTimeout(r, 3000));
+        // Desktop image entrypoint needs time to start Xvfb + XFCE + x11vnc
+        await new Promise((r) => setTimeout(r, 5000));
         console.log(
           `[ContainerManager] Desktop entrypoint started for PID ${pid} (VNC port ${vncPort})`,
         );
