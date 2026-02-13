@@ -1326,35 +1326,38 @@ const App: React.FC = () => {
 
     const unsubExit = client.on('process.exit', (data: any) => {
       const proc = kernel.processes.find((p) => p.pid === data.pid);
-      const name = proc?.name || `PID ${data.pid}`;
+      // Skip notifications for processes not in our list (e.g. already reaped,
+      // or spawned before this client connected). Avoids confusing "PID 1" messages.
+      if (!proc) return;
+      const name = proc.name;
       if (data.code === 0) {
         notify({
           type: 'success',
           title: 'Agent completed',
-          body: `Agent '${name}' finished${proc?.goal ? ': ' + proc.goal : ''}`,
-          action: proc ? () => openApp(AppID.VM, { agentId: `agent_${proc.pid}` }) : undefined,
-          actionLabel: proc ? 'Open VM' : undefined,
+          body: `Agent '${name}' finished${proc.goal ? ': ' + proc.goal : ''}`,
+          action: () => openApp(AppID.VM, { agentId: `agent_${proc.pid}` }),
+          actionLabel: 'Open VM',
         });
       } else {
         notify({
           type: 'error',
           title: 'Agent failed',
           body: `Agent '${name}' failed${data.signal ? ` (${data.signal})` : ` with code ${data.code}`}`,
-          action: proc ? () => openApp(AppID.VM, { agentId: `agent_${proc.pid}` }) : undefined,
-          actionLabel: proc ? 'Open VM' : undefined,
+          action: () => openApp(AppID.VM, { agentId: `agent_${proc.pid}` }),
+          actionLabel: 'Open VM',
         });
       }
     });
 
     const unsubApproval = client.on('process.approval_required', (data: any) => {
       const proc = kernel.processes.find((p) => p.pid === data.pid);
-      const name = proc?.name || `PID ${data.pid}`;
+      if (!proc) return; // Skip unknown processes
       notify({
         type: 'warning',
         title: 'Approval needed',
-        body: `Agent '${name}' wants to run: ${data.details || data.action || 'unknown action'}`,
+        body: `Agent '${proc.name}' wants to run: ${data.details || data.action || 'unknown action'}`,
         duration: 0, // Don't auto-dismiss approval requests
-        action: proc ? () => openApp(AppID.VM, { agentId: `agent_${proc.pid}` }) : undefined,
+        action: () => openApp(AppID.VM, { agentId: `agent_${proc.pid}` }),
         actionLabel: 'Review',
       });
     });
@@ -1444,21 +1447,23 @@ const App: React.FC = () => {
             />
           </div>
           {/* Kernel Status Indicator */}
-          <div
-            className="flex items-center gap-1.5"
-            title={
-              kernel.connected
-                ? `Kernel v${kernel.version} connected`
-                : 'Kernel disconnected (mock mode)'
-            }
-          >
+          {kernel.connected ? (
             <div
-              className={`w-1.5 h-1.5 rounded-full ${kernel.connected ? 'bg-green-400' : 'bg-orange-400'}`}
-            />
-            <span className="text-[10px] opacity-60 hidden sm:inline">
-              {kernel.connected ? 'Kernel' : 'Mock'}
-            </span>
-          </div>
+              className="flex items-center gap-1.5"
+              title={`Kernel v${kernel.version} connected`}
+            >
+              <div className="w-1.5 h-1.5 rounded-full bg-green-400" />
+              <span className="text-[10px] opacity-60 hidden sm:inline">Kernel</span>
+            </div>
+          ) : (
+            <div
+              className="flex items-center gap-1.5 bg-amber-500/15 border border-amber-500/30 rounded-full px-2.5 py-0.5"
+              title="Kernel disconnected — running in mock mode. No real agents or processes."
+            >
+              <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+              <span className="text-[10px] font-semibold text-amber-300">Mock Mode</span>
+            </div>
+          )}
           <button
             onClick={(e) => {
               e.stopPropagation();

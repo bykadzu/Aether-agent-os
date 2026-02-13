@@ -288,7 +288,7 @@ export async function runAgentLoop(
 
       state.history.push({
         role: 'tool',
-        content: `[${decision.tool}] ${result.success ? 'OK' : 'FAIL'}: ${result.output.substring(0, 1000)}`,
+        content: `[${decision.tool}] ${result.success ? 'OK' : 'FAIL'}: ${result.output.substring(0, 4000)}`,
         timestamp: Date.now(),
       });
       state.lastObservation = result.output;

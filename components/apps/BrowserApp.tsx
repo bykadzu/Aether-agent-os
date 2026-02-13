@@ -94,6 +94,7 @@ export const BrowserApp: React.FC = () => {
   const [activeTabId, setActiveTabId] = useState(initialTabRef.current.id);
   const [inputUrl, setInputUrl] = useState(DEFAULT_URL);
   const [kernelConnected, setKernelConnected] = useState(false);
+  const [sessionError, setSessionError] = useState<string | null>(null);
 
   // -- Refs -----------------------------------------------------------------
 
@@ -162,6 +163,7 @@ export const BrowserApp: React.FC = () => {
     createdSessions.current.add(tab.sessionId);
 
     try {
+      setSessionError(null);
       await sendCommand({
         type: 'browser:create',
         sessionId: tab.sessionId,
@@ -186,9 +188,14 @@ export const BrowserApp: React.FC = () => {
           url: tab.url,
         });
       }
-    } catch (err) {
-      console.error('[BrowserApp] Failed to create session:', err);
+    } catch (err: any) {
+      const msg = err?.message || String(err);
       createdSessions.current.delete(tab.sessionId);
+      if (msg.includes('Playwright') || msg.includes('playwright') || msg.includes('browser')) {
+        setSessionError('Browser engine not installed. Run: npx playwright install chromium');
+      } else {
+        setSessionError(`Failed to start browser session: ${msg}`);
+      }
     }
   }, []);
 
@@ -704,7 +711,30 @@ export const BrowserApp: React.FC = () => {
       {/* Viewport                                                          */}
       {/* ================================================================= */}
       <div ref={viewportRef} className="flex-1 relative bg-[#0a0b12] overflow-hidden">
-        {isKernelMode ? (
+        {sessionError ? (
+          /* ----- Error state: browser session failed ----- */
+          <div className="flex flex-col items-center justify-center h-full gap-4 px-8 text-center">
+            <div className="w-12 h-12 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center">
+              <Globe size={24} className="text-red-400" />
+            </div>
+            <div>
+              <h3 className="text-sm font-medium text-white mb-1">Browser Unavailable</h3>
+              <p className="text-xs text-gray-400 max-w-sm">{sessionError}</p>
+            </div>
+            <button
+              onClick={() => {
+                setSessionError(null);
+                if (activeTab) {
+                  createdSessions.current.delete(activeTab.sessionId);
+                  createSession(activeTab);
+                }
+              }}
+              className="text-xs text-blue-400 hover:text-blue-300 underline underline-offset-2"
+            >
+              Retry
+            </button>
+          </div>
+        ) : isKernelMode ? (
           /* ----- Kernel mode: canvas-based viewport ----- */
           <>
             <canvas
