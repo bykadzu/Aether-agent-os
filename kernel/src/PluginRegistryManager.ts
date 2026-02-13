@@ -69,6 +69,9 @@ export interface RegisteredPlugin {
   download_count: number;
   rating_avg: number;
   rating_count: number;
+  usage_count?: number;
+  total_quality?: number;
+  quality_ratings?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -88,6 +91,10 @@ export class PluginRegistryManager {
     getSetting: any;
     getAllSettings: any;
     upsertSetting: any;
+    incrementUsage: any;
+    addQuality: any;
+    getReputation: any;
+    flagLowQuality: any;
   };
 
   constructor(
@@ -133,6 +140,23 @@ export class PluginRegistryManager {
       )
     `);
 
+    // Reputation columns (v0.7 Sprint 4)
+    try {
+      db.exec('ALTER TABLE plugin_registry ADD COLUMN usage_count INTEGER DEFAULT 0');
+    } catch {
+      /* already exists */
+    }
+    try {
+      db.exec('ALTER TABLE plugin_registry ADD COLUMN total_quality REAL DEFAULT 0');
+    } catch {
+      /* already exists */
+    }
+    try {
+      db.exec('ALTER TABLE plugin_registry ADD COLUMN quality_ratings INTEGER DEFAULT 0');
+    } catch {
+      /* already exists */
+    }
+
     this.stmts = {
       insertPlugin: db.prepare(
         `INSERT OR REPLACE INTO plugin_registry (id, manifest, installed_at, updated_at, enabled, install_source, owner_uid, download_count, rating_avg, rating_count)
@@ -156,6 +180,18 @@ export class PluginRegistryManager {
       getAllSettings: db.prepare(`SELECT key, value FROM plugin_settings WHERE plugin_id = ?`),
       upsertSetting: db.prepare(
         `INSERT OR REPLACE INTO plugin_settings (plugin_id, key, value) VALUES (?, ?, ?)`,
+      ),
+      incrementUsage: db.prepare(
+        'UPDATE plugin_registry SET usage_count = usage_count + 1, updated_at = ? WHERE id = ?',
+      ),
+      addQuality: db.prepare(
+        'UPDATE plugin_registry SET total_quality = total_quality + ?, quality_ratings = quality_ratings + 1, updated_at = ? WHERE id = ?',
+      ),
+      getReputation: db.prepare(
+        'SELECT usage_count, total_quality, quality_ratings FROM plugin_registry WHERE id = ?',
+      ),
+      flagLowQuality: db.prepare(
+        'UPDATE plugin_registry SET enabled = 0, updated_at = ? WHERE id = ? AND quality_ratings >= 5 AND (total_quality * 1.0 / quality_ratings) < 2.0',
       ),
     };
 
@@ -289,6 +325,43 @@ export class PluginRegistryManager {
     this.bus.emit('plugin.setting.changed', { pluginId, key, value });
   }
 
+  incrementUsage(pluginId: string): void {
+    this.stmts.incrementUsage.run(Date.now(), pluginId);
+    this.bus.emit('plugin.usage.incremented', { pluginId });
+  }
+
+  addQualityRating(pluginId: string, rating: number): { avg_quality: number; flagged: boolean } {
+    this.stmts.addQuality.run(rating, Date.now(), pluginId);
+    const row = this.stmts.getReputation.get(pluginId) as
+      | { usage_count: number; total_quality: number; quality_ratings: number }
+      | undefined;
+    if (!row) return { avg_quality: 0, flagged: false };
+    const avg = row.quality_ratings > 0 ? row.total_quality / row.quality_ratings : 0;
+    let flagged = false;
+    if (avg < 2.0 && row.quality_ratings >= 5) {
+      this.stmts.flagLowQuality.run(Date.now(), pluginId);
+      this.bus.emit('plugin.quality.flagged', {
+        pluginId,
+        avg_quality: avg,
+        quality_ratings: row.quality_ratings,
+      });
+      flagged = true;
+    }
+    this.bus.emit('plugin.quality.rated', { pluginId, rating, avg_quality: avg });
+    return { avg_quality: avg, flagged };
+  }
+
+  getReputation(pluginId: string): { usage_count: number; avg_quality: number } | null {
+    const row = this.stmts.getReputation.get(pluginId) as
+      | { usage_count: number; total_quality: number; quality_ratings: number }
+      | undefined;
+    if (!row) return null;
+    return {
+      usage_count: row.usage_count || 0,
+      avg_quality: row.quality_ratings > 0 ? row.total_quality / row.quality_ratings : 0,
+    };
+  }
+
   shutdown(): void {
     // Nothing to clean up
   }
@@ -309,6 +382,9 @@ export class PluginRegistryManager {
       download_count: row.download_count || 0,
       rating_avg: row.rating_avg || 0,
       rating_count: row.rating_count || 0,
+      usage_count: row.usage_count || 0,
+      total_quality: row.total_quality || 0,
+      quality_ratings: row.quality_ratings || 0,
     };
   }
 }

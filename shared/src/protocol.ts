@@ -310,6 +310,7 @@ export interface AgentConfig {
   maxSteps?: number; // Max autonomous steps before pause
   priority?: number; // 1-5, default 3 (1 = highest)
   sandbox?: SandboxConfig;
+  skills?: string[]; // Skill IDs to pre-load into agent system prompt (v0.7)
 }
 
 export interface SandboxConfig {
@@ -1349,6 +1350,15 @@ export type KernelCommand =
     }
   | { type: 'skillforge.listProposals'; id: string; status?: SkillProposalStatus }
 
+  // SkillForge Share commands (v0.7 Sprint 4)
+  | {
+      type: 'skillforge.share';
+      id: string;
+      skillId: string;
+      target: 'all' | 'agent';
+      agentPid?: number;
+    }
+
   // System
   | { type: 'kernel.status'; id: string }
   | { type: 'kernel.shutdown'; id: string };
@@ -1623,6 +1633,9 @@ type KernelEventBase =
   | { type: 'skillforge.proposal.approved'; proposalId: string; skillId?: string }
   | { type: 'skillforge.proposal.rejected'; proposalId: string; reason?: string }
   | { type: 'skillforge.proposals.list'; proposals: SkillProposal[] }
+
+  // SkillForge Share events (v0.7 Sprint 4)
+  | { type: 'skillforge.skill.shared'; skillId: string; target: 'all' | 'agent'; sharedBy: string }
 
   // System events
   | { type: 'kernel.ready'; version: string; uptime: number }

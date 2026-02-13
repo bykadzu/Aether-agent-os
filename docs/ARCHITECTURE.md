@@ -1,6 +1,6 @@
 # Aether OS Architecture
 
-> Last updated: 2026-02-13 (comprehensive deep-dive, post-v0.6 MCP + OpenClaw)
+> Last updated: 2026-02-13 (comprehensive deep-dive, post-v0.7 Self-Modification)
 
 ---
 
@@ -22,7 +22,7 @@
 
 ## System Overview
 
-Aether OS is a three-tier agent operating system: a **React PWA desktop UI**, a **WebSocket/HTTP transport server**, and a **kernel** with 28 subsystems that orchestrate agent execution, memory, containers, and persistence.
+Aether OS is a three-tier agent operating system: a **React PWA desktop UI**, a **WebSocket/HTTP transport server**, and a **kernel** with 29 subsystems that orchestrate agent execution, memory, containers, and persistence.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -49,7 +49,7 @@ Aether OS is a three-tier agent operating system: a **React PWA desktop UI**, a 
 │   WebSocket: /kernel (UI <-> kernel), /cluster (node <-> hub)      │
 │                                                                     │
 ├─────────────────────────────────────────────────────────────────────┤
-│                        KERNEL (28 subsystems)                       │
+│                        KERNEL (29 subsystems)                       │
 │                                                                     │
 │   CORE                          INTELLIGENCE                        │
 │   ┌────────────────┐            ┌──────────────────┐                │
@@ -304,6 +304,7 @@ The kernel (`kernel/src/Kernel.ts`) is the central orchestrator. It instantiates
 | **RemoteAccessManager** | SSH tunnel and Tailscale VPN setup for remote agent access. |
 | **MCPManager** | Model Context Protocol client. Connects to external MCP servers (stdio/SSE), discovers tools, bridges tool calls. 27th subsystem (v0.6). |
 | **OpenClawAdapter** | Imports OpenClaw SKILL.md files. Parses frontmatter, validates dependencies (bins, env, OS), maps to PluginRegistryManifest. 28th subsystem (v0.6). |
+| **SkillForge** | Agent self-modification subsystem. Skill discovery, creation, composition, versioning, sharing, and reputation tracking. Voyager-inspired iterative refinement. 29th subsystem (v0.7). |
 
 ---
 
@@ -1089,6 +1090,7 @@ Aether_Agent_OS/
 | v0.4 | Ecosystem | REST API, webhooks, Slack/GitHub/S3/Discord, plugin marketplace, CLI, SDK |
 | v0.5 | Production | Resource governance, audit logging, Prometheus, TLS, MFA, Helm, RBAC, PWA, LangChain compat |
 | v0.6 | Interoperability | MCP protocol client (stdio/SSE), OpenClaw SKILL.md adapter, tool bridging, 28 subsystems |
+| v0.7 | Self-Modification | SkillForge subsystem, 8 agent tools (discover/install/create/compose/share/spawn/connect_mcp/update_profile), skill proposals, reflection-to-skill pipeline, multi-agent skill sharing, reputation tracking, 29 subsystems |
 
 ---
 

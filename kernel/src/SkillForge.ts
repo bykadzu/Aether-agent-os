@@ -821,6 +821,96 @@ export class SkillForge {
     return this.state.getAllProposals();
   }
 
+  recordSkillUsage(skillId: string, qualityRating?: number): void {
+    this.pluginRegistry.incrementUsage(skillId);
+    if (qualityRating !== undefined) {
+      this.pluginRegistry.addQualityRating(skillId, qualityRating);
+    }
+    this.bus.emit('skillforge.skill.usage', { skillId, qualityRating });
+  }
+
+  // -------------------------------------------------------------------------
+  // Sharing (v0.7 Sprint 4)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Share a skill with all agents (via plugin registry) or a specific agent (via IPC).
+   *
+   * - target 'all': registers the skill in the shared plugin registry so every
+   *   agent can discover and use it.
+   * - target 'agent': returns the skill content so the tool layer can send it
+   *   to a specific agent via IPC.
+   */
+  async share(
+    skillId: string,
+    target: 'all' | 'agent',
+    agentUid: string,
+  ): Promise<{ success: boolean; message: string; content?: string }> {
+    // Look up the skill versions
+    const versions = this.skillVersions.get(skillId);
+    if (!versions || versions.length === 0) {
+      return { success: false, message: `Skill "${skillId}" not found` };
+    }
+
+    // Get the latest version content
+    const latest = versions[versions.length - 1];
+    const skillContent = latest.content;
+
+    if (target === 'all') {
+      // Parse the SKILL.md to extract name/description for the manifest
+      let skillName = skillId;
+      let skillDescription = '';
+      try {
+        const parsed = matter(skillContent);
+        skillName = parsed.data.name || skillId;
+        skillDescription = parsed.data.description || '';
+      } catch {
+        /* use defaults */
+      }
+
+      // Create a PluginRegistryManifest and register in the shared registry
+      const manifest = {
+        id: skillId,
+        name: skillName,
+        version: `1.0.${latest.version}`,
+        author: agentUid,
+        description: skillDescription,
+        category: 'tools' as const,
+        icon: 'share-2',
+        tools: [],
+        keywords: ['agent-created', 'shared'],
+        metadata: {
+          source: 'agent-created',
+          sharedBy: agentUid,
+        },
+      };
+
+      try {
+        this.pluginRegistry.install(manifest as any, 'local', agentUid);
+      } catch (err: any) {
+        return { success: false, message: `Failed to register shared skill: ${err.message}` };
+      }
+
+      this.bus.emit('skillforge.skill.shared', {
+        skillId,
+        target: 'all',
+        sharedBy: agentUid,
+      });
+
+      return {
+        success: true,
+        message: `Skill "${skillName}" shared with all agents via plugin registry`,
+      };
+    }
+
+    // target === 'agent': return content for the tool layer to send via IPC
+    return {
+      success: true,
+      message: `Skill "${skillId}" content ready for IPC delivery`,
+      content: skillContent,
+    };
+  }
+
   // -------------------------------------------------------------------------
   // Private: Rate Limiting
   // -------------------------------------------------------------------------

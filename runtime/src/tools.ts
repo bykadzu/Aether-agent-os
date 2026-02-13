@@ -1329,6 +1329,104 @@ export function createToolSet(): ToolDefinition[] {
         }
       },
     },
+
+    // ----- Agent Spawning (v0.7) -----
+    {
+      name: 'spawn_agent',
+      description:
+        'Create a child agent with a specific role, goal, and optional pre-loaded skills. Returns the PID of the new agent. Args: role (string), goal (string), skills (string[] - skill IDs to pre-load, optional), model (string - LLM model, optional)',
+      execute: async (args, ctx) => {
+        if (!args.role || !args.goal) {
+          return { success: false, output: 'role and goal are required' };
+        }
+        try {
+          const config: any = {
+            role: args.role,
+            goal: args.goal,
+            model: args.model,
+            skills: args.skills,
+          };
+          const proc = ctx.kernel.processes.spawn(config, ctx.pid, ctx.uid);
+
+          // If skills were requested, gather their descriptions for the output
+          let skillInfo = '';
+          if (args.skills?.length) {
+            const loaded: string[] = [];
+            for (const skillId of args.skills) {
+              try {
+                const instructions = ctx.kernel.openClaw.getInstructions(skillId);
+                if (instructions) {
+                  loaded.push(skillId);
+                }
+              } catch {
+                // Try SkillForge versions
+                if (ctx.kernel.skillForge) {
+                  const versions = await ctx.kernel.skillForge.listVersions(skillId);
+                  if (versions.length > 0) loaded.push(skillId);
+                }
+              }
+            }
+            if (loaded.length > 0) {
+              skillInfo = ` Pre-loaded skills: ${loaded.join(', ')}.`;
+            }
+          }
+
+          return {
+            success: true,
+            output: `Spawned ${args.role} agent (PID ${proc.info.pid}) with goal: "${args.goal}".${skillInfo}`,
+          };
+        } catch (err: any) {
+          return { success: false, output: `Failed to spawn agent: ${err.message}` };
+        }
+      },
+    },
+
+    {
+      name: 'share_skill',
+      description:
+        'Share a skill with all agents (registers in shared plugin registry) or send to a specific agent via IPC. Args: skill_id (string), target (all|agent), agent_pid (number, required if target=agent)',
+      execute: async (args, ctx) => {
+        if (!ctx.kernel.skillForge) {
+          return { success: false, output: 'SkillForge subsystem not available' };
+        }
+        if (!args.skill_id) {
+          return { success: false, output: 'skill_id is required' };
+        }
+        if (!args.target || !['all', 'agent'].includes(args.target)) {
+          return { success: false, output: 'target is required and must be "all" or "agent"' };
+        }
+        if (args.target === 'agent' && !args.agent_pid) {
+          return { success: false, output: 'agent_pid is required when target is "agent"' };
+        }
+        const result = await ctx.kernel.skillForge.share(args.skill_id, args.target, ctx.uid);
+        if (!result.success) {
+          return { success: false, output: result.message };
+        }
+
+        // For 'agent' mode, send skill content via IPC
+        if (args.target === 'agent' && result.content) {
+          const toPid = Number(args.agent_pid);
+          const message = ctx.kernel.processes.sendMessage(
+            ctx.pid,
+            toPid,
+            'skill_share',
+            result.content,
+          );
+          if (!message) {
+            return {
+              success: false,
+              output: `Skill found but failed to send to PID ${toPid}: target not found or not alive`,
+            };
+          }
+          return {
+            success: true,
+            output: `Skill "${args.skill_id}" sent to PID ${toPid} via IPC (message: ${message.id})`,
+          };
+        }
+
+        return { success: result.success, output: result.message };
+      },
+    },
   ];
 }
 
@@ -1795,6 +1893,36 @@ export const TOOL_SCHEMAS: Record<
       },
       notes: { type: 'string', description: 'Working style notes to store' },
     },
+  },
+  spawn_agent: {
+    type: 'object',
+    properties: {
+      role: { type: 'string', description: 'Agent role (e.g. "researcher", "coder")' },
+      goal: { type: 'string', description: 'The task for the child agent' },
+      skills: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Skill IDs to pre-load into the agent',
+      },
+      model: { type: 'string', description: 'LLM model override (optional)' },
+    },
+    required: ['role', 'goal'],
+  },
+  share_skill: {
+    type: 'object',
+    properties: {
+      skill_id: { type: 'string', description: 'The skill to share' },
+      target: {
+        type: 'string',
+        enum: ['all', 'agent'],
+        description: 'Share with all agents or a specific one',
+      },
+      agent_pid: {
+        type: 'number',
+        description: 'Target agent PID (required if target=agent)',
+      },
+    },
+    required: ['skill_id', 'target'],
   },
 };
 
