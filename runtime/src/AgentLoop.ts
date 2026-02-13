@@ -161,6 +161,28 @@ export async function runAgentLoop(
     }
   }
 
+  // Load relevant skills for context injection (v0.7 Sprint 2)
+  const relevantSkills: Array<{ name: string; description: string; instructions: string }> = [];
+  if (kernel.skillForge) {
+    try {
+      const discovered = await kernel.skillForge.discover(config.goal, 'local', 5);
+      for (const skill of discovered) {
+        if (skill.installed && kernel.openClaw) {
+          const instructions = kernel.openClaw.getInstructions(skill.skill_id);
+          if (instructions) {
+            relevantSkills.push({
+              name: skill.name,
+              description: skill.description,
+              instructions: instructions.substring(0, 500),
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.warn(`[AgentLoop] Failed to load relevant skills:`, err);
+    }
+  }
+
   // System prompt
   state.history.push({
     role: 'system',
@@ -171,6 +193,7 @@ export async function runAgentLoop(
       planMarkdown,
       agentProfile,
       proc.info.uid,
+      relevantSkills,
     ),
     timestamp: Date.now(),
   });
@@ -746,6 +769,7 @@ function buildSystemPrompt(
   planMarkdown?: string,
   profile?: AgentProfile,
   uid?: string,
+  relevantSkills?: Array<{ name: string; description: string; instructions: string }>,
 ): string {
   const toolList = tools.map((t) => `- ${t.name}: ${t.description}`).join('\n');
 
@@ -837,6 +861,20 @@ function buildSystemPrompt(
   if (planMarkdown) {
     sections.push(``);
     sections.push(planMarkdown);
+  }
+
+  // Inject relevant skills based on goal similarity (v0.7 Sprint 2)
+  if (relevantSkills && relevantSkills.length > 0) {
+    sections.push(``);
+    sections.push(`## Relevant Skills (auto-discovered for your goal)`);
+    sections.push(`The following skills have been identified as relevant to your current task:`);
+    for (const skill of relevantSkills) {
+      sections.push(``);
+      sections.push(`### ${skill.name}`);
+      sections.push(`${skill.description}`);
+      sections.push(``);
+      sections.push(skill.instructions);
+    }
   }
 
   return sections.join('\n');

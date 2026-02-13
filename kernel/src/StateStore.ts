@@ -241,6 +241,11 @@ export class StateStore {
     getOpenClawImport: Database.Statement;
     getAllOpenClawImports: Database.Statement;
     deleteOpenClawImport: Database.Statement;
+    // Skill embedding statements (v0.7 Sprint 2)
+    upsertSkillEmbedding: Database.Statement;
+    getSkillEmbedding: Database.Statement;
+    getAllSkillEmbeddings: Database.Statement;
+    deleteSkillEmbedding: Database.Statement;
   };
 
   private _persistenceDisabled = false;
@@ -797,6 +802,15 @@ export class StateStore {
         dependencies_met INTEGER NOT NULL DEFAULT 1,
         import_data TEXT NOT NULL,
         imported_at INTEGER NOT NULL
+      );
+    `);
+
+    // Skill embeddings table (v0.7 Sprint 2)
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS skill_embeddings (
+        skill_id TEXT PRIMARY KEY,
+        embedding TEXT NOT NULL,
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch())
       );
     `);
   }
@@ -1429,6 +1443,13 @@ export class StateStore {
       getOpenClawImport: this.db.prepare(`SELECT * FROM openclaw_imports WHERE skill_id = ?`),
       getAllOpenClawImports: this.db.prepare(`SELECT * FROM openclaw_imports ORDER BY name`),
       deleteOpenClawImport: this.db.prepare(`DELETE FROM openclaw_imports WHERE skill_id = ?`),
+      // Skill embeddings (v0.7 Sprint 2)
+      upsertSkillEmbedding: this.db.prepare(
+        `INSERT OR REPLACE INTO skill_embeddings (skill_id, embedding, updated_at) VALUES (?, ?, ?)`,
+      ),
+      getSkillEmbedding: this.db.prepare(`SELECT * FROM skill_embeddings WHERE skill_id = ?`),
+      getAllSkillEmbeddings: this.db.prepare(`SELECT * FROM skill_embeddings`),
+      deleteSkillEmbedding: this.db.prepare(`DELETE FROM skill_embeddings WHERE skill_id = ?`),
     };
   }
 
@@ -2989,6 +3010,29 @@ export class StateStore {
 
   deleteOpenClawImport(skillId: string): void {
     this.stmts.deleteOpenClawImport.run(skillId);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Skill Embedding Persistence (v0.7 Sprint 2)
+  // ---------------------------------------------------------------------------
+
+  upsertSkillEmbedding(skillId: string, embedding: number[], updatedAt?: number): void {
+    const now = updatedAt ?? Math.floor(Date.now() / 1000);
+    this.stmts.upsertSkillEmbedding.run(skillId, JSON.stringify(embedding), now);
+  }
+
+  getSkillEmbedding(
+    skillId: string,
+  ): { skill_id: string; embedding: string; updated_at: number } | undefined {
+    return this.stmts.getSkillEmbedding.get(skillId) as any;
+  }
+
+  getAllSkillEmbeddings(): Array<{ skill_id: string; embedding: string; updated_at: number }> {
+    return this.stmts.getAllSkillEmbeddings.all() as any[];
+  }
+
+  deleteSkillEmbedding(skillId: string): void {
+    this.stmts.deleteSkillEmbedding.run(skillId);
   }
 
   /**

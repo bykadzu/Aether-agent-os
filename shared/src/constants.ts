@@ -123,6 +123,10 @@ export const SKILLFORGE_MAX_RETRIES = 3; // Iterative refinement attempts
 export const SKILLFORGE_DEFAULT_ENFORCEMENT: 'allow' | 'warn' | 'prompt' | 'deny' = 'warn';
 export const SKILLFORGE_SKILL_ID_PREFIX = 'forge-';
 
+// ClawHub API cache TTL (v0.7 Sprint 2)
+export const CLAWHUB_CACHE_TTL = 3_600_000; // 1 hour cache for ClawHub API responses
+export const SKILLFORGE_EMBEDDING_DIMENSIONS = 64; // Lightweight embedding dimensions
+
 // Event deduplication
 export function createEventId(): string {
   return `${Date.now()}-${crypto.randomUUID()}`;
