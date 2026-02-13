@@ -749,6 +749,7 @@ const App: React.FC = () => {
         }
       } else {
         const agent = agents.find((a) => a.id === initialData.agentId);
+        const maxZ = Math.max(...windows.map((w) => w.zIndex), 0);
         const newWindow: WindowState = {
           id: winId,
           appId: AppID.VM,
@@ -756,7 +757,7 @@ const App: React.FC = () => {
           isOpen: true,
           isMinimized: false,
           isMaximized: false,
-          zIndex: windows.length + 1,
+          zIndex: maxZ + 1,
           position: { x: 150, y: 100 },
           size: { width: 1000, height: 700 },
           initialData,
@@ -790,6 +791,7 @@ const App: React.FC = () => {
       focusWindow(winId);
     } else {
       const isCalculator = appId === AppID.CALCULATOR;
+      const maxZ = Math.max(...windows.map((w) => w.zIndex), 0);
       const newWindow: WindowState = {
         id: winId,
         appId: appId,
@@ -797,7 +799,7 @@ const App: React.FC = () => {
         isOpen: true,
         isMinimized: false,
         isMaximized: false,
-        zIndex: windows.length + 1,
+        zIndex: maxZ + 1,
         position: { x: 100 + windows.length * 30, y: 100 + windows.length * 30 },
         size: isCalculator ? { width: 320, height: 480 } : { width: 900, height: 650 },
         initialData,

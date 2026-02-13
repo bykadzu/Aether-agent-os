@@ -483,32 +483,30 @@ export class Kernel {
         }
 
         case 'agent.pause': {
-          const proc = this.processes.get(cmd.pid);
-          if (proc && proc.info.state === 'running') {
-            this.processes.setState(cmd.pid, 'stopped', 'idle');
+          const paused = this.processes.pause(cmd.pid);
+          if (paused) {
             this.bus.emit('agent.thought', { pid: cmd.pid, thought: 'Paused by operator.' });
             events.push({ type: 'response.ok', id: cmd.id });
           } else {
             events.push({
               type: 'response.error',
               id: cmd.id,
-              error: 'Process not running',
+              error: 'Process not running or already paused',
             } as KernelEvent);
           }
           break;
         }
 
         case 'agent.resume': {
-          const proc = this.processes.get(cmd.pid);
-          if (proc && proc.info.state === 'stopped') {
-            this.processes.setState(cmd.pid, 'running', 'thinking');
+          const resumed = this.processes.resume(cmd.pid);
+          if (resumed) {
             this.bus.emit('agent.thought', { pid: cmd.pid, thought: 'Resumed by operator.' });
             events.push({ type: 'response.ok', id: cmd.id });
           } else {
             events.push({
               type: 'response.error',
               id: cmd.id,
-              error: 'Process not stopped',
+              error: 'Process not paused',
             } as KernelEvent);
           }
           break;
