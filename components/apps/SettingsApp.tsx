@@ -27,6 +27,9 @@ import {
   UserPlus,
   UserMinus,
   Crown,
+  Plug,
+  RefreshCw,
+  ExternalLink,
 } from 'lucide-react';
 import { getKernelClient, GPUInfo, ClusterInfo } from '../../services/kernelClient';
 import { useTheme, ThemeMode } from '../../services/themeManager';
@@ -166,6 +169,17 @@ export const SettingsApp: React.FC = () => {
   const [newTriggerRole, setNewTriggerRole] = useState('');
   const [newTriggerGoal, setNewTriggerGoal] = useState('');
   const [newTriggerCooldown, setNewTriggerCooldown] = useState('60000');
+
+  // MCP state
+  const [mcpServers, setMcpServers] = useState<any[]>([]);
+  const [mcpExpandedServer, setMcpExpandedServer] = useState<string | null>(null);
+  const [mcpServerTools, setMcpServerTools] = useState<Record<string, any[]>>({});
+  const [newMcpName, setNewMcpName] = useState('');
+  const [newMcpId, setNewMcpId] = useState('');
+  const [newMcpTransport, setNewMcpTransport] = useState<'stdio' | 'sse'>('stdio');
+  const [newMcpCommand, setNewMcpCommand] = useState('');
+  const [newMcpArgs, setNewMcpArgs] = useState('');
+  const [newMcpUrl, setNewMcpUrl] = useState('');
 
   useEffect(() => {
     const client = getKernelClient();
@@ -328,6 +342,123 @@ export const SettingsApp: React.FC = () => {
     }
   }, [activeTab]);
 
+  // Load MCP data when tab is active
+  useEffect(() => {
+    if (activeTab !== 'MCP Servers') return;
+    const client = getKernelClient();
+    if (!client.connected) return;
+    const token = localStorage.getItem('aether_token');
+    const base = client.getBaseUrl?.() || 'http://localhost:3001';
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    fetch(`${base}/api/v1/mcp/servers`, { headers })
+      .then((r) => (r.ok ? r.json() : { data: [] }))
+      .then((d) => setMcpServers(Array.isArray(d.data ?? d) ? (d.data ?? d) : []))
+      .catch(() => setMcpServers([]));
+  }, [activeTab]);
+
+  const handleMcpConnect = (serverId: string) => {
+    const client = getKernelClient();
+    if (!client.connected) return;
+    const token = localStorage.getItem('aether_token');
+    const base = client.getBaseUrl?.() || 'http://localhost:3001';
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    fetch(`${base}/api/v1/mcp/servers/${serverId}/connect`, { method: 'POST', headers })
+      .then((r) => r.json())
+      .then((d) => {
+        const info = d.data ?? d;
+        setMcpServers((prev) => prev.map((s) => (s.id === serverId ? { ...s, ...info } : s)));
+      })
+      .catch(() => {});
+  };
+
+  const handleMcpDisconnect = (serverId: string) => {
+    const client = getKernelClient();
+    if (!client.connected) return;
+    const token = localStorage.getItem('aether_token');
+    const base = client.getBaseUrl?.() || 'http://localhost:3001';
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    fetch(`${base}/api/v1/mcp/servers/${serverId}/disconnect`, { method: 'POST', headers })
+      .then(() => {
+        setMcpServers((prev) =>
+          prev.map((s) => (s.id === serverId ? { ...s, status: 'disconnected', toolCount: 0 } : s)),
+        );
+      })
+      .catch(() => {});
+  };
+
+  const handleMcpDelete = (serverId: string) => {
+    const client = getKernelClient();
+    if (!client.connected) return;
+    const token = localStorage.getItem('aether_token');
+    const base = client.getBaseUrl?.() || 'http://localhost:3001';
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    fetch(`${base}/api/v1/mcp/servers/${serverId}`, { method: 'DELETE', headers })
+      .then(() => setMcpServers((prev) => prev.filter((s) => s.id !== serverId)))
+      .catch(() => {});
+  };
+
+  const handleMcpLoadTools = (serverId: string) => {
+    const client = getKernelClient();
+    if (!client.connected) return;
+    const token = localStorage.getItem('aether_token');
+    const base = client.getBaseUrl?.() || 'http://localhost:3001';
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    fetch(`${base}/api/v1/mcp/tools/${serverId}`, { headers })
+      .then((r) => (r.ok ? r.json() : { data: [] }))
+      .then((d) => {
+        const tools = Array.isArray(d.data ?? d) ? (d.data ?? d) : [];
+        setMcpServerTools((prev) => ({ ...prev, [serverId]: tools }));
+      })
+      .catch(() => {});
+  };
+
+  const handleMcpAddServer = () => {
+    if (!newMcpId || !newMcpName || !newMcpTransport) return;
+    const client = getKernelClient();
+    if (!client.connected) return;
+    const token = localStorage.getItem('aether_token');
+    const base = client.getBaseUrl?.() || 'http://localhost:3001';
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const config: any = {
+      id: newMcpId,
+      name: newMcpName,
+      transport: newMcpTransport,
+      autoConnect: false,
+      enabled: true,
+    };
+    if (newMcpTransport === 'stdio') {
+      config.command = newMcpCommand;
+      config.args = newMcpArgs ? newMcpArgs.split(' ').filter(Boolean) : [];
+    } else {
+      config.url = newMcpUrl;
+    }
+
+    fetch(`${base}/api/v1/mcp/servers`, { method: 'POST', headers, body: JSON.stringify(config) })
+      .then((r) => r.json())
+      .then((d) => {
+        const info = d.data ?? d;
+        setMcpServers((prev) => [...prev, { ...config, ...info }]);
+        setNewMcpId('');
+        setNewMcpName('');
+        setNewMcpCommand('');
+        setNewMcpArgs('');
+        setNewMcpUrl('');
+      })
+      .catch(() => {});
+  };
+
   const handleSaveGeminiKey = () => {
     localStorage.setItem('gemini_api_key', geminiKey);
     // Also set it for the geminiService
@@ -484,6 +615,7 @@ export const SettingsApp: React.FC = () => {
     { name: 'Notifications', icon: Bell, color: 'bg-red-500' },
     { name: 'Organization', icon: Building2, color: 'bg-emerald-500' },
     { name: 'Automation', icon: Zap, color: 'bg-amber-500' },
+    { name: 'MCP Servers', icon: Plug, color: 'bg-teal-500' },
   ];
 
   const renderContent = () => {
@@ -1127,6 +1259,198 @@ export const SettingsApp: React.FC = () => {
                 </div>
               </>
             )}
+          </div>
+        )}
+
+        {/* MCP Servers */}
+        {activeTab === 'MCP Servers' && (
+          <div className="space-y-4">
+            {/* Server List */}
+            <div className="bg-white/50 rounded-xl border border-white/40 overflow-hidden">
+              <div className="p-4 border-b border-gray-100">
+                <h3 className="text-sm font-bold text-gray-700 mb-1 flex items-center gap-2">
+                  <Plug size={14} className="text-teal-500" /> MCP Servers
+                </h3>
+                <p className="text-xs text-gray-400">
+                  Connect to Model Context Protocol servers for external tools
+                </p>
+              </div>
+
+              {mcpServers.length > 0 ? (
+                mcpServers.map((server: any) => (
+                  <div key={server.id} className="border-b border-gray-100 last:border-b-0">
+                    <div className="p-4 flex items-center justify-between">
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                        <div
+                          className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                            server.status === 'connected'
+                              ? 'bg-green-500'
+                              : server.status === 'error'
+                                ? 'bg-red-500'
+                                : 'bg-gray-300'
+                          }`}
+                        />
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium text-gray-700 truncate">
+                            {server.name}
+                          </div>
+                          <div className="text-[10px] text-gray-400 mt-0.5 flex items-center gap-2 flex-wrap">
+                            <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded">
+                              {server.transport}
+                            </span>
+                            <span className="text-gray-300">|</span>
+                            <span>{server.status || 'disconnected'}</span>
+                            {server.toolCount > 0 && (
+                              <>
+                                <span className="text-gray-300">|</span>
+                                <span>{server.toolCount} tools</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0 ml-3">
+                        {server.status === 'connected' ? (
+                          <>
+                            <button
+                              onClick={() => {
+                                if (mcpExpandedServer === server.id) {
+                                  setMcpExpandedServer(null);
+                                } else {
+                                  setMcpExpandedServer(server.id);
+                                  handleMcpLoadTools(server.id);
+                                }
+                              }}
+                              className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
+                              title="Show tools"
+                            >
+                              <ExternalLink size={14} className="text-teal-500" />
+                            </button>
+                            <button
+                              onClick={() => handleMcpDisconnect(server.id)}
+                              className="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg text-xs font-medium transition-colors"
+                            >
+                              Disconnect
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            onClick={() => handleMcpConnect(server.id)}
+                            className="px-2.5 py-1 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-medium transition-colors flex items-center gap-1"
+                          >
+                            <RefreshCw size={10} /> Connect
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleMcpDelete(server.id)}
+                          className="p-1 hover:bg-red-50 rounded-lg transition-colors"
+                          title="Delete"
+                        >
+                          <Trash2 size={14} className="text-red-400" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Expanded tool list */}
+                    {mcpExpandedServer === server.id && (
+                      <div className="px-4 pb-4">
+                        <div className="bg-gray-50 rounded-lg p-3">
+                          <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                            Discovered Tools
+                          </h4>
+                          {mcpServerTools[server.id]?.length > 0 ? (
+                            <div className="space-y-1.5">
+                              {mcpServerTools[server.id].map((tool: any) => (
+                                <div key={tool.name} className="flex items-start gap-2 text-xs">
+                                  <span className="font-mono text-teal-600 shrink-0 bg-teal-50 px-1.5 py-0.5 rounded">
+                                    {tool.mcpName || tool.name}
+                                  </span>
+                                  <span className="text-gray-500 truncate">{tool.description}</span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-gray-400">No tools discovered.</p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))
+              ) : (
+                <div className="p-4 text-sm text-gray-400">
+                  No MCP servers configured. Add one below.
+                </div>
+              )}
+
+              {/* Add Server Form */}
+              <div className="p-4 bg-gray-50/50">
+                <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-1.5">
+                  <Plus size={12} /> Add MCP Server
+                </h4>
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newMcpId}
+                      onChange={(e) => setNewMcpId(e.target.value)}
+                      placeholder="Server ID (e.g. filesystem)"
+                      className="flex-1 bg-gray-100 border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-teal-400 transition-colors"
+                    />
+                    <input
+                      type="text"
+                      value={newMcpName}
+                      onChange={(e) => setNewMcpName(e.target.value)}
+                      placeholder="Display name"
+                      className="flex-1 bg-gray-100 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-teal-400 transition-colors"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <select
+                      value={newMcpTransport}
+                      onChange={(e) => setNewMcpTransport(e.target.value as 'stdio' | 'sse')}
+                      className="w-32 bg-gray-100 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-teal-400 transition-colors"
+                    >
+                      <option value="stdio">stdio</option>
+                      <option value="sse">SSE</option>
+                    </select>
+                    {newMcpTransport === 'stdio' ? (
+                      <>
+                        <input
+                          type="text"
+                          value={newMcpCommand}
+                          onChange={(e) => setNewMcpCommand(e.target.value)}
+                          placeholder="Command (e.g. npx)"
+                          className="w-32 bg-gray-100 border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-teal-400 transition-colors"
+                        />
+                        <input
+                          type="text"
+                          value={newMcpArgs}
+                          onChange={(e) => setNewMcpArgs(e.target.value)}
+                          placeholder="Args (space-separated)"
+                          className="flex-1 bg-gray-100 border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-teal-400 transition-colors"
+                        />
+                      </>
+                    ) : (
+                      <input
+                        type="text"
+                        value={newMcpUrl}
+                        onChange={(e) => setNewMcpUrl(e.target.value)}
+                        placeholder="SSE URL (e.g. https://mcp.example.com/sse)"
+                        className="flex-1 bg-gray-100 border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-teal-400 transition-colors"
+                      />
+                    )}
+                  </div>
+                  <button
+                    onClick={handleMcpAddServer}
+                    disabled={!newMcpId || !newMcpName}
+                    className="bg-teal-500 hover:bg-teal-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5"
+                  >
+                    <Plus size={12} /> Add Server
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 

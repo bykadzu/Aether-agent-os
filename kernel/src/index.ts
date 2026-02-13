@@ -25,6 +25,7 @@ export { AuditLogger } from './AuditLogger.js';
 export { ModelRouter } from './ModelRouter.js';
 export { MetricsExporter } from './MetricsExporter.js';
 export { ToolCompatLayer } from './ToolCompatLayer.js';
+export { MCPManager } from './MCPManager.js';
 export {
   SlackIntegration,
   verifySlackSignature,

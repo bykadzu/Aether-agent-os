@@ -30,6 +30,7 @@ import type { AgentProfile } from '@aether/shared';
 import {
   createToolSet,
   getToolsForAgent,
+  getToolSchemasForAgent,
   ToolDefinition,
   ToolResult,
   ToolContext,
@@ -84,7 +85,7 @@ export async function runAgentLoop(
     await kernel.plugins.loadPluginsForAgent(pid, proc.info.uid);
   }
 
-  const tools = kernel.plugins ? getToolsForAgent(pid, kernel.plugins) : createToolSet();
+  const tools = getToolsForAgent(pid, kernel.plugins || undefined, kernel.mcp || undefined);
   const toolMap = new Map(tools.map((t) => [t.name, t]));
 
   // Smart model routing: if no explicit model in config, ask the ModelRouter
@@ -283,7 +284,16 @@ export async function runAgentLoop(
         // Phase 1: Think - ask LLM for next action
         kernel.processes.setState(pid, 'running', 'thinking');
 
-        const decision = await getNextAction(state, config, tools, provider, options.apiKey);
+        // Build dynamic tool schemas that include MCP tool schemas
+        const dynamicSchemas = getToolSchemasForAgent(kernel.mcp || undefined);
+        const decision = await getNextAction(
+          state,
+          config,
+          tools,
+          provider,
+          options.apiKey,
+          dynamicSchemas,
+        );
 
         // Log the reasoning
         kernel.bus.emit('agent.thought', { pid, thought: decision.reasoning });
@@ -585,6 +595,10 @@ async function getNextAction(
   tools: ToolDefinition[],
   provider: LLMProvider | null,
   apiKey?: string,
+  toolSchemas?: Record<
+    string,
+    { type: string; properties: Record<string, any>; required?: string[] }
+  >,
 ): Promise<LLMDecision> {
   // If no provider is available (and no API key), use heuristic fallback
   if (!provider || (!provider.isAvailable() && !apiKey)) {
@@ -608,10 +622,11 @@ async function getNextAction(
       });
 
       // Convert tool definitions to LLM format with proper parameter schemas
+      const schemas = toolSchemas || TOOL_SCHEMAS;
       const llmTools: LLMToolDef[] = tools.map((t) => ({
         name: t.name,
         description: t.description,
-        parameters: TOOL_SCHEMAS[t.name] || {
+        parameters: schemas[t.name] || {
           type: 'object',
           properties: {},
         },

@@ -13,7 +13,7 @@
 
 import { exec as execCb } from 'node:child_process';
 import { promisify } from 'node:util';
-import { Kernel, PluginManager } from '@aether/kernel';
+import { Kernel, PluginManager, MCPManager } from '@aether/kernel';
 import { PID, PlanNode, DEFAULT_COMMAND_TIMEOUT, MAX_COMMAND_TIMEOUT } from '@aether/shared';
 
 const execAsync = promisify(execCb);
@@ -1166,42 +1166,88 @@ export function createToolSet(): ToolDefinition[] {
 
 /**
  * Get the full tool set for an agent, merging built-in tools with any
- * loaded plugin tools.
+ * loaded plugin tools and MCP server tools.
  */
-export function getToolsForAgent(pid: PID, pluginManager?: PluginManager): ToolDefinition[] {
+export function getToolsForAgent(
+  pid: PID,
+  pluginManager?: PluginManager,
+  mcpManager?: MCPManager,
+): ToolDefinition[] {
   const baseTools = createToolSet();
 
-  if (!pluginManager) return baseTools;
-
-  const plugins = pluginManager.getPlugins(pid);
   const pluginTools: ToolDefinition[] = [];
+  if (pluginManager) {
+    const plugins = pluginManager.getPlugins(pid);
+    for (const plugin of plugins) {
+      for (const toolManifest of plugin.manifest.tools) {
+        const handler = plugin.handlers.get(toolManifest.name);
+        if (!handler) continue;
 
-  for (const plugin of plugins) {
-    for (const toolManifest of plugin.manifest.tools) {
-      const handler = plugin.handlers.get(toolManifest.name);
-      if (!handler) continue;
+        pluginTools.push({
+          name: toolManifest.name,
+          description: toolManifest.description,
+          requiresApproval: toolManifest.requiresApproval,
+          execute: async (args: Record<string, any>, ctx: ToolContext): Promise<ToolResult> => {
+            try {
+              const result = await handler(args, {
+                pid: ctx.pid,
+                cwd: ctx.cwd,
+                kernel: ctx.kernel,
+              });
+              return { success: true, output: result };
+            } catch (err: any) {
+              return { success: false, output: `Plugin error: ${err.message}` };
+            }
+          },
+        });
+      }
+    }
+  }
 
-      pluginTools.push({
-        name: toolManifest.name,
-        description: toolManifest.description,
-        requiresApproval: toolManifest.requiresApproval,
-        execute: async (args: Record<string, any>, ctx: ToolContext): Promise<ToolResult> => {
+  // MCP tools: create ToolDefinition wrappers for each connected MCP server tool
+  const mcpTools: ToolDefinition[] = [];
+  if (mcpManager) {
+    const allMCPTools = mcpManager.getTools();
+    for (const mcpTool of allMCPTools) {
+      mcpTools.push({
+        name: mcpTool.name, // e.g. "mcp__filesystem__read_file"
+        description: `[MCP: ${mcpTool.serverId}] ${mcpTool.description}`,
+        requiresApproval: false,
+        execute: async (args: Record<string, any>): Promise<ToolResult> => {
           try {
-            const result = await handler(args, {
-              pid: ctx.pid,
-              cwd: ctx.cwd,
-              kernel: ctx.kernel,
-            });
+            const result = await mcpManager.callTool(mcpTool.serverId, mcpTool.mcpName, args);
             return { success: true, output: result };
           } catch (err: any) {
-            return { success: false, output: `Plugin error: ${err.message}` };
+            return { success: false, output: `MCP tool error: ${err.message}` };
           }
         },
       });
     }
   }
 
-  return [...baseTools, ...pluginTools];
+  return [...baseTools, ...pluginTools, ...mcpTools];
+}
+
+/**
+ * Get tool parameter schemas for an agent, merging built-in TOOL_SCHEMAS
+ * with MCP tool schemas (which carry their own JSON Schema via inputSchema).
+ */
+export function getToolSchemasForAgent(
+  mcpManager?: MCPManager,
+): Record<string, { type: string; properties: Record<string, any>; required?: string[] }> {
+  const schemas = { ...TOOL_SCHEMAS };
+
+  if (mcpManager) {
+    for (const mcpTool of mcpManager.getTools()) {
+      schemas[mcpTool.name] = {
+        type: 'object',
+        properties: mcpTool.inputSchema?.properties || {},
+        required: mcpTool.inputSchema?.required,
+      };
+    }
+  }
+
+  return schemas;
 }
 
 // ---------------------------------------------------------------------------

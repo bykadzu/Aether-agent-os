@@ -1777,6 +1777,100 @@ export function createV1Router(
     return false;
   }
 
+  // ----- MCP Servers (v0.6) -----
+
+  async function handleMCP(
+    req: IncomingMessage,
+    res: ServerResponse,
+    url: URL,
+    _user: UserInfo,
+  ): Promise<boolean> {
+    const method = req.method || 'GET';
+    const pathname = url.pathname;
+
+    // GET /api/v1/mcp/servers — List all MCP server configs + status
+    if (pathname === '/api/v1/mcp/servers' && method === 'GET') {
+      const servers = kernel.mcp.getAllServers();
+      jsonOk(res, servers);
+      return true;
+    }
+
+    // POST /api/v1/mcp/servers — Add a new MCP server config
+    if (pathname === '/api/v1/mcp/servers' && method === 'POST') {
+      try {
+        const body = await readBody(req);
+        const config = JSON.parse(body);
+        if (!config.id || !config.name || !config.transport) {
+          jsonError(res, 400, 'INVALID_INPUT', 'id, name, and transport are required');
+          return true;
+        }
+        const info = kernel.mcp.addServer(config);
+        jsonOk(res, info, 201);
+      } catch (err: any) {
+        jsonError(res, 400, 'INVALID_INPUT', err.message);
+      }
+      return true;
+    }
+
+    // DELETE /api/v1/mcp/servers/:id — Remove an MCP server config
+    let params = matchRoute(pathname, method, 'DELETE', '/api/v1/mcp/servers/:id');
+    if (params) {
+      try {
+        kernel.mcp.removeServer(params.id);
+        jsonOk(res, { deleted: true });
+      } catch (err: any) {
+        jsonError(res, 404, 'NOT_FOUND', err.message);
+      }
+      return true;
+    }
+
+    // POST /api/v1/mcp/servers/:id/connect — Connect to an MCP server
+    params = matchRoute(pathname, method, 'POST', '/api/v1/mcp/servers/:id/connect');
+    if (params) {
+      try {
+        const config = kernel.mcp.getServerConfig(params.id);
+        if (!config) {
+          jsonError(res, 404, 'NOT_FOUND', `MCP server ${params.id} not found`);
+          return true;
+        }
+        const info = await kernel.mcp.connect(config);
+        jsonOk(res, info);
+      } catch (err: any) {
+        jsonError(res, 500, 'CONNECTION_ERROR', err.message);
+      }
+      return true;
+    }
+
+    // POST /api/v1/mcp/servers/:id/disconnect — Disconnect from an MCP server
+    params = matchRoute(pathname, method, 'POST', '/api/v1/mcp/servers/:id/disconnect');
+    if (params) {
+      try {
+        await kernel.mcp.disconnect(params.id);
+        jsonOk(res, { disconnected: true });
+      } catch (err: any) {
+        jsonError(res, 500, 'DISCONNECT_ERROR', err.message);
+      }
+      return true;
+    }
+
+    // GET /api/v1/mcp/tools — List all available MCP tools
+    if (pathname === '/api/v1/mcp/tools' && method === 'GET') {
+      const tools = kernel.mcp.getTools();
+      jsonOk(res, tools);
+      return true;
+    }
+
+    // GET /api/v1/mcp/tools/:serverId — List tools from a specific server
+    params = matchRoute(pathname, method, 'GET', '/api/v1/mcp/tools/:serverId');
+    if (params) {
+      const tools = kernel.mcp.getTools(params.serverId);
+      jsonOk(res, tools);
+      return true;
+    }
+
+    return false;
+  }
+
   // ----- Main handler -----
 
   // ----- Tools (v0.5 Phase 4 — Tool Compatibility Layer) -----
@@ -1866,6 +1960,7 @@ export function createV1Router(
     if (await handleAudit(req, res, url, user)) return true;
     if (await handleWebhookDlq(req, res, url, user)) return true;
     if (await handleTools(req, res, url, user)) return true;
+    if (await handleMCP(req, res, url, user)) return true;
 
     return false;
   };
