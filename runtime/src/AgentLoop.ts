@@ -189,295 +189,56 @@ export async function runAgentLoop(
     summary: 'Agent initialized, beginning work...',
   });
 
-  // Main loop
-  while (state.step < state.maxSteps) {
-    // Check abort signal
-    if (options.signal?.aborted) {
-      kernel.bus.emit('agent.thought', { pid, thought: 'Received abort signal.' });
-      kernel.bus.emit('agent.completed', {
-        pid,
-        outcome: 'aborted',
-        steps: state.step,
-        durationMs: Date.now() - startedAt,
-        role: config.role,
-        goal: config.goal,
-        summary: 'Agent was aborted.',
-      });
-      kernel.processes.setState(pid, 'zombie', 'failed');
-      return;
-    }
+  // Tool alias map — normalize common LLM naming mistakes
+  const TOOL_ALIASES: Record<string, string> = {
+    finish: 'complete',
+    done: 'complete',
+    end: 'complete',
+    exit: 'complete',
+    search: 'browse_web',
+    bash: 'run_command',
+    shell: 'run_command',
+    exec: 'run_command',
+  };
 
-    // Check if process is still running
-    const currentProc = kernel.processes.get(pid);
-    if (!currentProc || currentProc.info.state === 'zombie' || currentProc.info.state === 'dead') {
-      return;
-    }
-
-    // If stopped or paused, wait
-    if (currentProc.info.state === 'stopped' || currentProc.info.state === 'paused') {
-      await sleep(1000);
-      continue;
-    }
-
-    // Drain pending user messages and inject into context
-    if (kernel.processes.drainUserMessages) {
-      const userMsgs = kernel.processes.drainUserMessages(pid);
-      for (const msg of userMsgs) {
-        state.history.push({
-          role: 'tool',
-          content: `[User Message] ${msg}`,
-          timestamp: Date.now(),
-        });
-        kernel.bus.emit('agent.thought', {
-          pid,
-          thought: `Received user message: "${msg.substring(0, 100)}"`,
-        });
-      }
-    }
-
-    // Drain pending IPC messages from other agents
-    if (kernel.processes.drainMessages) {
-      const ipcMsgs = kernel.processes.drainMessages(pid);
-      for (const msg of ipcMsgs) {
-        const sender = `PID ${msg.fromPid} (${msg.fromUid})`;
-        const content = typeof msg.payload === 'string' ? msg.payload : JSON.stringify(msg.payload);
-        state.history.push({
-          role: 'tool',
-          content: `[Agent Message from ${sender} on "${msg.channel}"] ${content}`,
-          timestamp: Date.now(),
-        });
-        kernel.bus.emit('agent.thought', {
-          pid,
-          thought: `Received message from ${sender}: "${content.substring(0, 100)}"`,
-        });
-      }
-    }
-
-    try {
-      // Context compaction: summarize old history when it grows too large
-      if (shouldCompact(state)) {
-        await compactHistory(state, provider, kernel, pid);
-      }
-
-      // Phase 1: Think - ask LLM for next action
-      kernel.processes.setState(pid, 'running', 'thinking');
-
-      const decision = await getNextAction(state, config, tools, provider, options.apiKey);
-
-      // Log the reasoning
-      kernel.bus.emit('agent.thought', { pid, thought: decision.reasoning });
-      state.history.push({
-        role: 'agent',
-        content: `[Think] ${decision.reasoning}\n[Action] ${decision.tool}(${JSON.stringify(decision.args)})`,
-        timestamp: Date.now(),
-      });
-
-      // Normalize common tool name aliases (LLMs sometimes use variants)
-      const TOOL_ALIASES: Record<string, string> = {
-        finish: 'complete',
-        done: 'complete',
-        end: 'complete',
-        exit: 'complete',
-        search: 'browse_web',
-        bash: 'run_command',
-        shell: 'run_command',
-        exec: 'run_command',
-      };
-      if (TOOL_ALIASES[decision.tool]) {
-        decision.tool = TOOL_ALIASES[decision.tool];
-      }
-
-      // Phase 2: Act - execute the chosen tool
-      const tool = toolMap.get(decision.tool);
-      if (!tool) {
-        const availableTools = tools.map((t) => t.name).join(', ');
-        const errMsg = `Unknown tool: ${decision.tool}. Available tools: ${availableTools}`;
-        state.history.push({ role: 'tool', content: errMsg, timestamp: Date.now() });
-        state.lastObservation = errMsg;
-        state.step++;
-        continue;
-      }
-
-      // Check if approval is needed
-      if (tool.requiresApproval) {
-        kernel.processes.setState(pid, 'sleeping', 'waiting');
-        kernel.bus.emit('process.approval_required', {
-          pid,
-          action: tool.name,
-          details: JSON.stringify(decision.args),
-        });
-
-        // Wait for approval or rejection
-        const approved = await waitForApproval(kernel, pid, options.signal);
-        if (!approved) {
-          state.history.push({
-            role: 'tool',
-            content: 'Action was rejected by the user.',
-            timestamp: Date.now(),
-          });
-          state.lastObservation = 'Action rejected by user.';
-          state.step++;
-          continue;
-        }
-      }
-
-      // Prompt injection guard: scan tool args before execution
-      const argsStr = JSON.stringify(decision.args);
-      const injectionCheck = detectInjection(argsStr);
-      if (!injectionCheck.safe) {
-        const blockMsg = `Injection blocked: ${injectionCheck.reason}`;
-        console.warn(`[AgentLoop] ${blockMsg} (PID ${pid}, tool ${decision.tool})`);
-        kernel.bus.emit('agent.injectionBlocked', {
-          pid,
-          tool: decision.tool,
-          reason: injectionCheck.reason,
-        });
-        state.history.push({ role: 'tool', content: blockMsg, timestamp: Date.now() });
-        state.lastObservation = blockMsg;
-        state.step++;
-        continue;
-      }
-
-      kernel.processes.setState(pid, 'running', 'executing');
-      kernel.bus.emit('agent.action', {
-        pid,
-        tool: decision.tool,
-        args: decision.args,
-      });
-
-      // Execute the tool
-      const result = await tool.execute(decision.args, ctx);
-
-      // Phase 3: Observe - record the result
-      const output = result.output || '';
-      kernel.processes.setState(pid, 'running', 'observing');
-      kernel.bus.emit('agent.observation', {
-        pid,
-        result: output.substring(0, 500),
-      });
-
-      state.history.push({
-        role: 'tool',
-        content: `[${decision.tool}] ${result.success ? 'OK' : 'FAIL'}: ${output.substring(0, 4000)}`,
-        timestamp: Date.now(),
-      });
-      state.lastObservation = output;
-
-      if (result.artifacts) {
-        state.artifacts.push(...result.artifacts);
-      }
-
-      // Auto-journal significant observations as episodic memory (v0.3)
-      if (kernel.memory && result.success && decision.tool !== 'think') {
-        try {
-          kernel.memory.store({
-            agent_uid: proc.info.uid,
-            layer: 'episodic',
-            content: `[Step ${state.step + 1}] Used ${decision.tool}: ${output.substring(0, 300)}`,
-            tags: ['auto-journal', decision.tool],
-            importance: decision.tool === 'complete' ? 0.8 : 0.3,
-            source_pid: pid,
-          });
-        } catch {
-          // Non-critical — don't break the agent loop for journaling failures
-        }
-      }
-
-      // Check if agent completed
-      if (decision.tool === 'complete') {
-        const durationMs = Date.now() - startedAt;
-        kernel.bus.emit('agent.progress', {
-          pid,
-          step: state.step + 1,
-          maxSteps: state.maxSteps,
-          summary: 'Task completed successfully.',
-        });
+  // Unified main loop with continuation support.
+  // After step limit, waits for a continue signal and re-enters the same loop
+  // (no degraded copy — all guards, injection checks, and journaling always apply).
+  let loopActive = true;
+  while (loopActive) {
+    while (state.step < state.maxSteps) {
+      // Check abort signal
+      if (options.signal?.aborted) {
+        kernel.bus.emit('agent.thought', { pid, thought: 'Received abort signal.' });
         kernel.bus.emit('agent.completed', {
           pid,
-          outcome: 'success',
-          steps: state.step + 1,
-          durationMs,
+          outcome: 'aborted',
+          steps: state.step,
+          durationMs: Date.now() - startedAt,
           role: config.role,
           goal: config.goal,
-          summary: output.substring(0, 300) || 'Task completed.',
+          summary: 'Agent was aborted.',
         });
-
-        // Run post-task reflection (fire-and-forget, don't block exit)
-        runReflection(
-          kernel,
-          provider,
-          {
-            pid,
-            agentUid: proc.info.uid,
-            config,
-            steps: state.step + 1,
-            lastObservation: state.lastObservation,
-          },
-          config,
-        ).catch((err) => {
-          console.warn(`[AgentLoop] Reflection failed for PID ${pid}:`, err);
-        });
-
+        kernel.processes.setState(pid, 'zombie', 'failed');
         return;
       }
 
-      state.step++;
-      kernel.bus.emit('agent.progress', {
-        pid,
-        step: state.step,
-        maxSteps: state.maxSteps,
-        summary: decision.reasoning.substring(0, 100),
-      });
-
-      // Rate limit between steps
-      await sleep(AGENT_STEP_INTERVAL);
-    } catch (err: any) {
-      console.error(`[AgentLoop] Error in step ${state.step} for PID ${pid}:`, err);
-      kernel.bus.emit('agent.thought', {
-        pid,
-        thought: `Error: ${err.message}`,
-      });
-
-      state.history.push({
-        role: 'tool',
-        content: `Error: ${err.message}`,
-        timestamp: Date.now(),
-      });
-
-      // Continue on non-fatal errors
-      state.step++;
-      await sleep(AGENT_STEP_INTERVAL);
-    }
-  }
-
-  // Max steps reached — offer to continue
-  kernel.bus.emit('agent.thought', {
-    pid,
-    thought: `Reached step limit (${state.maxSteps}). Waiting for continue signal...`,
-  });
-  kernel.bus.emit('agent.stepLimitReached', {
-    pid,
-    stepsCompleted: state.maxSteps,
-    summary: state.lastObservation?.substring(0, 200) || 'Step limit reached.',
-  });
-  kernel.processes.setState(pid, 'stopped', 'waiting');
-
-  // Wait up to 5 minutes for a continue signal
-  const continued = await waitForContinue(kernel, pid, options.signal, 300_000);
-  if (continued > 0) {
-    state.maxSteps += continued;
-    kernel.bus.emit('agent.thought', { pid, thought: `Continuing for ${continued} more steps.` });
-    kernel.processes.setState(pid, 'running', 'thinking');
-    // Re-enter the main loop by calling recursively (tail-position)
-    while (state.step < state.maxSteps) {
-      if (options.signal?.aborted) break;
+      // Check if process is still running
       const currentProc = kernel.processes.get(pid);
-      if (!currentProc || currentProc.info.state === 'zombie' || currentProc.info.state === 'dead')
-        break;
+      if (
+        !currentProc ||
+        currentProc.info.state === 'zombie' ||
+        currentProc.info.state === 'dead'
+      ) {
+        return;
+      }
+
+      // If stopped or paused, wait
       if (currentProc.info.state === 'stopped' || currentProc.info.state === 'paused') {
         await sleep(1000);
         continue;
       }
+
       // Drain pending user messages and inject into context
       if (kernel.processes.drainUserMessages) {
         const userMsgs = kernel.processes.drainUserMessages(pid);
@@ -493,6 +254,7 @@ export async function runAgentLoop(
           });
         }
       }
+
       // Drain pending IPC messages from other agents
       if (kernel.processes.drainMessages) {
         const ipcMsgs = kernel.processes.drainMessages(pid);
@@ -511,59 +273,165 @@ export async function runAgentLoop(
           });
         }
       }
+
       try {
+        // Context compaction: summarize old history when it grows too large
         if (shouldCompact(state)) {
           await compactHistory(state, provider, kernel, pid);
         }
+
+        // Phase 1: Think - ask LLM for next action
         kernel.processes.setState(pid, 'running', 'thinking');
+
         const decision = await getNextAction(state, config, tools, provider, options.apiKey);
+
+        // Log the reasoning
         kernel.bus.emit('agent.thought', { pid, thought: decision.reasoning });
         state.history.push({
           role: 'agent',
           content: `[Think] ${decision.reasoning}\n[Action] ${decision.tool}(${JSON.stringify(decision.args)})`,
           timestamp: Date.now(),
         });
-        // Normalize tool name aliases (same as main loop)
-        const CONT_ALIASES: Record<string, string> = {
-          finish: 'complete',
-          done: 'complete',
-          end: 'complete',
-          exit: 'complete',
-          search: 'browse_web',
-          bash: 'run_command',
-          shell: 'run_command',
-          exec: 'run_command',
-        };
-        if (CONT_ALIASES[decision.tool]) {
-          decision.tool = CONT_ALIASES[decision.tool];
+
+        // Normalize tool name aliases
+        if (TOOL_ALIASES[decision.tool]) {
+          decision.tool = TOOL_ALIASES[decision.tool];
         }
+
+        // Phase 2: Act - execute the chosen tool
         const tool = toolMap.get(decision.tool);
         if (!tool) {
+          const availableTools = tools.map((t) => t.name).join(', ');
+          const errMsg = `Unknown tool: ${decision.tool}. Available tools: ${availableTools}`;
+          state.history.push({ role: 'tool', content: errMsg, timestamp: Date.now() });
+          state.lastObservation = errMsg;
           state.step++;
           continue;
         }
+
+        // Check if approval is needed
+        if (tool.requiresApproval) {
+          kernel.processes.setState(pid, 'sleeping', 'waiting');
+          kernel.bus.emit('process.approval_required', {
+            pid,
+            action: tool.name,
+            details: JSON.stringify(decision.args),
+          });
+
+          // Wait for approval or rejection
+          const approved = await waitForApproval(kernel, pid, options.signal);
+          if (!approved) {
+            state.history.push({
+              role: 'tool',
+              content: 'Action was rejected by the user.',
+              timestamp: Date.now(),
+            });
+            state.lastObservation = 'Action rejected by user.';
+            state.step++;
+            continue;
+          }
+        }
+
+        // Prompt injection guard: scan tool args before execution
+        const argsStr = JSON.stringify(decision.args);
+        const injectionCheck = detectInjection(argsStr);
+        if (!injectionCheck.safe) {
+          const blockMsg = `Injection blocked: ${injectionCheck.reason}`;
+          console.warn(`[AgentLoop] ${blockMsg} (PID ${pid}, tool ${decision.tool})`);
+          kernel.bus.emit('agent.injectionBlocked', {
+            pid,
+            tool: decision.tool,
+            reason: injectionCheck.reason,
+          });
+          state.history.push({ role: 'tool', content: blockMsg, timestamp: Date.now() });
+          state.lastObservation = blockMsg;
+          state.step++;
+          continue;
+        }
+
         kernel.processes.setState(pid, 'running', 'executing');
+        kernel.bus.emit('agent.action', {
+          pid,
+          tool: decision.tool,
+          args: decision.args,
+        });
+
+        // Execute the tool
         const result = await tool.execute(decision.args, ctx);
-        state.lastObservation = result.output;
+
+        // Phase 3: Observe - record the result
+        const output = result.output || '';
+        kernel.processes.setState(pid, 'running', 'observing');
+        kernel.bus.emit('agent.observation', {
+          pid,
+          result: output.substring(0, 500),
+        });
+
         state.history.push({
           role: 'tool',
-          content: `[${decision.tool}] ${result.output}`,
+          content: `[${decision.tool}] ${result.success ? 'OK' : 'FAIL'}: ${output.substring(0, 4000)}`,
           timestamp: Date.now(),
         });
+        state.lastObservation = output;
+
+        if (result.artifacts) {
+          state.artifacts.push(...result.artifacts);
+        }
+
+        // Auto-journal significant observations as episodic memory (v0.3)
+        if (kernel.memory && result.success && decision.tool !== 'think') {
+          try {
+            kernel.memory.store({
+              agent_uid: proc.info.uid,
+              layer: 'episodic',
+              content: `[Step ${state.step + 1}] Used ${decision.tool}: ${output.substring(0, 300)}`,
+              tags: ['auto-journal', decision.tool],
+              importance: decision.tool === 'complete' ? 0.8 : 0.3,
+              source_pid: pid,
+            });
+          } catch {
+            // Non-critical — don't break the agent loop for journaling failures
+          }
+        }
+
+        // Check if agent completed
         if (decision.tool === 'complete') {
+          const durationMs = Date.now() - startedAt;
+          kernel.bus.emit('agent.progress', {
+            pid,
+            step: state.step + 1,
+            maxSteps: state.maxSteps,
+            summary: 'Task completed successfully.',
+          });
           kernel.bus.emit('agent.completed', {
             pid,
             outcome: 'success',
             steps: state.step + 1,
-            durationMs: Date.now() - startedAt,
+            durationMs,
             role: config.role,
             goal: config.goal,
-            summary: result.output?.substring(0, 300) || 'Task completed.',
+            summary: output.substring(0, 300) || 'Task completed.',
           });
-          kernel.processes.setState(pid, 'zombie', 'completed');
-          kernel.processes.exit(pid, 0);
+
+          // Run post-task reflection (fire-and-forget, don't block exit)
+          runReflection(
+            kernel,
+            provider,
+            {
+              pid,
+              agentUid: proc.info.uid,
+              config,
+              steps: state.step + 1,
+              lastObservation: state.lastObservation,
+            },
+            config,
+          ).catch((err) => {
+            console.warn(`[AgentLoop] Reflection failed for PID ${pid}:`, err);
+          });
+
           return;
         }
+
         state.step++;
         kernel.bus.emit('agent.progress', {
           pid,
@@ -571,11 +439,52 @@ export async function runAgentLoop(
           maxSteps: state.maxSteps,
           summary: decision.reasoning.substring(0, 100),
         });
+
+        // Rate limit between steps
         await sleep(AGENT_STEP_INTERVAL);
       } catch (err: any) {
+        console.error(`[AgentLoop] Error in step ${state.step} for PID ${pid}:`, err);
+        kernel.bus.emit('agent.thought', {
+          pid,
+          thought: `Error: ${err.message}`,
+        });
+
+        state.history.push({
+          role: 'tool',
+          content: `Error: ${err.message}`,
+          timestamp: Date.now(),
+        });
+
+        // Continue on non-fatal errors
         state.step++;
         await sleep(AGENT_STEP_INTERVAL);
       }
+    }
+
+    // Step limit reached — offer to continue
+    kernel.bus.emit('agent.thought', {
+      pid,
+      thought: `Reached step limit (${state.maxSteps}). Waiting for continue signal...`,
+    });
+    kernel.bus.emit('agent.stepLimitReached', {
+      pid,
+      stepsCompleted: state.maxSteps,
+      summary: state.lastObservation?.substring(0, 200) || 'Step limit reached.',
+    });
+    kernel.processes.setState(pid, 'stopped', 'waiting');
+
+    // Wait up to 5 minutes for a continue signal
+    const continued = await waitForContinue(kernel, pid, options.signal, 300_000);
+    if (continued > 0) {
+      state.maxSteps += continued;
+      kernel.bus.emit('agent.thought', {
+        pid,
+        thought: `Continuing for ${continued} more steps.`,
+      });
+      kernel.processes.setState(pid, 'running', 'thinking');
+      // Re-enter the unified main loop (all guards apply)
+    } else {
+      loopActive = false;
     }
   }
 
@@ -687,7 +596,7 @@ async function getNextAction(
   for (let attempt = 0; attempt < MAX_LLM_RETRIES; attempt++) {
     try {
       // Convert state history to ChatMessage format for the provider
-      const messages: ChatMessage[] = state.history.slice(-10).map((msg) => ({
+      const messages: ChatMessage[] = state.history.slice(-20).map((msg) => ({
         role: msg.role === 'agent' ? 'assistant' : msg.role === 'tool' ? 'user' : msg.role,
         content: msg.content,
       }));

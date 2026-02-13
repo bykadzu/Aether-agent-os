@@ -249,7 +249,18 @@ export function createToolSet(): ToolDefinition[] {
           }
 
           // Fallback: no container (Docker unavailable or creation failed at spawn)
-          // Use child_process.exec for reliable output capture
+          // Security: refuse host execution unless explicitly allowed via env var
+          if (!process.env.AETHER_ALLOW_HOST_EXEC) {
+            return {
+              success: false,
+              output:
+                'Shell commands require a Docker container for sandboxing, but no container is available for this agent. ' +
+                'To allow unsandboxed host execution (development only), set AETHER_ALLOW_HOST_EXEC=1 in your environment.',
+            };
+          }
+          console.warn(
+            `[Tools] run_command falling back to HOST execution for PID ${ctx.pid} — no container available`,
+          );
           const proc = ctx.kernel.processes.get(ctx.pid);
           // proc.info.cwd is a virtual path — resolve to real path via FS root
           const virtualCwd = proc?.info.cwd || '/tmp';
