@@ -74,6 +74,7 @@ Aether OS isn't a chatbot with a fancy UI. It implements real operating system c
 | **Persistence** | SQLite database stores process history, logs, metrics, and file metadata across restarts. |
 | **Multi-User** | Authentication system with JWT tokens. Each user gets their own agent pool and directory space. |
 | **Clustering** | Hub-and-spoke distributed mode — spread agents across multiple machines. |
+| **Self-Knowledge** | Agents can read a comprehensive CODEBASE.md document to understand the architecture, subsystems, tools, and filesystem layout of the system they run inside. |
 
 ## Who Is This For?
 
@@ -117,5 +118,5 @@ You'll need a `GEMINI_API_KEY` environment variable set for the AI reasoning to 
 | Terminals | node-pty (real pseudo-terminals) |
 | Containers | Docker (optional, auto-detected) |
 | AI | Multi-provider — Google Gemini, OpenAI, Anthropic, Ollama (local) — with vision support |
-| Graphics | Xvfb + x11vnc for graphical agent desktops |
+| Graphics | Xvfb + x11vnc + WebSocket-to-TCP proxy (ws library) for graphical agent desktops |
 | Browser Engine | Playwright (Chromium) for real web browsing |

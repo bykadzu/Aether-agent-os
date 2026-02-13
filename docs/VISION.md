@@ -37,8 +37,10 @@ Replace every mock, stub, and workaround with a real implementation. The browser
 ### Horizon 2: Make It Smart (v0.3) ✅ Complete
 Agents that learn, remember, plan, and get better over time. Long-term memory. Self-reflection. Goal decomposition. Multi-modal perception (vision). Agent collaboration protocols. Agents that don't just follow instructions — they develop expertise and profiles.
 
-### Horizon 3: Make It an Ecosystem (v0.4–v0.5) ← Current Focus
+### Horizon 3: Make It an Ecosystem (v0.4–v0.5) ✅ Complete
 A living platform where agents, plugins, tools, and applications can be created, shared, and composed. An app store. A plugin marketplace. A community. The platform that other people build on top of.
+
+Latest additions: agent self-knowledge (CODEBASE.md), functional Linux desktop containers (XFCE4 + Firefox + VNC), WebSocket-to-TCP VNC proxy.
 
 ---
 
@@ -82,3 +84,4 @@ That's not a dream. Most of the pieces already exist. The roadmap is about conne
 - [ROADMAP-v0.4.md](./ROADMAP-v0.4.md) — Ecosystem, Marketplace & Integrations
 - [ROADMAP-v0.5.md](./ROADMAP-v0.5.md) — Production, Scale & Beyond
 - [IDEAS.md](./IDEAS.md) — Blue Sky & Experimental Ideas
+- [CODEBASE.md](CODEBASE.md) — Agent self-knowledge document (auto-seeded to containers)

@@ -74,4 +74,15 @@ All issues from the v0.5 testing session have been resolved.
 
 ---
 
+## Post-v0.5 Fixes (2026-02-13)
+
+### New Features
+- [x] **Agent self-knowledge (CODEBASE.md)** — Comprehensive doc covering architecture, subsystems, tools, execution loop, container layout, event system, IPC, memory, security. Auto-seeded to `~/.aether/shared/` on boot. System prompt updated.
+- [x] **VNCManager WebSocket proxy** — Rewrote from raw TCP proxy to WebSocket-to-TCP proxy using `ws` library. noVNC can now actually connect.
+- [x] **Dockerfile.desktop enhanced** — Added pip packages, dev tools (mousepad, thunar), python alias.
+- [x] **App.tsx metadata parsing** — `launchAgent()` parses `[graphical:true,gpu:true,model:X]` from goal string into sandbox config.
+- [x] **ContainerManager desktop fix** — Skips manual Xvfb/x11vnc startup for `aether-desktop:latest` (entrypoint handles it).
+
+---
+
 *Update this doc after each testing session. This is the real roadmap.*

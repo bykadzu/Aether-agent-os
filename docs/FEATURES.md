@@ -22,13 +22,14 @@ Status legend:
 | Plugin system | Done | `kernel/src/PluginManager.ts` — loads from `~/.config/aether-os/plugins/`, sample weather plugin |
 | Process snapshots | Done | `kernel/src/SnapshotManager.ts` — SIGSTOP, capture state, SIGCONT, restore from snapshot |
 | Shared filesystem mounts | Done | Agents can create shared workspaces and mount them into each other's filesystems |
-| VNC / graphical desktop | Done | `kernel/src/VNCManager.ts` — Xvfb + x11vnc, WebSocket proxy for noVNC |
+| VNC / graphical desktop | Done | `kernel/src/VNCManager.ts` — WebSocket-to-TCP proxy (ws library) bridges noVNC to container x11vnc |
 | Authentication | Done | `kernel/src/AuthManager.ts` — scrypt password hashing, HMAC-SHA256 JWT, user CRUD |
 | RBAC & Organizations | Done | Organizations, teams, 5-tier role hierarchy (owner/admin/manager/member/viewer), 25+ permissions, permission checking, backward-compatible |
 | Hub-and-spoke clustering | Done | `kernel/src/ClusterManager.ts` — hub accepts nodes, health monitoring, load-based routing |
 | Kernel orchestrator | Done | `kernel/src/Kernel.ts` — boots all subsystems, routes commands to handlers |
 | Memory management | Done | `kernel/src/MemoryManager.ts` — 4-layer memory (episodic, semantic, procedural, social), FTS5 search, importance decay, consolidation, sharing, agent profiles |
 | Cron scheduling | Done | `kernel/src/CronManager.ts` — 5-field cron parser, scheduled agent spawning, event triggers with cooldown, SQLite persistence |
+| Agent self-knowledge | Done | `docs/CODEBASE.md` auto-seeded to `~/.aether/shared/` on kernel boot; agents read it at `/home/agent/shared/CODEBASE.md`; system prompt references it |
 
 ## Agent Runtime
 
@@ -130,8 +131,8 @@ Status legend:
 | Per-agent filesystem isolation | Done | Each agent gets own `/home/{uid}`, can't traverse out |
 | Docker container sandboxing | Done | Optional, with CPU/memory limits |
 | Approval gating | Done | Agents must ask permission for sensitive operations |
-| Rate limiting | Planned | Not yet implemented |
-| Audit logging | Planned | Not yet implemented |
+| Rate limiting | Done | In-memory sliding window rate limiter (120/min auth, 30/min unauth), HTTP 429 with Retry-After |
+| Audit logging | Done | AuditLogger subsystem with append-only SQLite table, EventBus auto-logging, sanitization, retention pruning, REST API |
 | Role-based access control | Done | Full RBAC with organizations, teams, 5-tier role hierarchy, 25+ permissions, requirePermission middleware |
 | Network isolation for containers | Partial | Container networking exists but no fine-grained control |
 
@@ -151,5 +152,5 @@ Status legend:
 | Error boundaries (React) | Done | `ErrorBoundary` wraps windows, dock, widgets; WS reconnect banner |
 | Error handling audit | Done | Graceful degradation for Docker, SQLite, PTY, VFS, API rate limits |
 | Setup script | Done | `scripts/setup.sh` — checks deps, installs packages, creates `.env` |
-| Production Dockerfile | Not started | No containerized deployment |
+| Production Dockerfile | Done | Dockerfile (kernel multi-stage), Dockerfile.ui (nginx), Dockerfile.desktop (Ubuntu 24.04, XFCE4, Firefox, code-server, dev tools, pip packages) |
 | Documentation | Done | 18 markdown files: README, ARCHITECTURE, FEATURES, VISION, WHAT_IS_AETHER, NEXT_STEPS, TODO, 4 roadmaps, 2 execution plans, IDEAS, 2 research docs, 2 session prompts |

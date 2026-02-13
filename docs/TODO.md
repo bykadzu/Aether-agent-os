@@ -2,7 +2,7 @@
 
 Consolidated checklist of all outstanding work, derived from NEXT_STEPS.md, FEATURES.md, all roadmaps, and the research documents. Organized by urgency and version target.
 
-**Last updated:** 2026-02-11 (v0.5 Phase 4 complete — LangChain/OpenAI tool compat, fine-grained RBAC, PWA + responsive, bug fixes)
+**Last updated:** 2026-02-13 (v0.5.1 — agent self-knowledge, functional desktop, VNC WebSocket proxy)
 
 ---
 
@@ -13,7 +13,7 @@ Consolidated checklist of all outstanding work, derived from NEXT_STEPS.md, FEAT
 - [x] **Kernel boot banner** — Prints all 12 subsystems with status, port, FS root, cluster role on startup
 - [x] **Agent log export** — Download button in AgentVM control bar (JSON + plain text formats)
 - [x] **Loading skeleton for Mission Control** — Animated pulse skeleton cards during initial load
-- [ ] **Dark/light theme toggle** — UI switch exists as a stub; wire up a light theme (or defer to v0.2 D3)
+- [x] **Dark/light theme toggle** — UI switch exists as a stub; wire up a light theme (or defer to v0.2 D3) ✅ ThemeProvider with dark/light/system modes, CSS custom properties (v0.2 D3)
 - [ ] **File-based memory MVP** — Simple file-based persistent memory per agent (quick win before the full v0.3 vector store; see RESEARCH-openclaw-ideas.md)
 
 ---
@@ -262,11 +262,23 @@ Aether OS is a **two-layer system**:
 - [x] **Persistent home directories** — Mount `~/.aether/workspaces/{agentName}:/home/aether` in containers ✅ ContainerManager workspace methods, Kernel spawn flow updated
 - [x] **VNC quality + input** — Clipboard sync, dynamic resize (`xrandr`), bandwidth-adaptive quality ✅ VNCViewer clipboard sync, quality selector, ResizeObserver, VNCManager.resizeDisplay()
 - [x] **Docker Compose packaging** — One-command `docker compose up` with kernel + UI + dynamic containers ✅ Dockerfile, Dockerfile.ui, docker-compose.yml, nginx.conf, .dockerignore
-- [ ] **Agent desktop integration** — GUI app launching via tools, human takeover UX, shared state indicators (partial: "Take Over Desktop" button added to AgentDashboard)
+- [x] **Agent desktop integration** — VNCManager rewritten with WebSocket-to-TCP proxy (ws library), App.tsx parses [graphical:true] metadata, ContainerManager skips manual Xvfb for desktop image, CODEBASE.md agent self-knowledge auto-seeded ✅
 
 **Competitive position (as of Feb 2026):**
 - No other project combines: visual containerized Linux desktops + human VNC takeover + web Control Plane
 - Closest: Windows Agent Workspace (Microsoft, proprietary, no multi-agent control), OpenClaw (messaging-only, host access, no isolation), UI-TARS (host GUI automation, no containers)
+
+---
+
+## v0.5.1 — Agent Self-Knowledge & Functional Desktop (2026-02-13)
+
+### Completed
+
+- [x] **Agent self-knowledge (CODEBASE.md)** — Comprehensive agent self-knowledge document covering architecture, subsystems, tools, execution loop, container layout, event system, IPC, memory, and security. Auto-seeded to `~/.aether/shared/` on kernel boot. System prompt updated with Aether OS context.
+- [x] **VNCManager WebSocket proxy** — Rewrote VNCManager to use WebSocket-to-TCP proxy via `ws` library so noVNC clients can actually connect (was raw TCP proxy before, incompatible with browser WebSocket).
+- [x] **Dockerfile.desktop enhancement** — Added pip packages (requests, flask, fastapi, uvicorn, beautifulsoup4, httpx, pydantic), dev tools (mousepad, thunar), python alias, PATH for local pip installs.
+- [x] **App.tsx graphical agent metadata** — `launchAgent()` now parses `[graphical:true,gpu:true,model:X]` metadata from goal string into proper sandbox config passed to kernel.
+- [x] **ContainerManager desktop fix** — Desktop image (`aether-desktop:latest`) entrypoint already starts Xvfb/XFCE/x11vnc; ContainerManager now skips manual startup for this image.
 
 ---
 

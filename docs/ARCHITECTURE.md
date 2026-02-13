@@ -1,6 +1,6 @@
 # Aether OS Architecture
 
-> Last updated: 2026-02-11 (v0.5 Phase 4 complete)
+> Last updated: 2026-02-13 (post-v0.5 — agent self-knowledge, functional desktop)
 
 ## System Overview
 
@@ -48,7 +48,7 @@ Aether OS is a two-layer system: a **Control Plane** (web UI) for managing agent
 │   │ (Docker + GPU) │            │ (JWT, MFA/TOTP,  │                │
 │   ├────────────────┤            │  orgs, teams,    │                │
 │   │ VNCManager     │            │  granular RBAC)  │                │
-│   │ (Xvfb+x11vnc) │            ├──────────────────┤                │
+│   │ (WS-to-TCP proxy)│            ├──────────────────┤                │
 │   ├────────────────┤            │ AuditLogger      │                │
 │   │ BrowserManager │            │ ResourceGovernor │                │
 │   │ (Playwright)   │            └──────────────────┘                │
@@ -122,7 +122,7 @@ Aether_Agent_OS/
 │       ├── MemoryManager.ts     # 4-layer memory (episodic/semantic/procedural/social)
 │       ├── CronManager.ts       # Cron jobs + event triggers
 │       ├── SnapshotManager.ts   # Atomic process save/restore
-│       ├── VNCManager.ts        # Graphical desktop proxy (noVNC)
+│       ├── VNCManager.ts        # WebSocket-to-TCP VNC proxy (ws library)
 │       ├── BrowserManager.ts    # Playwright browser sessions
 │       ├── ClusterManager.ts    # Hub-and-spoke distributed kernel
 │       ├── PluginManager.ts     # Agent plugin loading
@@ -318,3 +318,4 @@ AgentLoop calls LLM (Gemini/GPT/Claude/Ollama)
 - [FEATURES.md](FEATURES.md) — Complete feature inventory with status
 - [TODO.md](TODO.md) — Active task list and remaining work
 - [AGENT-FUNCTIONALITY-ANALYSIS.md](../AGENT-FUNCTIONALITY-ANALYSIS.md) — Honest assessment of what works
+- [CODEBASE.md](CODEBASE.md) — Agent self-knowledge (auto-seeded to containers)

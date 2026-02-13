@@ -10,6 +10,8 @@ Aether OS is a working AI agent operating system. Not a mockup, not a demo — a
 
 But "working" and "ready for others" are different things. The AGENT-FUNCTIONALITY-ANALYSIS.md is honest about the gaps: setup friction, Playwright dependency, mock mode limitations, no automated E2E testing. The system was built fast across v0.1–v0.5 and needs breathing room.
 
+As of Feb 13, agents now have **self-knowledge** — a comprehensive CODEBASE.md is auto-seeded into the shared directory on boot, and the system prompt tells agents about Aether OS. The **Linux desktop** is also functional: Dockerfile.desktop builds a full XFCE4 environment with Firefox, code-server, and dev tools, and the VNCManager has been rewritten with a proper WebSocket-to-TCP proxy so noVNC can actually connect.
+
 **Current state in one sentence:** The engine works, but the car doesn't have a dashboard manual or a gas station nearby.
 
 ---
@@ -213,7 +215,7 @@ Right now you can watch agents work in their containers via VNC, but you can't i
 
 This turns "watch an agent work" into "work alongside an agent." That's the demo. That's the pitch. That's what separates Aether from every other agent platform that gives you either a chat box or a black box.
 
-As of v0.5, only view-only streaming works. Building pause/takeover/resume is the #1 feature priority when development resumes.
+As of v0.5.1, the VNC proxy is functional (VNCManager rewritten with ws library), desktop containers work (XFCE4 + Firefox), and agents have self-knowledge (CODEBASE.md). View-only streaming works, and interactive mode is enabled when the agent is paused.
 
 ---
 
