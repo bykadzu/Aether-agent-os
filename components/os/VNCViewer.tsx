@@ -258,12 +258,9 @@ export const VNCViewer = forwardRef<VNCViewerHandle, VNCViewerProps>(
           transformOrigin: 'top left',
         }}
       >
-        {/* VNC Canvas Container */}
-        <div
-          ref={containerRef}
-          className="w-full h-full"
-          style={{ display: status === 'connected' ? 'block' : 'none' }}
-        />
+        {/* VNC Canvas Container — always visible so noVNC can measure dimensions.
+            Overlays render on top for loading/error/disconnected states. */}
+        <div ref={containerRef} className="w-full h-full" />
 
         {/* Loading State */}
         {status === 'connecting' && (

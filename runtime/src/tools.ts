@@ -300,16 +300,29 @@ export function createToolSet(): ToolDefinition[] {
             };
           }
 
+          // Auto-rewrite DuckDuckGo and Google URLs for better agent compatibility
+          let url: string = args.url;
+          // Rewrite duckduckgo.com to lite.duckduckgo.com (JS-free HTML results)
+          url = url.replace(
+            /^https?:\/\/(www\.)?duckduckgo\.com\/?\?/,
+            'https://lite.duckduckgo.com/lite/?',
+          );
+          // Rewrite Google search to DuckDuckGo Lite (Google always CAPTCHAs)
+          if (/^https?:\/\/(www\.)?google\.\w+\/search\?/.test(url)) {
+            const googleQ = new URL(url).searchParams.get('q') || '';
+            url = `https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(googleQ)}`;
+          }
+
           ctx.kernel.bus.emit('agent.browsing', {
             pid: ctx.pid,
-            url: args.url,
+            url,
           });
 
           // Try real browser first
           if (ctx.kernel.browser?.isAvailable()) {
             const sessionId = await ensureBrowserSession(ctx);
 
-            const pageInfo = await ctx.kernel.browser.navigateTo(sessionId, args.url);
+            const pageInfo = await ctx.kernel.browser.navigateTo(sessionId, url);
 
             // Extract full page text content (not just interactive elements)
             // and links separately for richer agent context
@@ -370,7 +383,7 @@ export function createToolSet(): ToolDefinition[] {
           // Fallback to HTTP fetch with structured extraction
           const controller = new AbortController();
           const timeout = setTimeout(() => controller.abort(), 15_000);
-          const response = await fetch(args.url, {
+          const response = await fetch(url, {
             signal: controller.signal,
             redirect: 'follow',
             headers: {
@@ -457,7 +470,7 @@ export function createToolSet(): ToolDefinition[] {
 
           return { success: true, output };
         } catch (err: any) {
-          return { success: false, output: `Failed to browse ${args.url}: ${err.message}` };
+          return { success: false, output: `Failed to browse ${url}: ${err.message}` };
         }
       },
     },

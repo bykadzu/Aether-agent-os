@@ -204,7 +204,11 @@ export class BrowserManager {
       // Empty URL means "stay on current page" — just return info
       return this.getPageInfo(sessionId);
     }
-    await session.page.goto(url, { waitUntil: 'networkidle' });
+    // Use 'load' instead of 'networkidle' — many sites (GitHub, etc.) keep
+    // analytics/WebSocket connections open that prevent networkidle from resolving.
+    // Follow up with a short delay for JS-rendered content.
+    await session.page.goto(url, { waitUntil: 'load' });
+    await new Promise((r) => setTimeout(r, 2000));
 
     const info = await this.getPageInfo(sessionId);
 
