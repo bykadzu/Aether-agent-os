@@ -958,17 +958,20 @@ const App: React.FC = () => {
           cleanGoal = goal.slice(0, metaMatch.index).trim();
           const pairs = metaMatch[1].split(',');
           let model: string | undefined;
+          let runtime: 'builtin' | 'claude-code' | 'openclaw' | undefined;
           for (const pair of pairs) {
             const [key, val] = pair.split(':');
             if (key === 'graphical' && val === 'true') sandbox.graphical = true;
             if (key === 'gpu' && val === 'true') sandbox.gpu = { enabled: true };
             if (key === 'model') model = val;
+            if (key === 'runtime' && (val === 'claude-code' || val === 'openclaw')) runtime = val;
           }
           await kernel.spawnAgent({
             role,
             goal: cleanGoal,
             sandbox: Object.keys(sandbox).length > 0 ? sandbox : undefined,
             model,
+            runtime,
           });
         } else {
           await kernel.spawnAgent({ role, goal });

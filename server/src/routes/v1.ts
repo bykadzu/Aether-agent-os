@@ -169,16 +169,8 @@ export function createV1Router(
         // Create home directory
         await kernel.fs.createHome(proc.info.uid);
 
-        // Parse runtime from config or metadata in the goal string
-        let runtime = config.runtime || 'builtin';
-        const metaMatch = config.goal.match(/\[([^\]]+)\]/);
-        if (metaMatch) {
-          const meta = metaMatch[1];
-          const rtMatch = meta.match(/runtime:(\S+)/);
-          if (rtMatch) runtime = rtMatch[1];
-          // Strip metadata from goal for the agent
-          config.goal = config.goal.replace(/\s*\[[^\]]+\]$/, '').trim();
-        }
+        // Check runtime — external runtimes use AgentSubprocess instead of builtin loop
+        const runtime = config.runtime || 'builtin';
 
         if (runtime !== 'builtin' && kernel.subprocess) {
           // External runtime (claude-code / openclaw) — spawn as real OS subprocess

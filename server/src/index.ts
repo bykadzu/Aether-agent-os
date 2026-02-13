@@ -1510,10 +1510,13 @@ wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
       }
     }
 
-    // If a process was spawned, start the agent loop
+    // If a process was spawned with the builtin runtime, start the agent loop.
+    // External runtimes (claude-code, openclaw) are already running as OS
+    // subprocesses — the Kernel started them in its process.spawn handler.
     if (cmd.type === 'process.spawn') {
       const okEvent = events.find((e) => e.type === 'response.ok') as any;
-      if (okEvent?.data?.pid) {
+      if (okEvent?.data?.pid && !okEvent?.data?.runtime) {
+        // No runtime in response → builtin agent, start the LLM loop
         const proc = kernel.processes.get(okEvent.data.pid);
         if (proc?.agentConfig) {
           const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;

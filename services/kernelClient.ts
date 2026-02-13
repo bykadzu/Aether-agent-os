@@ -77,6 +77,7 @@ export interface KernelAgentConfig {
   model?: string;
   tools?: string[];
   maxSteps?: number;
+  runtime?: 'builtin' | 'claude-code' | 'openclaw';
   sandbox?: {
     type?: 'process' | 'container' | 'vm';
     graphical?: boolean;
