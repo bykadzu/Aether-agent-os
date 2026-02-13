@@ -58,12 +58,35 @@ export const XTerminal: React.FC<XTerminalProps> = ({ ttyId, onData, className }
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
 
-    term.open(containerRef.current);
-
-    // Initial fit
-    requestAnimationFrame(() => {
-      try { fitAddon.fit(); } catch {}
-    });
+    // Only open when container has dimensions to avoid xterm Viewport crash
+    const rect = containerRef.current.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) {
+      // Defer open until container is visible
+      const observer = new ResizeObserver((entries) => {
+        const entry = entries[0];
+        if (entry && entry.contentRect.width > 0 && entry.contentRect.height > 0) {
+          observer.disconnect();
+          try {
+            term.open(containerRef.current!);
+            requestAnimationFrame(() => {
+              try {
+                fitAddon.fit();
+              } catch {}
+            });
+          } catch {}
+        }
+      });
+      observer.observe(containerRef.current);
+      // Store observer for cleanup
+      (term as any)._aetherObserver = observer;
+    } else {
+      term.open(containerRef.current);
+      requestAnimationFrame(() => {
+        try {
+          fitAddon.fit();
+        } catch {}
+      });
+    }
 
     termRef.current = term;
     fitRef.current = fitAddon;
@@ -115,6 +138,10 @@ export const XTerminal: React.FC<XTerminalProps> = ({ ttyId, onData, className }
       inputDisposable.dispose();
       unsubTty?.();
       resizeObserver.disconnect();
+      // Clean up deferred open observer if it exists
+      if ((term as any)._aetherObserver) {
+        (term as any)._aetherObserver.disconnect();
+      }
       term.dispose();
       termRef.current = null;
       fitRef.current = null;

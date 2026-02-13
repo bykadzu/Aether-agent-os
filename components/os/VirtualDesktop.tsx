@@ -575,7 +575,7 @@ export const VirtualDesktop: React.FC<VirtualDesktopProps> = ({
 
       {/* Chat Panel */}
       {chatOpen && agent.pid && (
-        <div className="absolute right-2 bottom-12 w-64 h-80 bg-black/60 backdrop-blur-xl border border-white/15 rounded-lg flex flex-col z-50 shadow-2xl">
+        <div className="absolute right-2 bottom-12 w-64 h-80 bg-black/60 backdrop-blur-xl border border-white/15 rounded-lg flex flex-col z-[120] shadow-2xl">
           {/* Chat Header */}
           <div className="flex items-center justify-between px-3 py-2 border-b border-white/10">
             <div className="flex items-center gap-1.5 text-[10px] text-white/90 font-semibold">
@@ -635,7 +635,7 @@ export const VirtualDesktop: React.FC<VirtualDesktopProps> = ({
       )}
 
       {/* Dock with active app highlighting */}
-      <div className="absolute bottom-2 left-1/2 -translate-x-1/2 w-auto bg-white/20 backdrop-blur-xl border border-white/20 px-2 py-1.5 rounded-xl flex items-end gap-2 z-50">
+      <div className="absolute bottom-2 left-1/2 -translate-x-1/2 w-auto bg-white/20 backdrop-blur-xl border border-white/20 px-2 py-1.5 rounded-xl flex items-end gap-2 z-[110]">
         {dockIcons.map(({ Icon, id }, i) => {
           const isActiveIcon = activeApp === id || (id === 'chat' && chatOpen);
           return (

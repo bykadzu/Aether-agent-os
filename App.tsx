@@ -1282,6 +1282,14 @@ const App: React.FC = () => {
               onReject={rejectAgent}
               onStop={stopAgent}
               onSyncGithub={syncGithub}
+              onPause={(id) => {
+                const a = agents.find((ag) => ag.id === id);
+                if (a?.pid) kernel.pauseAgent(a.pid);
+              }}
+              onResume={(id) => {
+                const a = agents.find((ag) => ag.id === id);
+                if (a?.pid) kernel.resumeAgent(a.pid);
+              }}
             />
           </Suspense>
         );

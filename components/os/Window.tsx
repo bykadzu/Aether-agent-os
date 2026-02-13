@@ -94,7 +94,15 @@ export const Window: React.FC<WindowProps> = ({
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (isDragging) {
-        onMove(windowState.id, e.clientX - dragOffset.x, e.clientY - dragOffset.y);
+        // Clamp position so window titlebar stays accessible
+        const rawX = e.clientX - dragOffset.x;
+        const rawY = e.clientY - dragOffset.y;
+        const clampedX = Math.max(
+          -windowState.size.width + 120,
+          Math.min(rawX, window.innerWidth - 120),
+        );
+        const clampedY = Math.max(0, Math.min(rawY, window.innerHeight - 60));
+        onMove(windowState.id, clampedX, clampedY);
 
         // Detect snap zones for visual preview
         if (e.clientX <= SNAP_THRESHOLD) {

@@ -21,6 +21,8 @@ import {
   MinusCircle,
   ThumbsUp,
   ThumbsDown,
+  Pause,
+  Play,
 } from 'lucide-react';
 import { Agent } from '../../types';
 import { VirtualDesktop } from '../os/VirtualDesktop';
@@ -281,6 +283,8 @@ interface AgentVMProps {
   onReject: (id: string) => void;
   onStop: (id: string) => void;
   onSyncGithub: (id: string) => void;
+  onPause?: (id: string) => void;
+  onResume?: (id: string) => void;
 }
 
 export const AgentVM: React.FC<AgentVMProps> = ({
@@ -289,6 +293,8 @@ export const AgentVM: React.FC<AgentVMProps> = ({
   onReject,
   onStop,
   onSyncGithub,
+  onPause,
+  onResume,
 }) => {
   const [isSidebarOpen, setSidebarOpen] = useState(true);
   const [activeTab, setActiveTab] = useState<'logs' | 'terminal' | 'timeline' | 'plan'>('logs');
@@ -478,6 +484,26 @@ export const AgentVM: React.FC<AgentVMProps> = ({
               </div>
             )}
           </div>
+
+          {/* Pause / Resume toggle */}
+          {(agent.status === 'working' || agent.status === 'thinking') && onPause && (
+            <button
+              onClick={() => onPause(agent.id)}
+              className="p-1.5 rounded-full text-amber-400 hover:bg-amber-500/20 hover:text-amber-300 transition-colors"
+              title="Pause Agent — Take over desktop"
+            >
+              <Pause size={14} />
+            </button>
+          )}
+          {(agent.status === 'paused' || agent.status === 'idle') && onResume && (
+            <button
+              onClick={() => onResume(agent.id)}
+              className="p-1.5 rounded-full text-green-400 hover:bg-green-500/20 hover:text-green-300 transition-colors"
+              title="Resume Agent"
+            >
+              <Play size={14} />
+            </button>
+          )}
 
           <button
             onClick={() => onStop(agent.id)}
