@@ -7,7 +7,7 @@
 ## Setup / Connection
 
 - [x] **Mock mode fallback was silent** — *(Fixed — now pings /health to detect kernel.)*
-- [ ] **401 errors on initial load** — browser tries to load favicon.ico and page root on :3001 directly, gets 401. Harmless but noisy in console.
+- [x] **401 errors on initial load** — *(Fixed — /favicon.ico and root path now return 204/200 before auth middleware. No more 401 noise in console.)*
 - [x] **"Process 1 not found" error** — *(Fixed — early-return guards in App.tsx silently ignore unknown PIDs.)*
 - [x] **Playwright not installed** — *(Fixed — friendly "Browser Unavailable" UI panel with retry button.)*
 
@@ -26,8 +26,8 @@
 
 ## Agent ↔ Agent Collaboration
 
-- [ ] **Agents can't talk to each other** — no inter-agent messaging at the container level.
-- [ ] **No task handoff** — one agent can't pass work to another.
+- [x] **Agents can't talk to each other** — *(Fixed — IPC messages (send_message, check_messages) already existed; agent loop now auto-drains incoming IPC messages each step, injecting them as context. System prompt tells agents about list_agents and send_message.)*
+- [x] **No task handoff** — *(Fixed — delegate_task tool + collaboration.ts protocols already existed; system prompt now tells agents about delegate_task. Agent loop auto-receives delegation messages.)*
 
 ## Agent Reliability
 
@@ -52,9 +52,11 @@
 
 ---
 
-## Fixed This Session: 19/22
+## Fixed: 22/22
 
-## Remaining Open Issues: 3
+## Remaining Open Issues: 0
+
+All issues from the v0.5 testing session have been resolved.
 
 ---
 
@@ -66,9 +68,9 @@
 4. ~~**Agent success tracking**~~ DONE — agent.completed event, Prometheus metrics, dashboard success rate
 5. ~~**Better browse_web fallback**~~ DONE — structured HTML extraction, helpful error messages for Playwright-only tools
 6. ~~**Agent file location guidance**~~ DONE — system prompt updated for /home/agent/shared/
-7. **Inter-agent messaging** — let agents collaborate at container level
-8. **No task handoff** — one agent can't pass work to another
-9. **401 console noise** — minor polish
+7. ~~**Inter-agent messaging**~~ DONE — auto-drain IPC messages in agent loop, system prompt guidance
+8. ~~**Task handoff**~~ DONE — delegate_task tool + system prompt guidance
+9. ~~**401 console noise**~~ DONE — favicon.ico and root path return before auth middleware
 
 ---
 

@@ -227,6 +227,24 @@ export async function runAgentLoop(
       }
     }
 
+    // Drain pending IPC messages from other agents
+    if (kernel.processes.drainMessages) {
+      const ipcMsgs = kernel.processes.drainMessages(pid);
+      for (const msg of ipcMsgs) {
+        const sender = `PID ${msg.fromPid} (${msg.fromUid})`;
+        const content = typeof msg.payload === 'string' ? msg.payload : JSON.stringify(msg.payload);
+        state.history.push({
+          role: 'tool',
+          content: `[Agent Message from ${sender} on "${msg.channel}"] ${content}`,
+          timestamp: Date.now(),
+        });
+        kernel.bus.emit('agent.thought', {
+          pid,
+          thought: `Received message from ${sender}: "${content.substring(0, 100)}"`,
+        });
+      }
+    }
+
     try {
       // Context compaction: summarize old history when it grows too large
       if (shouldCompact(state)) {
@@ -447,6 +465,24 @@ export async function runAgentLoop(
           kernel.bus.emit('agent.thought', {
             pid,
             thought: `Received user message: "${msg.substring(0, 100)}"`,
+          });
+        }
+      }
+      // Drain pending IPC messages from other agents
+      if (kernel.processes.drainMessages) {
+        const ipcMsgs = kernel.processes.drainMessages(pid);
+        for (const msg of ipcMsgs) {
+          const sender = `PID ${msg.fromPid} (${msg.fromUid})`;
+          const content =
+            typeof msg.payload === 'string' ? msg.payload : JSON.stringify(msg.payload);
+          state.history.push({
+            role: 'tool',
+            content: `[Agent Message from ${sender} on "${msg.channel}"] ${content}`,
+            timestamp: Date.now(),
+          });
+          kernel.bus.emit('agent.thought', {
+            pid,
+            thought: `Received message from ${sender}: "${content.substring(0, 100)}"`,
           });
         }
       }
@@ -778,6 +814,8 @@ function buildSystemPrompt(
     `6. Be efficient - don't repeat actions unnecessarily`,
     `7. Use 'remember' to save important discoveries for future sessions`,
     `8. Use 'recall' to retrieve relevant knowledge from past sessions`,
+    `9. Use 'list_agents' to discover other running agents, 'send_message' to collaborate`,
+    `10. Use 'delegate_task' to hand off sub-tasks to other agents when available`,
     ``,
     `## Tool Call Format`,
     `When using tools, always provide the required arguments. Never call a tool with empty arguments {}.`,

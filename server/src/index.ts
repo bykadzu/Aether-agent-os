@@ -243,6 +243,20 @@ const requestHandler = async (req: IncomingMessage, res: ServerResponse) => {
 
   // ----- Public Endpoints (no auth required) -----
 
+  // Favicon — prevent 401 noise from browser auto-requests
+  if (url.pathname === '/favicon.ico') {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
+  // Root path — redirect to UI or return minimal info
+  if (url.pathname === '/' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ name: 'Aether OS Kernel', version: AETHER_VERSION }));
+    return;
+  }
+
   // Health check
   if (url.pathname === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
