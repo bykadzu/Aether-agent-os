@@ -8,6 +8,8 @@
  * Metrics exported:
  * - aether_agents_active (gauge)
  * - aether_agents_total (counter)
+ * - aether_agent_completions_total (counter, labels: outcome)
+ * - aether_agent_duration_seconds (histogram, labels: outcome)
  * - aether_agent_steps_total (counter, labels: pid, role)
  * - aether_llm_requests_total (counter, labels: provider, model)
  * - aether_llm_tokens_total (counter, labels: provider, direction)
@@ -36,6 +38,7 @@ interface HistogramData {
 export class MetricsExporter {
   // --- Counters ---
   private agentsTotal = 0;
+  private agentCompletions = new Map<string, number>(); // outcome -> count ("success", "timeout", "failure")
   private agentSteps = new Map<string, number>(); // "pid:role" -> count
   private llmRequests = new Map<string, number>(); // "provider:model" -> count
   private llmTokens = new Map<string, number>(); // "provider:direction" -> count
@@ -45,6 +48,9 @@ export class MetricsExporter {
 
   // --- Gauges ---
   private wsConnections = 0;
+
+  // --- Histograms ---
+  private agentDuration = new Map<string, HistogramData>(); // outcome -> histogram (seconds)
 
   // --- Histograms ---
   private llmLatency = new Map<string, HistogramData>(); // provider -> histogram
@@ -68,6 +74,18 @@ export class MetricsExporter {
       this.bus.on('process.spawned', () => {
         this.agentsTotal++;
       }),
+    );
+
+    // agent.completed → track completions, failures, and duration
+    this.unsubscribers.push(
+      this.bus.on(
+        'agent.completed',
+        (data: { pid: number; outcome: string; steps: number; durationMs: number }) => {
+          const outcome = data.outcome || 'unknown';
+          this.agentCompletions.set(outcome, (this.agentCompletions.get(outcome) || 0) + 1);
+          this.observeHistogram(this.agentDuration, outcome, data.durationMs / 1000);
+        },
+      ),
     );
 
     // agent.progress → increment agent_steps_total
@@ -169,6 +187,20 @@ export class MetricsExporter {
     lines.push('# HELP aether_agents_total Total number of agents spawned');
     lines.push('# TYPE aether_agents_total counter');
     lines.push(`aether_agents_total ${this.agentsTotal}`);
+
+    // --- aether_agent_completions_total (counter, labels: outcome) ---
+    lines.push('# HELP aether_agent_completions_total Agent task completions by outcome');
+    lines.push('# TYPE aether_agent_completions_total counter');
+    for (const [outcome, count] of this.agentCompletions) {
+      lines.push(`aether_agent_completions_total{outcome="${escapeLabel(outcome)}"} ${count}`);
+    }
+
+    // --- aether_agent_duration_seconds (histogram, labels: outcome) ---
+    lines.push('# HELP aether_agent_duration_seconds Agent task duration in seconds');
+    lines.push('# TYPE aether_agent_duration_seconds histogram');
+    for (const [outcome, hist] of this.agentDuration) {
+      this.renderHistogram(lines, 'aether_agent_duration_seconds', { outcome }, hist);
+    }
 
     // --- aether_agent_steps_total (counter, labels: pid, role) ---
     lines.push('# HELP aether_agent_steps_total Total agent steps executed');

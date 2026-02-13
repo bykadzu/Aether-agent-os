@@ -1627,6 +1627,7 @@ const BROADCAST_EVENTS = [
   'agent.paused',
   'agent.resumed',
   'agent.injectionBlocked',
+  'agent.completed',
   'ipc.message',
   'ipc.delivered',
   'container.created',

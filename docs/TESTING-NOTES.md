@@ -32,7 +32,7 @@
 ## Agent Reliability
 
 - [ ] **GPT 5.3 Codex didn't finish its task** — created the file but completion was unclear.
-- [ ] **Agent success rate unknown** — no tracking of completion vs failure.
+- [x] **Agent success rate unknown** — *(Fixed — agent.completed event with outcome/steps/duration, Prometheus metrics aether_agent_completions_total and aether_agent_duration_seconds, success rate % in dashboard top bar.)*
 - [x] **Tool output truncated too aggressively** — *(Fixed — increased to 4000 chars.)*
 
 ## UI / UX
@@ -47,14 +47,14 @@
 - [x] **Docker containers had no network** — networkAccess defaulted to false, containers had only loopback interface. *(Fixed — default changed to true.)*
 - [x] **Docker image has no Python** — *(Fixed — created Dockerfile.agent with Python 3.12, Node.js 22, pip, git, curl, vim, build-essential, and common pip packages pre-installed. Updated DEFAULT_CONTAINER_IMAGE to aether-agent:latest.)*
 - [x] **30-second command timeout kills long-running processes** — *(Fixed — DEFAULT_COMMAND_TIMEOUT increased to 120s, MAX_COMMAND_TIMEOUT increased to 600s. Agents can also pass per-command timeout via args.)*
-- [ ] **browse_web is nearly useless without Playwright** — falls back to HTTP fetch which returns raw HTML. type_text, click_element, screenshot_page all fail. Google search redirects don't resolve. Agent wastes many steps trying to make browsing work.
-- [ ] **Agent writes files in wrong location** — some files go to /home/agent/shared/ (correct), some to /home/agent_1/ (agent home). No clear guidance in system prompt about where to save work.
+- [x] **browse_web is nearly useless without Playwright** — *(Fixed — HTTP fallback now extracts structured content: title, meta description, headings, links, and clean body text. screenshot_page/click_element/type_text return helpful guidance when Playwright is unavailable instead of cryptic errors.)*
+- [x] **Agent writes files in wrong location** — *(Fixed — system prompt now explicitly tells agents to save deliverables to /home/agent/shared/, with examples using shared paths. Home directory is designated for scratch/temp files only.)*
 
 ---
 
-## Fixed This Session: 16/22
+## Fixed This Session: 19/22
 
-## Remaining Open Issues: 6
+## Remaining Open Issues: 3
 
 ---
 
@@ -63,11 +63,12 @@
 1. ~~**Fix container startup**~~ DONE — containers pre-created at spawn
 2. ~~**Custom Docker image**~~ DONE — Dockerfile.agent with Python, Node.js, pip, common packages
 3. ~~**Configurable command timeout**~~ DONE — 120s default, 600s max, per-command override
-4. **Agent success tracking** — completions table, dashboard stats
-5. **Inter-agent messaging** — let agents collaborate at container level
-6. **Better browse_web fallback** — or install Playwright in container image
-7. **Agent file location guidance** — system prompt update for consistent output paths
-8. **401 console noise** — minor polish
+4. ~~**Agent success tracking**~~ DONE — agent.completed event, Prometheus metrics, dashboard success rate
+5. ~~**Better browse_web fallback**~~ DONE — structured HTML extraction, helpful error messages for Playwright-only tools
+6. ~~**Agent file location guidance**~~ DONE — system prompt updated for /home/agent/shared/
+7. **Inter-agent messaging** — let agents collaborate at container level
+8. **No task handoff** — one agent can't pass work to another
+9. **401 console noise** — minor polish
 
 ---
 

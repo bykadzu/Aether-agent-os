@@ -324,40 +324,95 @@ export function createToolSet(): ToolDefinition[] {
             };
           }
 
-          // Fallback to HTTP fetch
+          // Fallback to HTTP fetch with structured extraction
           const controller = new AbortController();
           const timeout = setTimeout(() => controller.abort(), 15_000);
           const response = await fetch(args.url, {
             signal: controller.signal,
-            headers: { 'User-Agent': 'AetherOS-Agent/0.1' },
+            redirect: 'follow',
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (compatible; AetherOS-Agent/0.5; +https://aetheros.dev)',
+              Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            },
           });
           clearTimeout(timeout);
 
+          const finalUrl = response.url || args.url;
           const contentType = response.headers.get('content-type') || '';
-          if (!contentType.includes('text')) {
+          if (!contentType.includes('text') && !contentType.includes('html')) {
             return {
               success: true,
-              output: `Fetched ${args.url} - Content-Type: ${contentType} (binary content, ${response.headers.get('content-length') || 'unknown'} bytes)`,
+              output: `Fetched ${finalUrl} - Content-Type: ${contentType} (binary content, ${response.headers.get('content-length') || 'unknown'} bytes)`,
             };
           }
 
-          const text = await response.text();
-          // Strip HTML tags for a rough text extraction
-          const plainText = text
+          const html = await response.text();
+
+          // Extract structured content from HTML
+          const title = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.trim() || '';
+          const metaDesc =
+            html
+              .match(/<meta[^>]+name=["']description["'][^>]+content=["']([\s\S]*?)["']/i)?.[1]
+              ?.trim() || '';
+
+          // Extract headings
+          const headings: string[] = [];
+          const headingRegex = /<h[1-3][^>]*>([\s\S]*?)<\/h[1-3]>/gi;
+          let hMatch;
+          while ((hMatch = headingRegex.exec(html)) !== null && headings.length < 15) {
+            const text = hMatch[1].replace(/<[^>]+>/g, '').trim();
+            if (text) headings.push(text);
+          }
+
+          // Extract links (up to 20)
+          const links: string[] = [];
+          const linkRegex = /<a[^>]+href=["']([^"'#][^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi;
+          let lMatch;
+          while ((lMatch = linkRegex.exec(html)) !== null && links.length < 20) {
+            const linkText = lMatch[2].replace(/<[^>]+>/g, '').trim();
+            if (linkText && linkText.length > 1) {
+              links.push(`${linkText} → ${lMatch[1]}`);
+            }
+          }
+
+          // Extract main text content (strip scripts, styles, nav, footer, header)
+          const mainText = html
             .replace(/<script[\s\S]*?<\/script>/gi, '')
             .replace(/<style[\s\S]*?<\/style>/gi, '')
+            .replace(/<nav[\s\S]*?<\/nav>/gi, '')
+            .replace(/<footer[\s\S]*?<\/footer>/gi, '')
+            .replace(/<header[\s\S]*?<\/header>/gi, '')
             .replace(/<[^>]+>/g, ' ')
+            .replace(/&nbsp;/gi, ' ')
+            .replace(/&amp;/gi, '&')
+            .replace(/&lt;/gi, '<')
+            .replace(/&gt;/gi, '>')
+            .replace(/&quot;/gi, '"')
             .replace(/\s+/g, ' ')
-            .trim()
-            .substring(0, 4000);
+            .trim();
+
+          // Build structured output
+          const sections: string[] = [];
+          if (title) sections.push(`Title: ${title}`);
+          sections.push(`URL: ${finalUrl}`);
+          if (metaDesc) sections.push(`Description: ${metaDesc}`);
+          if (headings.length > 0) {
+            sections.push(`\nHeadings:\n${headings.map((h) => `  - ${h}`).join('\n')}`);
+          }
+          if (links.length > 0) {
+            sections.push(`\nLinks:\n${links.map((l) => `  - ${l}`).join('\n')}`);
+          }
+          sections.push(`\nContent:\n${mainText.substring(0, 2500)}`);
+
+          const output = sections.join('\n').substring(0, 4000);
 
           ctx.kernel.bus.emit('agent.browsing', {
             pid: ctx.pid,
-            url: args.url,
-            summary: plainText.substring(0, 200),
+            url: finalUrl,
+            summary: (title || mainText).substring(0, 200),
           });
 
-          return { success: true, output: plainText };
+          return { success: true, output };
         } catch (err: any) {
           return { success: false, output: `Failed to browse ${args.url}: ${err.message}` };
         }
@@ -368,6 +423,13 @@ export function createToolSet(): ToolDefinition[] {
       name: 'screenshot_page',
       description: 'Take a screenshot of the current browser page (returns base64 PNG image)',
       execute: async (args, ctx) => {
+        if (!ctx.kernel.browser?.isAvailable()) {
+          return {
+            success: false,
+            output:
+              'Screenshot unavailable — Playwright is not installed. Use browse_web to read page content as text instead.',
+          };
+        }
         try {
           const sessionId = await ensureBrowserSession(ctx);
 
@@ -389,8 +451,15 @@ export function createToolSet(): ToolDefinition[] {
 
     {
       name: 'click_element',
-      description: 'Click at coordinates on the current browser page',
+      description: 'Click at coordinates on the current browser page (requires Playwright)',
       execute: async (args, ctx) => {
+        if (!ctx.kernel.browser?.isAvailable()) {
+          return {
+            success: false,
+            output:
+              'Click unavailable — Playwright is not installed. Use browse_web to navigate to URLs directly, or use run_command with curl/wget for downloads.',
+          };
+        }
         try {
           const sessionId = await ensureBrowserSession(ctx);
           await ctx.kernel.browser.click(sessionId, args.x, args.y, args.button || 'left');
@@ -407,8 +476,16 @@ export function createToolSet(): ToolDefinition[] {
 
     {
       name: 'type_text',
-      description: 'Type text into the focused element on the current browser page',
+      description:
+        'Type text into the focused element on the current browser page (requires Playwright)',
       execute: async (args, ctx) => {
+        if (!ctx.kernel.browser?.isAvailable()) {
+          return {
+            success: false,
+            output:
+              'Type unavailable — Playwright is not installed. Use run_command to interact with web services via curl, or write_file to create content directly.',
+          };
+        }
         try {
           const sessionId = await ensureBrowserSession(ctx);
 

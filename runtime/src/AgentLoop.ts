@@ -111,6 +111,8 @@ export async function runAgentLoop(
   // Resolve LLM provider from config.model string or environment
   const provider = resolveProvider(effectiveConfig, options.apiKey);
 
+  const startedAt = Date.now();
+
   const state: AgentState = {
     step: 0,
     maxSteps: config.maxSteps || DEFAULT_AGENT_MAX_STEPS,
@@ -184,6 +186,15 @@ export async function runAgentLoop(
     // Check abort signal
     if (options.signal?.aborted) {
       kernel.bus.emit('agent.thought', { pid, thought: 'Received abort signal.' });
+      kernel.bus.emit('agent.completed', {
+        pid,
+        outcome: 'aborted',
+        steps: state.step,
+        durationMs: Date.now() - startedAt,
+        role: config.role,
+        goal: config.goal,
+        summary: 'Agent was aborted.',
+      });
       kernel.processes.setState(pid, 'zombie', 'failed');
       return;
     }
@@ -331,11 +342,21 @@ export async function runAgentLoop(
 
       // Check if agent completed
       if (decision.tool === 'complete') {
+        const durationMs = Date.now() - startedAt;
         kernel.bus.emit('agent.progress', {
           pid,
           step: state.step + 1,
           maxSteps: state.maxSteps,
           summary: 'Task completed successfully.',
+        });
+        kernel.bus.emit('agent.completed', {
+          pid,
+          outcome: 'success',
+          steps: state.step + 1,
+          durationMs,
+          role: config.role,
+          goal: config.goal,
+          summary: result.output?.substring(0, 300) || 'Task completed.',
         });
 
         // Run post-task reflection (fire-and-forget, don't block exit)
@@ -455,6 +476,15 @@ export async function runAgentLoop(
           timestamp: Date.now(),
         });
         if (decision.tool === 'complete') {
+          kernel.bus.emit('agent.completed', {
+            pid,
+            outcome: 'success',
+            steps: state.step + 1,
+            durationMs: Date.now() - startedAt,
+            role: config.role,
+            goal: config.goal,
+            summary: result.output?.substring(0, 300) || 'Task completed.',
+          });
           kernel.processes.setState(pid, 'zombie', 'completed');
           kernel.processes.exit(pid, 0);
           return;
@@ -474,7 +504,18 @@ export async function runAgentLoop(
     }
   }
 
+  const durationMs = Date.now() - startedAt;
+  const timedOut = state.step >= state.maxSteps;
   kernel.bus.emit('agent.thought', { pid, thought: `Agent finished after ${state.step} steps.` });
+  kernel.bus.emit('agent.completed', {
+    pid,
+    outcome: timedOut ? 'timeout' : 'success',
+    steps: state.step,
+    durationMs,
+    role: config.role,
+    goal: config.goal,
+    summary: state.lastObservation?.substring(0, 300) || 'Agent finished.',
+  });
   kernel.processes.setState(pid, 'zombie', 'completed');
   kernel.processes.exit(pid, 0);
 }
@@ -714,28 +755,15 @@ function buildSystemPrompt(
     `- Goal: ${config.goal}`,
     ``,
     `## Your Environment`,
-    ...(process.platform === 'win32'
-      ? [
-          `- You are running on Windows with cmd.exe / PowerShell`,
-          `- Use Windows commands (dir, type, copy, del, mkdir, etc.) — NOT Linux commands`,
-          `- File paths use backslashes (C:\\Users\\...) or forward slashes`,
-          `- Use 'where' instead of 'which', 'type' instead of 'cat', 'dir' instead of 'ls'`,
-          `- Package managers: winget, choco, pip, npm — NOT apt-get or brew`,
-        ]
-      : process.platform === 'darwin'
-        ? [
-            `- You have a real macOS terminal with zsh/bash`,
-            `- Use macOS / Unix commands (ls, cat, cp, rm, mkdir, etc.)`,
-            `- Package managers: brew, pip, npm`,
-          ]
-        : [
-            `- You have a real Linux terminal with bash`,
-            `- Use Linux / Unix commands (ls, cat, cp, rm, mkdir, etc.)`,
-            `- Package managers: apt-get, pip, npm`,
-          ]),
-    `- You have a real filesystem with your home directory`,
+    `- You are running inside a Linux container with bash`,
+    `- Use Linux / Unix commands (ls, cat, cp, rm, mkdir, etc.)`,
+    `- Package managers: apt-get, pip, npm (Python 3, Node.js 22 pre-installed)`,
+    `- You have a real filesystem with your home directory at /home/agent/`,
+    `- **Shared workspace**: Save ALL deliverables to /home/agent/shared/ — this is visible to the user and persists across sessions`,
+    `- Your home directory (/home/agent/) is private to you; the shared directory is the handoff point`,
     `- You can create files, run commands, and browse the web`,
     `- Your actions are observable by the human operator`,
+    `- The operator can pause you, interact with your desktop, and resume you at any time`,
     `- You have persistent memory across sessions (use remember/recall tools)`,
     ``,
     `## Available Tools`,
@@ -744,17 +772,18 @@ function buildSystemPrompt(
     `## Rules`,
     `1. Think step by step before acting`,
     `2. Use the simplest tool that accomplishes the task`,
-    `3. Create files in your home directory when producing artifacts`,
-    `4. Call 'complete' when you've achieved your goal`,
-    `5. Be efficient - don't repeat actions unnecessarily`,
-    `6. Use 'remember' to save important discoveries for future sessions`,
-    `7. Use 'recall' to retrieve relevant knowledge from past sessions`,
+    `3. Save all work output to /home/agent/shared/ so the user can access it`,
+    `4. Use /home/agent/ for temporary/scratch files only`,
+    `5. Call 'complete' when you've achieved your goal`,
+    `6. Be efficient - don't repeat actions unnecessarily`,
+    `7. Use 'remember' to save important discoveries for future sessions`,
+    `8. Use 'recall' to retrieve relevant knowledge from past sessions`,
     ``,
     `## Tool Call Format`,
     `When using tools, always provide the required arguments. Never call a tool with empty arguments {}.`,
     `Examples:`,
-    `- list_files: { "path": "/home/agent/project" }`,
-    `- write_file: { "path": "/home/agent/output.txt", "content": "Hello world" }`,
+    `- list_files: { "path": "/home/agent/shared" }`,
+    `- write_file: { "path": "/home/agent/shared/output.txt", "content": "Hello world" }`,
     `- run_command: { "command": "python main.py" }`,
   ];
 

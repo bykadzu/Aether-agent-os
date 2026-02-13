@@ -530,6 +530,17 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({
             <span className="text-white/40 hidden sm:inline">Failed</span>
           </div>
         )}
+        {completedCount + failedCount > 0 && (
+          <>
+            <div className="w-px h-4 bg-white/10 shrink-0" />
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-white/70 font-mono text-[10px]">
+                {Math.round((completedCount / (completedCount + failedCount)) * 100)}%
+              </span>
+              <span className="text-white/40 hidden sm:inline">Success</span>
+            </div>
+          </>
+        )}
 
         <div className="ml-auto flex items-center gap-6 hidden md:flex">
           {kernelMetrics && (
