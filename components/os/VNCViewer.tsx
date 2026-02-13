@@ -97,6 +97,20 @@ export const VNCViewer = forwardRef<VNCViewerHandle, VNCViewerProps>(
 
           if (destroyed) return;
 
+          // Wait for the container to have actual dimensions before creating RFB.
+          // noVNC reads the container size on init to set the canvas — if the
+          // container hasn't laid out yet, the canvas ends up as a tiny strip.
+          const el = containerRef.current;
+          if (el) {
+            let waitAttempts = 0;
+            while (el.clientWidth < 10 || el.clientHeight < 10) {
+              if (destroyed || waitAttempts++ > 20) break;
+              await new Promise((r) => setTimeout(r, 100));
+            }
+          }
+
+          if (destroyed || !containerRef.current) return;
+
           if ((noVNC?.default || noVNC) && containerRef.current) {
             const RFB = noVNC.default || noVNC;
             rfb = new RFB(containerRef.current, wsUrl, {
@@ -114,6 +128,14 @@ export const VNCViewer = forwardRef<VNCViewerHandle, VNCViewerProps>(
             rfb.addEventListener('connect', () => {
               if (!destroyed) {
                 setStatus('connected');
+                // Re-trigger scaleViewport after connection so noVNC
+                // recalculates against the now-fully-laid-out container.
+                requestAnimationFrame(() => {
+                  if (rfbRef.current) {
+                    rfbRef.current.scaleViewport = false;
+                    rfbRef.current.scaleViewport = true;
+                  }
+                });
                 onConnect?.();
               }
             });
