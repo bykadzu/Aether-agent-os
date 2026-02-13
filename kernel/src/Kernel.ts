@@ -47,6 +47,7 @@ import { ModelRouter } from './ModelRouter.js';
 import { MetricsExporter } from './MetricsExporter.js';
 import { ToolCompatLayer } from './ToolCompatLayer.js';
 import { MCPManager } from './MCPManager.js';
+import { OpenClawAdapter } from './OpenClawAdapter.js';
 import {
   KernelCommand,
   KernelEvent,
@@ -88,6 +89,7 @@ export class Kernel {
   readonly metrics: MetricsExporter;
   readonly toolCompat: ToolCompatLayer;
   readonly mcp: MCPManager;
+  readonly openClaw: OpenClawAdapter;
 
   private startTime: number;
   private running = false;
@@ -119,6 +121,7 @@ export class Kernel {
     this.metrics = new MetricsExporter(this.bus, this.processes, this.resources);
     this.toolCompat = new ToolCompatLayer(this.bus, this.state);
     this.mcp = new MCPManager(this.bus, this.state);
+    this.openClaw = new OpenClawAdapter(this.bus, this.state, this.pluginRegistry);
     this.snapshots = new SnapshotManager(
       this.bus,
       this.processes,
@@ -300,6 +303,10 @@ export class Kernel {
     // Initialize MCP manager
     await this.mcp.init();
     console.log('[Kernel] MCP manager initialized');
+
+    // Initialize OpenClaw adapter
+    await this.openClaw.init();
+    console.log('[Kernel] OpenClaw adapter initialized');
 
     // Listen for process cleanup events to remove agent home directories
     this.bus.on('process.cleanup', async (data: { pid: number; uid: string; cwd: string }) => {
@@ -2319,6 +2326,79 @@ export class Kernel {
           break;
         }
 
+        // ----- OpenClaw Commands (v0.6) -----
+        case 'openclaw.importSkill': {
+          try {
+            const importResult = await this.openClaw.importSkill((cmd as any).path);
+            events.push({ type: 'response.ok', id: cmd.id, data: importResult });
+            events.push({
+              type: 'openclaw.skill.imported',
+              skillId: importResult.manifest.id,
+              name: importResult.manifest.name,
+              warnings: importResult.warnings,
+              dependenciesMet: importResult.dependenciesMet,
+            } as KernelEvent);
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        case 'openclaw.importDirectory': {
+          try {
+            const batchResult = await this.openClaw.importDirectory((cmd as any).dirPath);
+            events.push({ type: 'response.ok', id: cmd.id, data: batchResult });
+            events.push({
+              type: 'openclaw.batch.imported',
+              imported: batchResult.imported.length,
+              failed: batchResult.failed.length,
+              totalScanned: batchResult.totalScanned,
+            } as KernelEvent);
+          } catch (err: any) {
+            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          }
+          break;
+        }
+
+        case 'openclaw.listImported': {
+          const imports = this.openClaw.listImported();
+          events.push({ type: 'response.ok', id: cmd.id, data: imports });
+          events.push({ type: 'openclaw.import.list', imports } as KernelEvent);
+          break;
+        }
+
+        case 'openclaw.removeImport': {
+          const removed = this.openClaw.removeImport((cmd as any).skillId);
+          if (removed) {
+            events.push({ type: 'response.ok', id: cmd.id });
+            events.push({
+              type: 'openclaw.import.removed',
+              skillId: (cmd as any).skillId,
+            } as KernelEvent);
+          } else {
+            events.push({
+              type: 'response.error',
+              id: cmd.id,
+              error: `OpenClaw skill not found: ${(cmd as any).skillId}`,
+            });
+          }
+          break;
+        }
+
+        case 'openclaw.getInstructions': {
+          const instructions = this.openClaw.getInstructions((cmd as any).skillId);
+          if (instructions !== undefined) {
+            events.push({ type: 'response.ok', id: cmd.id, data: { instructions } });
+          } else {
+            events.push({
+              type: 'response.error',
+              id: cmd.id,
+              error: `OpenClaw skill not found: ${(cmd as any).skillId}`,
+            });
+          }
+          break;
+        }
+
         default:
           events.push({
             type: 'response.error',
@@ -2395,6 +2475,7 @@ export class Kernel {
       ['MetricsExporter', true],
       ['ToolCompatLayer', true],
       ['MCPManager', true],
+      ['OpenClawAdapter', true],
     ];
 
     const port = process.env.AETHER_PORT || String(DEFAULT_PORT);
@@ -2457,6 +2538,7 @@ export class Kernel {
     }
 
     await this.remoteAccess.shutdown();
+    this.openClaw.shutdown();
     await this.mcp.shutdown();
     this.toolCompat.shutdown();
     this.metrics.shutdown();

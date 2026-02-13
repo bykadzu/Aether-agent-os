@@ -236,6 +236,11 @@ export class StateStore {
     getAllMCPServers: Database.Statement;
     updateMCPServer: Database.Statement;
     deleteMCPServer: Database.Statement;
+    // OpenClaw import statements (v0.6)
+    upsertOpenClawImport: Database.Statement;
+    getOpenClawImport: Database.Statement;
+    getAllOpenClawImports: Database.Statement;
+    deleteOpenClawImport: Database.Statement;
   };
 
   private _persistenceDisabled = false;
@@ -778,6 +783,20 @@ export class StateStore {
         auto_connect INTEGER NOT NULL DEFAULT 0,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
+      );
+    `);
+
+    // OpenClaw imports table (v0.6)
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS openclaw_imports (
+        skill_id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        source_path TEXT NOT NULL,
+        instructions TEXT NOT NULL,
+        warnings TEXT NOT NULL DEFAULT '[]',
+        dependencies_met INTEGER NOT NULL DEFAULT 1,
+        import_data TEXT NOT NULL,
+        imported_at INTEGER NOT NULL
       );
     `);
   }
@@ -1403,6 +1422,13 @@ export class StateStore {
         `UPDATE mcp_servers SET config = @config, enabled = @enabled, auto_connect = @auto_connect, updated_at = @updated_at WHERE id = @id`,
       ),
       deleteMCPServer: this.db.prepare(`DELETE FROM mcp_servers WHERE id = ?`),
+      // OpenClaw imports (v0.6)
+      upsertOpenClawImport: this.db.prepare(
+        `INSERT OR REPLACE INTO openclaw_imports (skill_id, name, source_path, instructions, warnings, dependencies_met, import_data, imported_at) VALUES (@skill_id, @name, @source_path, @instructions, @warnings, @dependencies_met, @import_data, @imported_at)`,
+      ),
+      getOpenClawImport: this.db.prepare(`SELECT * FROM openclaw_imports WHERE skill_id = ?`),
+      getAllOpenClawImports: this.db.prepare(`SELECT * FROM openclaw_imports ORDER BY name`),
+      deleteOpenClawImport: this.db.prepare(`DELETE FROM openclaw_imports WHERE skill_id = ?`),
     };
   }
 
@@ -2934,6 +2960,35 @@ export class StateStore {
 
   deleteMCPServer(id: string): void {
     this.stmts.deleteMCPServer.run(id);
+  }
+
+  // ---------------------------------------------------------------------------
+  // OpenClaw Import Persistence (v0.6)
+  // ---------------------------------------------------------------------------
+
+  upsertOpenClawImport(record: {
+    skill_id: string;
+    name: string;
+    source_path: string;
+    instructions: string;
+    warnings: string;
+    dependencies_met: number;
+    import_data: string;
+    imported_at: number;
+  }): void {
+    this.stmts.upsertOpenClawImport.run(record);
+  }
+
+  getOpenClawImport(skillId: string): any {
+    return this.stmts.getOpenClawImport.get(skillId);
+  }
+
+  getAllOpenClawImports(): any[] {
+    return this.stmts.getAllOpenClawImports.all();
+  }
+
+  deleteOpenClawImport(skillId: string): void {
+    this.stmts.deleteOpenClawImport.run(skillId);
   }
 
   /**

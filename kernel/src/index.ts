@@ -26,6 +26,7 @@ export { ModelRouter } from './ModelRouter.js';
 export { MetricsExporter } from './MetricsExporter.js';
 export { ToolCompatLayer } from './ToolCompatLayer.js';
 export { MCPManager } from './MCPManager.js';
+export { OpenClawAdapter } from './OpenClawAdapter.js';
 export {
   SlackIntegration,
   verifySlackSignature,

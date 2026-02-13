@@ -1301,6 +1301,13 @@ export type KernelCommand =
       args: Record<string, any>;
     }
 
+  // OpenClaw commands (v0.6)
+  | { type: 'openclaw.importSkill'; id: string; path: string }
+  | { type: 'openclaw.importDirectory'; id: string; dirPath: string }
+  | { type: 'openclaw.listImported'; id: string }
+  | { type: 'openclaw.removeImport'; id: string; skillId: string }
+  | { type: 'openclaw.getInstructions'; id: string; skillId: string }
+
   // System
   | { type: 'kernel.status'; id: string }
   | { type: 'kernel.shutdown'; id: string };
@@ -1534,6 +1541,18 @@ type KernelEventBase =
   | { type: 'mcp.servers.list'; servers: MCPServerInfo[] }
   | { type: 'mcp.tools.list'; tools: MCPToolInfo[] }
 
+  // OpenClaw events (v0.6)
+  | {
+      type: 'openclaw.skill.imported';
+      skillId: string;
+      name: string;
+      warnings: string[];
+      dependenciesMet: boolean;
+    }
+  | { type: 'openclaw.batch.imported'; imported: number; failed: number; totalScanned: number }
+  | { type: 'openclaw.import.list'; imports: OpenClawImportResult[] }
+  | { type: 'openclaw.import.removed'; skillId: string }
+
   // System events
   | { type: 'kernel.ready'; version: string; uptime: number }
   | {
@@ -1636,6 +1655,47 @@ export interface MCPToolInfo {
   serverId: string;
   description: string;
   inputSchema: Record<string, any>;
+}
+
+// ---------------------------------------------------------------------------
+// OpenClaw Adapter Types (v0.6)
+// ---------------------------------------------------------------------------
+
+/** Parsed OpenClaw SKILL.md frontmatter */
+export interface OpenClawSkillFrontmatter {
+  name: string;
+  description: string;
+  'user-invocable'?: boolean;
+  'disable-model-invocation'?: boolean;
+  'command-dispatch'?: 'tool';
+  'command-tool'?: string;
+  'command-arg-mode'?: 'raw';
+  metadata?: {
+    openclaw?: {
+      requires?: {
+        bins?: string[];
+        env?: string[];
+        config?: string[];
+      };
+      os?: string[];
+    };
+  };
+}
+
+/** Result of importing an OpenClaw skill */
+export interface OpenClawImportResult {
+  manifest: PluginRegistryManifest;
+  instructions: string;
+  warnings: string[];
+  dependenciesMet: boolean;
+  sourcePath: string;
+}
+
+/** Batch import result */
+export interface OpenClawBatchImportResult {
+  imported: OpenClawImportResult[];
+  failed: Array<{ path: string; error: string }>;
+  totalScanned: number;
 }
 
 // ---------------------------------------------------------------------------
