@@ -36,6 +36,8 @@ interface AgentConfig {
   tools?: string[];
   maxSteps?: number;
   sandbox?: any;
+  runtime?: string;
+  skills?: string[];
 }
 
 type AuthenticateRequest = (req: IncomingMessage) => UserInfo | null;
@@ -167,29 +169,47 @@ export function createV1Router(
         // Create home directory
         await kernel.fs.createHome(proc.info.uid);
 
-        // Open terminal
-        const tty = kernel.pty.open(pid, {
-          cwd: kernel.fs.getRealRoot() + proc.info.cwd,
-          env: proc.info.env,
-        });
-        proc.info.ttyId = tty.id;
-
-        // Mark as running
-        kernel.processes.setState(pid, 'running', 'booting');
-
-        // Start agent loop
-        if (runAgentLoop && proc.agentConfig) {
-          const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
-          runAgentLoop(kernel, pid, proc.agentConfig, {
-            apiKey,
-            signal: proc.abortController.signal,
-          }).catch((err: any) => {
-            console.error(`[API v1] Agent loop error for PID ${pid}:`, err);
-            kernel.processes.setState(pid, 'stopped', 'failed');
-          });
+        // Parse runtime from config or metadata in the goal string
+        let runtime = config.runtime || 'builtin';
+        const metaMatch = config.goal.match(/\[([^\]]+)\]/);
+        if (metaMatch) {
+          const meta = metaMatch[1];
+          const rtMatch = meta.match(/runtime:(\S+)/);
+          if (rtMatch) runtime = rtMatch[1];
+          // Strip metadata from goal for the agent
+          config.goal = config.goal.replace(/\s*\[[^\]]+\]$/, '').trim();
         }
 
-        jsonOk(res, { pid, uid: proc.info.uid, ttyId: tty.id }, 201);
+        if (runtime !== 'builtin' && kernel.subprocess) {
+          // External runtime (claude-code / openclaw) — spawn as real OS subprocess
+          const workDir = kernel.fs.getRealRoot() + '/home/' + proc.info.uid;
+          config.runtime = runtime;
+          await kernel.subprocess.start(pid, config, workDir);
+          kernel.processes.setState(pid, 'running', 'executing');
+          jsonOk(res, { pid, uid: proc.info.uid, runtime }, 201);
+        } else {
+          // Builtin runtime — open PTY and run agent loop
+          const tty = kernel.pty.open(pid, {
+            cwd: kernel.fs.getRealRoot() + proc.info.cwd,
+            env: proc.info.env,
+          });
+          proc.info.ttyId = tty.id;
+
+          kernel.processes.setState(pid, 'running', 'booting');
+
+          if (runAgentLoop && proc.agentConfig) {
+            const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+            runAgentLoop(kernel, pid, proc.agentConfig, {
+              apiKey,
+              signal: proc.abortController.signal,
+            }).catch((err: any) => {
+              console.error(`[API v1] Agent loop error for PID ${pid}:`, err);
+              kernel.processes.setState(pid, 'stopped', 'failed');
+            });
+          }
+
+          jsonOk(res, { pid, uid: proc.info.uid, ttyId: tty.id }, 201);
+        }
       } catch (err: any) {
         jsonError(res, 400, 'INVALID_INPUT', err.message);
       }
