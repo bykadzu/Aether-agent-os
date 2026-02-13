@@ -135,6 +135,9 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({
   const [newGpuEnabled, setNewGpuEnabled] = useState(false);
   const [newGraphicalEnabled, setNewGraphicalEnabled] = useState(false);
   const [newModel, setNewModel] = useState('');
+  const [newAgentRuntime, setNewAgentRuntime] = useState<'builtin' | 'claude-code' | 'openclaw'>(
+    'builtin',
+  );
   const [templates, setTemplates] = useState<AgentTemplate[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<AgentTemplate | null>(null);
   const [llmProviders, setLlmProviders] = useState<LLMProviderInfo[]>([]);
@@ -407,12 +410,14 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({
     if (newGpuEnabled) meta.push('gpu:true');
     if (newGraphicalEnabled) meta.push('graphical:true');
     if (newModel) meta.push(`model:${newModel}`);
+    if (newAgentRuntime !== 'builtin') meta.push(`runtime:${newAgentRuntime}`);
     if (meta.length > 0) goal = `${newGoal} [${meta.join(',')}]`;
     onLaunchAgent(newRole, goal);
     setNewGoal('');
     setNewGpuEnabled(false);
     setNewGraphicalEnabled(false);
     setNewModel('');
+    setNewAgentRuntime('builtin');
     setSelectedTemplate(null);
     setModalView('templates');
     setShowNewAgentModal(false);
@@ -438,6 +443,7 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({
     setModalView('templates');
     setNewGoal('');
     setNewModel('');
+    setNewAgentRuntime('builtin');
   };
 
   const handleDetach = (e: React.MouseEvent, agentId: string) => {
@@ -770,6 +776,11 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
+                    {(agent as any).runtime && (agent as any).runtime !== 'builtin' && (
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                        {(agent as any).runtime === 'claude-code' ? 'Claude Code' : 'OpenClaw'}
+                      </span>
+                    )}
                     {agent.vncWsUrl && (
                       <button
                         onClick={(e) => {
@@ -1229,6 +1240,40 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({
                         </optgroup>
                       ))}
                     </select>
+                  </div>
+
+                  {/* Runtime Selector */}
+                  <div>
+                    <label className="block text-xs font-bold text-gray-400 mb-2 uppercase tracking-wider">
+                      Agent Runtime
+                    </label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {(['builtin', 'claude-code', 'openclaw'] as const).map((rt) => (
+                        <button
+                          key={rt}
+                          onClick={() => setNewAgentRuntime(rt)}
+                          className={`px-3 py-2 rounded text-sm font-medium border ${
+                            newAgentRuntime === rt
+                              ? 'border-blue-500 bg-blue-500/20 text-blue-300'
+                              : 'border-gray-600 bg-gray-700 text-gray-400 hover:border-gray-500'
+                          }`}
+                        >
+                          {rt === 'builtin'
+                            ? 'Built-in'
+                            : rt === 'claude-code'
+                              ? 'Claude Code'
+                              : 'OpenClaw'}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {newAgentRuntime === 'builtin' &&
+                        'Default agent loop with basic tool calling'}
+                      {newAgentRuntime === 'claude-code' &&
+                        'Claude Code CLI with full coding capabilities + Aether MCP tools'}
+                      {newAgentRuntime === 'openclaw' &&
+                        'OpenClaw agent with computer use + Aether MCP tools'}
+                    </p>
                   </div>
 
                   {/* Hardware Options */}

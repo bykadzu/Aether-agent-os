@@ -5,275 +5,110 @@ import {
   Check,
   StopCircle,
   Github,
+  ChevronLeft,
   ChevronRight,
-  ChevronDown,
-  Layout,
-  Cpu,
-  HardDrive,
   Activity,
   Clock,
   Download,
-  GitBranch,
-  Circle,
-  Loader,
-  CheckCircle,
-  XCircle,
-  MinusCircle,
-  ThumbsUp,
-  ThumbsDown,
   Pause,
   Play,
   Send,
-  MessageSquare,
+  PanelRightClose,
+  PanelRightOpen,
+  Brain,
+  Wrench,
+  Database,
+  Radio,
+  ArrowDownToLine,
 } from 'lucide-react';
 import { Agent } from '../../types';
-import { VirtualDesktop } from '../os/VirtualDesktop';
 import { getKernelClient } from '../../services/kernelClient';
 import { XTerminal } from '../os/XTerminal';
 import { AgentTimeline } from './AgentTimeline';
 import { exportLogsAsJson, exportLogsAsText } from '../../services/agentLogExport';
 
 // ---------------------------------------------------------------------------
-// Plan Types
+// Types
 // ---------------------------------------------------------------------------
 
-type PlanNodeStatus = 'pending' | 'active' | 'completed' | 'failed' | 'skipped';
-
-interface PlanNode {
-  id: string;
-  title: string;
-  description?: string;
-  status: PlanNodeStatus;
-  estimated_steps: number;
-  actual_steps: number;
-  children: PlanNode[];
+interface LogLine {
+  ts: number;
+  source: 'stdout' | 'stderr' | 'agent' | 'system' | 'thought' | 'action' | 'observation';
+  text: string;
 }
 
-interface PlanRecord {
-  id: string;
-  agent_uid: string;
-  pid: number;
-  goal: string;
-  root_nodes: PlanNode[];
-  status: 'active' | 'completed' | 'abandoned';
-  created_at: number;
-  updated_at: number;
+interface ToolCall {
+  name: string;
+  ts: number;
 }
 
-// ---------------------------------------------------------------------------
-// Mock Plan Data
-// ---------------------------------------------------------------------------
-
-const MOCK_PLAN: PlanRecord = {
-  id: 'plan-mock-1',
-  agent_uid: 'agent-1',
-  pid: 1,
-  goal: 'Build a REST API with user authentication',
-  root_nodes: [
-    {
-      id: 'n1',
-      title: 'Set up project structure',
-      description: 'Initialize Node.js project with TypeScript',
-      status: 'completed',
-      estimated_steps: 3,
-      actual_steps: 2,
-      children: [
-        {
-          id: 'n1a',
-          title: 'Initialize package.json',
-          status: 'completed',
-          estimated_steps: 1,
-          actual_steps: 1,
-          children: [],
-        },
-        {
-          id: 'n1b',
-          title: 'Configure TypeScript',
-          status: 'completed',
-          estimated_steps: 1,
-          actual_steps: 1,
-          children: [],
-        },
-      ],
-    },
-    {
-      id: 'n2',
-      title: 'Implement auth system',
-      description: 'JWT-based authentication',
-      status: 'active',
-      estimated_steps: 5,
-      actual_steps: 2,
-      children: [
-        {
-          id: 'n2a',
-          title: 'Create user model',
-          status: 'completed',
-          estimated_steps: 2,
-          actual_steps: 1,
-          children: [],
-        },
-        {
-          id: 'n2b',
-          title: 'Implement login endpoint',
-          status: 'active',
-          estimated_steps: 2,
-          actual_steps: 1,
-          children: [],
-        },
-        {
-          id: 'n2c',
-          title: 'Add JWT middleware',
-          status: 'pending',
-          estimated_steps: 1,
-          actual_steps: 0,
-          children: [],
-        },
-      ],
-    },
-    {
-      id: 'n3',
-      title: 'Write tests',
-      status: 'pending',
-      estimated_steps: 4,
-      actual_steps: 0,
-      children: [],
-    },
-  ],
-  status: 'active',
-  created_at: Date.now() - 300000,
-  updated_at: Date.now() - 60000,
-};
+type SidebarTab = 'terminal' | 'timeline' | 'activity';
 
 // ---------------------------------------------------------------------------
-// Plan Helpers
+// Helpers
 // ---------------------------------------------------------------------------
 
-function countPlanNodes(nodes: PlanNode[]): { total: number; completed: number } {
-  let total = 0;
-  let completed = 0;
-  for (const node of nodes) {
-    total++;
-    if (node.status === 'completed') completed++;
-    const childCounts = countPlanNodes(node.children);
-    total += childCounts.total;
-    completed += childCounts.completed;
-  }
-  return { total, completed };
-}
-
-function getStatusIcon(status: PlanNodeStatus) {
-  switch (status) {
-    case 'pending':
-      return <Circle size={12} className="text-gray-500" />;
-    case 'active':
-      return <Loader size={12} className="text-blue-400 animate-spin" />;
-    case 'completed':
-      return <CheckCircle size={12} className="text-green-400" />;
-    case 'failed':
-      return <XCircle size={12} className="text-red-400" />;
-    case 'skipped':
-      return <MinusCircle size={12} className="text-gray-500" />;
+function runtimeBadge(agent: Agent): { label: string; color: string } | null {
+  const rt = (agent as any).runtime;
+  if (!rt) return null;
+  switch (rt) {
+    case 'claude-code':
+      return { label: 'Claude Code', color: 'bg-violet-500/20 text-violet-300' };
+    case 'openclaw':
+      return { label: 'OpenClaw', color: 'bg-orange-500/20 text-orange-300' };
+    case 'builtin':
+      return { label: 'Built-in', color: 'bg-cyan-500/20 text-cyan-300' };
+    default:
+      return { label: rt, color: 'bg-gray-500/20 text-gray-300' };
   }
 }
 
-function getPlanStatusBadge(status: PlanRecord['status']) {
-  switch (status) {
-    case 'active':
-      return (
-        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 uppercase">
-          Active
-        </span>
-      );
-    case 'completed':
-      return (
-        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-green-500/20 text-green-400 uppercase">
-          Completed
-        </span>
-      );
-    case 'abandoned':
-      return (
-        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-gray-500/20 text-gray-400 uppercase">
-          Abandoned
-        </span>
-      );
+function sourceColor(source: LogLine['source']): string {
+  switch (source) {
+    case 'thought':
+      return 'text-purple-300';
+    case 'action':
+      return 'text-blue-300';
+    case 'observation':
+      return 'text-cyan-300';
+    case 'stderr':
+      return 'text-red-400';
+    case 'system':
+      return 'text-yellow-400';
+    case 'stdout':
+    default:
+      return 'text-gray-300';
   }
 }
 
-// ---------------------------------------------------------------------------
-// PlanTreeNode Component (recursive)
-// ---------------------------------------------------------------------------
+function sourceTag(source: LogLine['source']): string {
+  switch (source) {
+    case 'thought':
+      return 'THINK';
+    case 'action':
+      return 'ACT  ';
+    case 'observation':
+      return 'OBS  ';
+    case 'stderr':
+      return 'ERR  ';
+    case 'system':
+      return 'SYS  ';
+    case 'agent':
+      return 'AGENT';
+    case 'stdout':
+    default:
+      return 'OUT  ';
+  }
+}
 
-const PlanTreeNode: React.FC<{ node: PlanNode; depth?: number }> = ({ node, depth = 0 }) => {
-  const [expanded, setExpanded] = useState(node.status === 'active' || node.status === 'completed');
-  const hasChildren = node.children.length > 0;
-
-  return (
-    <div className="select-none">
-      <div
-        className="flex items-center gap-1.5 py-1 px-1 rounded hover:bg-white/5 cursor-pointer transition-colors group"
-        style={{ paddingLeft: `${depth * 14 + 4}px` }}
-        onClick={() => hasChildren && setExpanded(!expanded)}
-      >
-        {/* Expand/collapse chevron */}
-        <span className="w-3 shrink-0 flex items-center justify-center">
-          {hasChildren ? (
-            expanded ? (
-              <ChevronDown size={10} className="text-gray-500" />
-            ) : (
-              <ChevronRight size={10} className="text-gray-500" />
-            )
-          ) : (
-            <span className="w-2.5" />
-          )}
-        </span>
-
-        {/* Status icon */}
-        <span className="shrink-0">{getStatusIcon(node.status)}</span>
-
-        {/* Title */}
-        <span
-          className={`text-[10px] truncate ${
-            node.status === 'completed'
-              ? 'text-gray-500 line-through'
-              : node.status === 'active'
-                ? 'text-white font-medium'
-                : node.status === 'failed'
-                  ? 'text-red-300'
-                  : 'text-gray-400'
-          }`}
-        >
-          {node.title}
-        </span>
-
-        {/* Steps badge */}
-        {node.estimated_steps > 0 && (
-          <span className="text-[8px] text-gray-600 shrink-0 ml-auto opacity-0 group-hover:opacity-100 transition-opacity">
-            {node.actual_steps}/{node.estimated_steps} steps
-          </span>
-        )}
-      </div>
-
-      {/* Description (shown when expanded and node has description) */}
-      {expanded && node.description && (
-        <div
-          className="text-[9px] text-gray-600 italic pb-1"
-          style={{ paddingLeft: `${depth * 14 + 36}px` }}
-        >
-          {node.description}
-        </div>
-      )}
-
-      {/* Children */}
-      {expanded && hasChildren && (
-        <div>
-          {node.children.map((child) => (
-            <PlanTreeNode key={child.id} node={child} depth={depth + 1} />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-};
+function formatTs(ts: number): string {
+  return new Date(ts).toLocaleTimeString([], {
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
 
 // ---------------------------------------------------------------------------
 // AgentVM Component
@@ -300,76 +135,138 @@ export const AgentVM: React.FC<AgentVMProps> = ({
   onResume,
   onSendMessage,
 }) => {
-  const [isSidebarOpen, setSidebarOpen] = useState(true);
-  const [activeTab, setActiveTab] = useState<'logs' | 'terminal' | 'timeline' | 'plan'>('logs');
+  // ---- State ----
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarTab, setSidebarTab] = useState<SidebarTab>('terminal');
   const [showExportMenu, setShowExportMenu] = useState(false);
-  const [feedbackRatings, setFeedbackRatings] = useState<Record<number, 1 | -1>>({});
-  const [feedbackComment, setFeedbackComment] = useState<{ idx: number; text: string } | null>(
-    null,
-  );
-  const [planData, setPlanData] = useState<PlanRecord | null>(null);
-  const [injectionText, setInjectionText] = useState('');
+  const [messageText, setMessageText] = useState('');
+  const [logLines, setLogLines] = useState<LogLine[]>([]);
+  const [toolCalls, setToolCalls] = useState<ToolCall[]>([]);
+  const [memoryCount, setMemoryCount] = useState(0);
+  const [skillCount, setSkillCount] = useState(0);
+  const [ipcCount, setIpcCount] = useState(0);
+  const [autoScroll, setAutoScroll] = useState(true);
+
   const logEndRef = useRef<HTMLDivElement>(null);
+  const logContainerRef = useRef<HTMLDivElement>(null);
   const exportMenuRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll logs
+  // ---- Seed logs from agent.logs (legacy/initial data) ----
   useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [agent.logs.length]);
+    const seeded: LogLine[] = agent.logs.map((log) => ({
+      ts: log.timestamp,
+      source: log.type === 'system' ? 'system' : (log.type as LogLine['source']),
+      text: log.message,
+    }));
+    setLogLines(seeded);
+  }, [agent.logs]);
 
-  // Close export menu on outside click
+  // ---- Subscribe to real-time kernel events ----
+  useEffect(() => {
+    const kernel = getKernelClient();
+    if (!kernel.connected || !agent.pid) return;
+
+    const unsubs: Array<() => void> = [];
+
+    // subprocess.output - raw process stdout/stderr
+    unsubs.push(
+      kernel.on('subprocess.output', (event: any) => {
+        if (event.pid !== agent.pid) return;
+        const line: LogLine = {
+          ts: event.timestamp || Date.now(),
+          source: event.stream === 'stderr' ? 'stderr' : 'stdout',
+          text: event.data || event.text || '',
+        };
+        setLogLines((prev) => [...prev, line]);
+      }),
+    );
+
+    // agent.log - structured agent log events
+    unsubs.push(
+      kernel.on('agent.log', (event: any) => {
+        if (event.pid !== agent.pid) return;
+        const line: LogLine = {
+          ts: event.timestamp || Date.now(),
+          source: event.phase || event.logType || 'agent',
+          text: event.content || event.message || '',
+        };
+        setLogLines((prev) => [...prev, line]);
+      }),
+    );
+
+    // agent.thought / agent.action / agent.observation
+    for (const phase of ['thought', 'action', 'observation'] as const) {
+      unsubs.push(
+        kernel.on(`agent.${phase}`, (event: any) => {
+          if (event.pid !== agent.pid) return;
+          const line: LogLine = {
+            ts: event.timestamp || Date.now(),
+            source: phase,
+            text: event.content || event.message || '',
+          };
+          setLogLines((prev) => [...prev, line]);
+        }),
+      );
+    }
+
+    // aether-mcp.tool.called - skill/memory tracking
+    unsubs.push(
+      kernel.on('aether-mcp.tool.called', (event: any) => {
+        if (event.pid !== agent.pid) return;
+        const toolName = event.tool || event.name || 'unknown';
+        setToolCalls((prev) => [...prev, { name: toolName, ts: Date.now() }]);
+
+        // Categorize tool calls
+        if (
+          toolName.includes('memory') ||
+          toolName.includes('store') ||
+          toolName.includes('recall')
+        ) {
+          setMemoryCount((c) => c + 1);
+        } else if (toolName.includes('skill') || toolName.includes('execute')) {
+          setSkillCount((c) => c + 1);
+        }
+      }),
+    );
+
+    // IPC events
+    unsubs.push(
+      kernel.on('ipc.message', (event: any) => {
+        if (event.pid !== agent.pid && event.targetPid !== agent.pid) return;
+        setIpcCount((c) => c + 1);
+      }),
+    );
+
+    return () => unsubs.forEach((u) => u());
+  }, [agent.pid]);
+
+  // ---- Auto-scroll logic ----
+  useEffect(() => {
+    if (autoScroll) {
+      logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [logLines.length, autoScroll]);
+
+  const handleLogScroll = useCallback(() => {
+    const el = logContainerRef.current;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+    setAutoScroll(atBottom);
+  }, []);
+
+  // ---- Close export menu on outside click ----
   useEffect(() => {
     if (!showExportMenu) return;
-    const handleClickOutside = (e: MouseEvent) => {
+    const handler = (e: MouseEvent) => {
       if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) {
         setShowExportMenu(false);
       }
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
   }, [showExportMenu]);
 
-  // Load plan data from kernel or use mock
-  useEffect(() => {
-    const kernel = getKernelClient();
-
-    if (agent.pid && kernel.connected) {
-      // Fetch plan from kernel
-      const msgId = `cmd_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-      const handleResponse = (event: any) => {
-        if (event.id === msgId && event.type === 'response.ok' && event.data) {
-          setPlanData(event.data);
-        }
-      };
-      const unsubOk = kernel.on('response.ok', handleResponse);
-
-      // Send plan.get command
-      (kernel as any).send?.({ type: 'plan.get', id: msgId, pid: agent.pid });
-
-      // Subscribe to live plan updates
-      const unsubCreated = kernel.on('plan.created', (event: any) => {
-        if (event.plan && (event.plan.pid === agent.pid || event.plan.agent_uid === agent.id)) {
-          setPlanData(event.plan);
-        }
-      });
-      const unsubUpdated = kernel.on('plan.updated', (event: any) => {
-        if (event.plan && (event.plan.pid === agent.pid || event.plan.agent_uid === agent.id)) {
-          setPlanData(event.plan);
-        }
-      });
-
-      return () => {
-        unsubOk();
-        unsubCreated();
-        unsubUpdated();
-      };
-    } else {
-      // Use mock data when disconnected or no PID — deferred to avoid sync setState in effect
-      const t = setTimeout(() => setPlanData(MOCK_PLAN), 0);
-      return () => clearTimeout(t);
-    }
-  }, [agent.pid, agent.id]);
-
+  // ---- Handlers ----
   const handleExportJson = useCallback(() => {
     exportLogsAsJson(agent);
     setShowExportMenu(false);
@@ -380,29 +277,29 @@ export const AgentVM: React.FC<AgentVMProps> = ({
     setShowExportMenu(false);
   }, [agent]);
 
-  const submitFeedback = async (logIdx: number, rating: 1 | -1, comment?: string) => {
-    setFeedbackRatings((prev) => ({ ...prev, [logIdx]: rating }));
-    try {
-      const token = localStorage.getItem('aether_token');
-      await fetch('http://localhost:3001/api/feedback', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          pid: agent.pid || 0,
-          step: logIdx,
-          rating,
-          comment,
-          agent_uid: agent.id,
-        }),
-      });
-    } catch {
-      // Feedback is fire-and-forget
-    }
-  };
+  const handleSendMessage = useCallback(() => {
+    if (!messageText.trim()) return;
+    const kernel = getKernelClient();
+    const rt = (agent as any).runtime;
 
+    if ((rt === 'claude-code' || rt === 'openclaw') && agent.pid && kernel.connected) {
+      kernel.sendAgentMessage(agent.pid, messageText.trim()).catch(() => {
+        // Fallback to onSendMessage if REST fails
+        onSendMessage?.(agent.id, messageText.trim());
+      });
+    } else {
+      onSendMessage?.(agent.id, messageText.trim());
+    }
+
+    // Add user message to log stream
+    setLogLines((prev) => [
+      ...prev,
+      { ts: Date.now(), source: 'system', text: `[USER] ${messageText.trim()}` },
+    ]);
+    setMessageText('');
+  }, [messageText, agent, onSendMessage]);
+
+  // ---- Derived values ----
   const statusColor =
     agent.status === 'working'
       ? 'bg-green-500'
@@ -419,85 +316,113 @@ export const AgentVM: React.FC<AgentVMProps> = ({
                 : 'bg-gray-500';
 
   const phaseLabel = agent.phase || agent.status;
-
-  // Compute plan progress
-  const planCounts = planData ? countPlanNodes(planData.root_nodes) : { total: 0, completed: 0 };
-  const planProgressPct =
-    planCounts.total > 0 ? Math.round((planCounts.completed / planCounts.total) * 100) : 0;
+  const rtBadge = runtimeBadge(agent);
+  const isRunning = ['working', 'thinking'].includes(agent.status);
+  const canSendMessage =
+    isRunning || agent.status === 'paused' || agent.status === 'waiting_approval';
 
   return (
-    <div className="flex h-full bg-[#000] text-gray-300 font-sans overflow-hidden relative">
-      {/* Main Area: The Virtual Desktop */}
-      <div className="flex-1 relative transition-all duration-300 ease-in-out">
-        <VirtualDesktop agent={agent} interactive={false} />
-
-        {/* Floating Control Bar */}
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/50 backdrop-blur-xl border border-white/10 rounded-full px-4 py-2 flex items-center gap-3 shadow-2xl z-[100] hover:bg-black/70 transition-colors">
+    <div className="flex h-full bg-[#0a0b10] text-gray-300 font-sans overflow-hidden">
+      {/* ===== Main Area ===== */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* -- Control Bar -- */}
+        <div className="flex items-center gap-2 px-3 py-2 bg-[#12141d] border-b border-white/10 shrink-0">
+          {/* Status */}
           <div className="flex items-center gap-2">
             <div
-              className={`w-2 h-2 rounded-full ${statusColor} ${agent.status === 'working' ? 'animate-pulse' : ''}`}
-            ></div>
-            <span className="text-xs font-bold text-white tracking-wide uppercase">
+              className={`w-2 h-2 rounded-full ${statusColor} ${isRunning ? 'animate-pulse' : ''}`}
+            />
+            <span className="text-[11px] font-bold text-white uppercase tracking-wide">
               {phaseLabel}
             </span>
           </div>
 
-          {/* PID Badge (when connected to real kernel) */}
-          {agent.pid && (
-            <div className="text-[10px] text-gray-400 bg-white/5 px-1.5 py-0.5 rounded font-mono">
-              PID {agent.pid}
-            </div>
+          {/* Runtime badge */}
+          {rtBadge && (
+            <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${rtBadge.color}`}>
+              {rtBadge.label}
+            </span>
           )}
 
-          <div className="w-[1px] h-4 bg-white/20"></div>
+          {/* PID */}
+          {agent.pid && (
+            <span className="text-[10px] text-gray-500 bg-white/5 px-1.5 py-0.5 rounded font-mono">
+              PID {agent.pid}
+            </span>
+          )}
+
+          <div className="flex-1" />
+
+          {/* Activity counters */}
+          <div className="hidden sm:flex items-center gap-3 text-[9px] text-gray-500 mr-2">
+            <span className="flex items-center gap-1" title="Memory operations">
+              <Database size={10} /> {memoryCount}
+            </span>
+            <span className="flex items-center gap-1" title="Skills used">
+              <Wrench size={10} /> {skillCount}
+            </span>
+            <span className="flex items-center gap-1" title="IPC messages">
+              <Radio size={10} /> {ipcCount}
+            </span>
+          </div>
+
+          <div className="w-[1px] h-4 bg-white/10" />
+
+          {/* GitHub sync */}
           <button
             onClick={() => onSyncGithub(agent.id)}
-            className={`p-1.5 rounded-full transition-colors ${agent.githubSync ? 'bg-white text-black' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}
+            className={`p-1.5 rounded transition-colors ${
+              agent.githubSync
+                ? 'bg-white text-black'
+                : 'text-gray-500 hover:text-white hover:bg-white/10'
+            }`}
             title="GitHub Sync"
           >
             <Github size={14} />
           </button>
 
-          {/* Export Logs Button */}
+          {/* Export */}
           <div className="relative" ref={exportMenuRef}>
             <button
               onClick={() => setShowExportMenu(!showExportMenu)}
-              className="p-1.5 rounded-full text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+              className="p-1.5 rounded text-gray-500 hover:text-white hover:bg-white/10 transition-colors"
               title="Export Logs"
             >
               <Download size={14} />
             </button>
             {showExportMenu && (
-              <div className="absolute top-full mt-2 right-0 bg-[#1a1d26]/95 backdrop-blur-xl border border-white/10 rounded-lg shadow-2xl overflow-hidden z-[200] min-w-[160px]">
+              <div className="absolute top-full mt-1 right-0 bg-[#1a1d26] border border-white/10 rounded-lg shadow-2xl overflow-hidden z-[200] min-w-[150px]">
                 <button
                   onClick={handleExportJson}
-                  className="w-full px-3 py-2 text-left text-[11px] text-gray-300 hover:bg-white/10 hover:text-white transition-colors flex items-center gap-2"
+                  className="w-full px-3 py-2 text-left text-[11px] text-gray-300 hover:bg-white/10 transition-colors flex items-center gap-2"
                 >
                   <span className="text-indigo-400 font-mono text-[9px] bg-indigo-500/10 px-1.5 py-0.5 rounded">
                     JSON
                   </span>
-                  <span>Export as JSON</span>
+                  Export as JSON
                 </button>
                 <div className="h-[1px] bg-white/5" />
                 <button
                   onClick={handleExportText}
-                  className="w-full px-3 py-2 text-left text-[11px] text-gray-300 hover:bg-white/10 hover:text-white transition-colors flex items-center gap-2"
+                  className="w-full px-3 py-2 text-left text-[11px] text-gray-300 hover:bg-white/10 transition-colors flex items-center gap-2"
                 >
                   <span className="text-emerald-400 font-mono text-[9px] bg-emerald-500/10 px-1.5 py-0.5 rounded">
                     TXT
                   </span>
-                  <span>Export as Text</span>
+                  Export as Text
                 </button>
               </div>
             )}
           </div>
 
-          {/* Pause / Resume toggle */}
-          {(agent.status === 'working' || agent.status === 'thinking') && onPause && (
+          <div className="w-[1px] h-4 bg-white/10" />
+
+          {/* Pause / Resume */}
+          {isRunning && onPause && (
             <button
               onClick={() => onPause(agent.id)}
-              className="p-1.5 rounded-full text-amber-400 hover:bg-amber-500/20 hover:text-amber-300 transition-colors"
-              title="Pause Agent — Take over desktop"
+              className="p-1.5 rounded text-amber-400 hover:bg-amber-500/20 transition-colors"
+              title="Pause Agent"
             >
               <Pause size={14} />
             </button>
@@ -505,49 +430,109 @@ export const AgentVM: React.FC<AgentVMProps> = ({
           {(agent.status === 'paused' || agent.status === 'idle') && onResume && (
             <button
               onClick={() => onResume(agent.id)}
-              className="p-1.5 rounded-full text-green-400 hover:bg-green-500/20 hover:text-green-300 transition-colors"
+              className="p-1.5 rounded text-green-400 hover:bg-green-500/20 transition-colors"
               title="Resume Agent"
             >
               <Play size={14} />
             </button>
           )}
 
+          {/* Stop */}
           <button
             onClick={() => onStop(agent.id)}
-            className="p-1.5 rounded-full text-red-400 hover:bg-red-500/20 hover:text-red-300 transition-colors"
-            title="Emergency Stop (SIGTERM)"
+            className="p-1.5 rounded text-red-400 hover:bg-red-500/20 transition-colors"
+            title="Stop (SIGTERM)"
           >
             <StopCircle size={14} />
           </button>
-          <div className="w-[1px] h-4 bg-white/20"></div>
+
+          <div className="w-[1px] h-4 bg-white/10" />
+
+          {/* Sidebar toggle */}
           <button
-            onClick={() => setSidebarOpen(!isSidebarOpen)}
-            className="p-1.5 rounded-full text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
-            title="Toggle Debug Console"
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="p-1.5 rounded text-gray-500 hover:text-white hover:bg-white/10 transition-colors"
+            title="Toggle sidebar"
           >
-            <Layout size={14} />
+            {sidebarOpen ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}
           </button>
         </div>
 
-        {/* Approval Modal (Overlay on VM) */}
+        {/* -- Log Stream (Main View) -- */}
+        <div
+          ref={logContainerRef}
+          onScroll={handleLogScroll}
+          className="flex-1 overflow-y-auto bg-[#0a0b10] font-mono text-[11px] leading-[1.6] select-text"
+        >
+          {logLines.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-gray-600 gap-3">
+              <Terminal size={32} className="opacity-40" />
+              <span className="text-sm">Waiting for agent output...</span>
+              {agent.pid && (
+                <span className="text-xs text-gray-700">Listening on PID {agent.pid}</span>
+              )}
+            </div>
+          ) : (
+            <div className="p-3 pb-1">
+              {logLines.map((line, i) => (
+                <div key={i} className="flex gap-0 hover:bg-white/[0.02] py-[1px]">
+                  {/* Line number */}
+                  <span className="text-gray-700 w-10 text-right pr-3 shrink-0 select-none">
+                    {i + 1}
+                  </span>
+                  {/* Timestamp */}
+                  <span className="text-gray-600 w-[70px] shrink-0 select-none">
+                    {formatTs(line.ts)}
+                  </span>
+                  {/* Source tag */}
+                  <span
+                    className={`w-[50px] shrink-0 font-bold ${sourceColor(line.source)} opacity-70`}
+                  >
+                    {sourceTag(line.source)}
+                  </span>
+                  {/* Message */}
+                  <span
+                    className={`flex-1 whitespace-pre-wrap break-all ${sourceColor(line.source)}`}
+                  >
+                    {line.text}
+                  </span>
+                </div>
+              ))}
+              <div ref={logEndRef} />
+            </div>
+          )}
+
+          {/* Auto-scroll indicator */}
+          {!autoScroll && logLines.length > 0 && (
+            <button
+              onClick={() => {
+                setAutoScroll(true);
+                logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+              }}
+              className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-indigo-600/90 hover:bg-indigo-500 text-white text-[10px] px-3 py-1.5 rounded-full flex items-center gap-1.5 shadow-lg transition-colors"
+            >
+              <ArrowDownToLine size={12} /> Scroll to bottom
+            </button>
+          )}
+        </div>
+
+        {/* -- Approval Overlay -- */}
         {agent.status === 'waiting_approval' && (
-          <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-[200] animate-slide-up">
-            <div className="bg-[#1a1d26]/90 backdrop-blur-xl border border-yellow-500/50 rounded-2xl shadow-2xl p-4 w-[400px] flex flex-col gap-3">
+          <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-[200]">
+            <div className="bg-[#1a1d26]/95 backdrop-blur-xl border border-yellow-500/50 rounded-xl shadow-2xl p-4 w-[400px] flex flex-col gap-3">
               <div className="flex items-start gap-3">
                 <div className="p-2 bg-yellow-500/20 rounded-lg text-yellow-400">
                   <AlertTriangle size={20} />
                 </div>
                 <div>
-                  <h3 className="text-white font-medium">Permission Request</h3>
-                  <p className="text-xs text-gray-400">Agent needs authorization to proceed.</p>
+                  <h3 className="text-white font-medium text-sm">Permission Request</h3>
+                  <p className="text-[11px] text-gray-400">Agent needs authorization to proceed.</p>
                 </div>
               </div>
-
-              <div className="bg-black/50 p-3 rounded-lg border border-white/5 font-mono text-[10px] text-yellow-100">
+              <div className="bg-black/50 p-3 rounded-lg border border-white/5 font-mono text-[10px] text-yellow-100 max-h-32 overflow-y-auto">
                 {agent.logs[agent.logs.length - 1]?.message}
               </div>
-
-              <div className="flex justify-end gap-2 mt-1">
+              <div className="flex justify-end gap-2">
                 <button
                   onClick={() => onReject(agent.id)}
                   className="px-4 py-1.5 rounded-lg hover:bg-white/5 text-gray-400 hover:text-white transition-colors text-xs font-medium"
@@ -565,340 +550,190 @@ export const AgentVM: React.FC<AgentVMProps> = ({
           </div>
         )}
 
-        {/* Prompt Injection Panel (when agent is paused) */}
-        {agent.status === 'paused' && onSendMessage && (
-          <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-[200] animate-slide-up">
-            <div className="bg-[#1a1d26]/90 backdrop-blur-xl border border-amber-500/30 rounded-2xl shadow-2xl p-4 w-[440px] flex flex-col gap-3">
-              <div className="flex items-start gap-3">
-                <div className="p-2 bg-amber-500/20 rounded-lg text-amber-400">
-                  <MessageSquare size={20} />
-                </div>
-                <div>
-                  <h3 className="text-white font-medium">Agent Paused</h3>
-                  <p className="text-xs text-gray-400">
-                    Inject a prompt before resuming, or resume without changes.
-                  </p>
-                </div>
-              </div>
-
-              <textarea
-                value={injectionText}
-                onChange={(e) => setInjectionText(e.target.value)}
-                placeholder="Type instructions for the agent..."
-                className="w-full h-20 bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-xs text-gray-200 placeholder-gray-600 resize-none focus:outline-none focus:border-amber-500/50"
+        {/* -- Message Input Bar (always visible when agent can receive messages) -- */}
+        {canSendMessage && onSendMessage && (
+          <div className="shrink-0 border-t border-white/10 bg-[#12141d] px-3 py-2">
+            <div className="flex items-center gap-2">
+              {agent.status === 'paused' && (
+                <span className="text-[9px] text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded shrink-0">
+                  PAUSED
+                </span>
+              )}
+              <input
+                type="text"
+                value={messageText}
+                onChange={(e) => setMessageText(e.target.value)}
+                placeholder={
+                  agent.status === 'paused'
+                    ? 'Inject instructions before resuming...'
+                    : 'Send message to agent...'
+                }
+                className="flex-1 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-gray-200 placeholder-gray-600 focus:outline-none focus:border-indigo-500/50 transition-colors"
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && injectionText.trim()) {
-                    onSendMessage(agent.id, injectionText.trim());
-                    setInjectionText('');
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSendMessage();
                   }
                 }}
               />
-
-              <div className="flex justify-between items-center">
-                <span className="text-[9px] text-gray-600">Ctrl+Enter to send & resume</span>
-                <div className="flex gap-2">
-                  {onResume && (
-                    <button
-                      onClick={() => onResume(agent.id)}
-                      className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white transition-colors text-xs font-medium flex items-center gap-1.5"
-                    >
-                      <Play size={10} /> Resume
-                    </button>
-                  )}
-                  <button
-                    onClick={() => {
-                      if (injectionText.trim()) {
-                        onSendMessage(agent.id, injectionText.trim());
-                        setInjectionText('');
-                      }
-                    }}
-                    disabled={!injectionText.trim()}
-                    className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-30 disabled:cursor-not-allowed text-white font-bold text-xs transition-colors flex items-center gap-1.5"
-                  >
-                    <Send size={10} /> Send & Resume
-                  </button>
-                </div>
-              </div>
+              <button
+                onClick={handleSendMessage}
+                disabled={!messageText.trim()}
+                className="p-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-30 disabled:cursor-not-allowed text-white transition-colors shrink-0"
+                title="Send message (Enter)"
+              >
+                <Send size={14} />
+              </button>
+              {agent.status === 'paused' && onResume && (
+                <button
+                  onClick={() => onResume(agent.id)}
+                  className="p-2 rounded-lg bg-green-600/80 hover:bg-green-500 text-white transition-colors shrink-0"
+                  title="Resume agent"
+                >
+                  <Play size={14} />
+                </button>
+              )}
             </div>
           </div>
         )}
       </div>
 
-      {/* Sidebar: Debug Console */}
+      {/* ===== Collapsible Right Sidebar ===== */}
       <div
-        className={`bg-[#0f111a] border-l border-white/10 flex flex-col transition-all duration-300 ease-in-out ${isSidebarOpen ? 'w-80' : 'w-0 opacity-0 pointer-events-none'}`}
+        className={`bg-[#0f111a] border-l border-white/10 flex flex-col transition-all duration-300 ease-in-out overflow-hidden ${
+          sidebarOpen ? 'w-80' : 'w-0'
+        }`}
       >
-        {/* Tab Bar */}
-        <div className="flex border-b border-white/10 bg-[#1a1d26]">
-          <button
-            onClick={() => setActiveTab('logs')}
-            className={`flex-1 p-2.5 text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 transition-colors ${
-              activeTab === 'logs'
-                ? 'text-white border-b-2 border-indigo-500'
-                : 'text-gray-500 hover:text-gray-300'
-            }`}
-          >
-            <Activity size={10} /> Logs
-          </button>
-          <button
-            onClick={() => setActiveTab('terminal')}
-            className={`flex-1 p-2.5 text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 transition-colors ${
-              activeTab === 'terminal'
-                ? 'text-white border-b-2 border-green-500'
-                : 'text-gray-500 hover:text-gray-300'
-            }`}
-          >
-            <Terminal size={10} /> Terminal
-            {agent.ttyId && <div className="w-1 h-1 rounded-full bg-green-500" />}
-          </button>
-          <button
-            onClick={() => setActiveTab('timeline')}
-            className={`flex-1 p-2.5 text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 transition-colors ${
-              activeTab === 'timeline'
-                ? 'text-white border-b-2 border-orange-500'
-                : 'text-gray-500 hover:text-gray-300'
-            }`}
-          >
-            <Clock size={10} /> Timeline
-          </button>
-          <button
-            onClick={() => setActiveTab('plan')}
-            className={`flex-1 p-2.5 text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 transition-colors ${
-              activeTab === 'plan'
-                ? 'text-white border-b-2 border-purple-500'
-                : 'text-gray-500 hover:text-gray-300'
-            }`}
-          >
-            <GitBranch size={10} /> Plan
-          </button>
-        </div>
-
-        {/* Sidebar close button */}
-        <div className="absolute top-12 right-1 z-10">
-          <button
-            onClick={() => setSidebarOpen(false)}
-            className="text-gray-600 hover:text-white p-1"
-          >
-            <ChevronRight size={12} />
-          </button>
-        </div>
-
-        {/* Agent Logs Tab */}
-        {activeTab === 'logs' && (
-          <div className="flex-1 overflow-y-auto p-3 space-y-2 font-mono text-[10px]">
-            {agent.logs.map((log, idx) => (
-              <div
-                key={idx}
-                className="flex gap-2 animate-fade-in pb-2 border-b border-white/5 last:border-0"
+        {sidebarOpen && (
+          <>
+            {/* Sidebar tab bar */}
+            <div className="flex border-b border-white/10 bg-[#1a1d26] shrink-0">
+              <button
+                onClick={() => setSidebarTab('terminal')}
+                className={`flex-1 p-2.5 text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 transition-colors ${
+                  sidebarTab === 'terminal'
+                    ? 'text-white border-b-2 border-green-500'
+                    : 'text-gray-500 hover:text-gray-300'
+                }`}
               >
-                <span className="text-gray-600 shrink-0 select-none">
-                  {new Date(log.timestamp).toLocaleTimeString([], {
-                    hour12: false,
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    second: '2-digit',
-                  })}
-                </span>
-                <span
-                  className={`flex-1 ${
-                    log.type === 'thought'
-                      ? 'text-purple-300'
-                      : log.type === 'action'
-                        ? 'text-blue-300'
-                        : log.type === 'observation'
-                          ? 'text-cyan-300'
-                          : 'text-gray-400'
-                  }`}
-                >
-                  {log.type === 'thought' && (
-                    <span className="text-purple-500 font-bold block mb-0.5">THOUGHT</span>
-                  )}
-                  {log.type === 'action' && (
-                    <span className="text-blue-500 font-bold block mb-0.5">ACTION</span>
-                  )}
-                  {log.type === 'observation' && (
-                    <span className="text-cyan-500 font-bold block mb-0.5">OBSERVE</span>
-                  )}
-                  {log.message}
-                  {log.type === 'action' && (
-                    <div className="flex items-center gap-1 mt-1">
-                      <button
-                        onClick={() => submitFeedback(idx, 1)}
-                        className={`p-0.5 rounded transition-colors ${
-                          feedbackRatings[idx] === 1
-                            ? 'text-green-400 bg-green-500/20'
-                            : 'text-gray-600 hover:text-green-400 hover:bg-green-500/10'
-                        }`}
-                        title="Good action"
-                      >
-                        <ThumbsUp size={10} />
-                      </button>
-                      <button
-                        onClick={() => {
-                          if (feedbackRatings[idx] === -1) return;
-                          setFeedbackComment({ idx, text: '' });
-                        }}
-                        className={`p-0.5 rounded transition-colors ${
-                          feedbackRatings[idx] === -1
-                            ? 'text-red-400 bg-red-500/20'
-                            : 'text-gray-600 hover:text-red-400 hover:bg-red-500/10'
-                        }`}
-                        title="Bad action"
-                      >
-                        <ThumbsDown size={10} />
-                      </button>
-                    </div>
-                  )}
-                  {feedbackComment?.idx === idx && (
-                    <div className="mt-1 flex gap-1">
-                      <input
-                        type="text"
-                        value={feedbackComment.text}
-                        onChange={(e) =>
-                          setFeedbackComment({ ...feedbackComment, text: e.target.value })
-                        }
-                        placeholder="What went wrong?"
-                        className="flex-1 bg-black/30 border border-red-500/30 rounded px-2 py-0.5 text-[10px] text-gray-300 focus:outline-none focus:border-red-500/50"
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            submitFeedback(idx, -1, feedbackComment.text);
-                            setFeedbackComment(null);
-                          }
-                          if (e.key === 'Escape') setFeedbackComment(null);
-                        }}
-                        autoFocus
-                      />
-                      <button
-                        onClick={() => {
-                          submitFeedback(idx, -1, feedbackComment.text);
-                          setFeedbackComment(null);
-                        }}
-                        className="text-[9px] text-red-400 hover:text-red-300 px-1"
-                      >
-                        Send
-                      </button>
-                      <button
-                        onClick={() => setFeedbackComment(null)}
-                        className="text-[9px] text-gray-500 hover:text-gray-300 px-1"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  )}
-                </span>
-              </div>
-            ))}
-            <div ref={logEndRef} />
-          </div>
-        )}
+                <Terminal size={10} /> Terminal
+                {agent.ttyId && <div className="w-1.5 h-1.5 rounded-full bg-green-500" />}
+              </button>
+              <button
+                onClick={() => setSidebarTab('timeline')}
+                className={`flex-1 p-2.5 text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 transition-colors ${
+                  sidebarTab === 'timeline'
+                    ? 'text-white border-b-2 border-orange-500'
+                    : 'text-gray-500 hover:text-gray-300'
+                }`}
+              >
+                <Clock size={10} /> Timeline
+              </button>
+              <button
+                onClick={() => setSidebarTab('activity')}
+                className={`flex-1 p-2.5 text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 transition-colors ${
+                  sidebarTab === 'activity'
+                    ? 'text-white border-b-2 border-purple-500'
+                    : 'text-gray-500 hover:text-gray-300'
+                }`}
+              >
+                <Activity size={10} /> Activity
+              </button>
+            </div>
 
-        {/* Terminal Tab */}
-        {activeTab === 'terminal' && (
-          <div className="flex-1 overflow-hidden bg-[#0a0b12]">
-            {agent.ttyId ? (
-              <XTerminal ttyId={agent.ttyId} className="h-full" />
-            ) : (
-              <div className="flex flex-col items-center justify-center h-full text-gray-600 gap-2 p-3">
-                <Terminal size={24} />
-                <span className="text-[10px]">No terminal session</span>
-                <span className="text-[9px]">Connect to kernel for live terminal</span>
+            {/* Terminal tab */}
+            {sidebarTab === 'terminal' && (
+              <div className="flex-1 overflow-hidden bg-[#0a0b12]">
+                {agent.ttyId ? (
+                  <XTerminal ttyId={agent.ttyId} className="h-full" />
+                ) : (
+                  <div className="flex flex-col items-center justify-center h-full text-gray-600 gap-2 p-3">
+                    <Terminal size={24} />
+                    <span className="text-[10px]">No terminal session</span>
+                    <span className="text-[9px]">Connect to kernel for live terminal</span>
+                  </div>
+                )}
               </div>
             )}
-          </div>
-        )}
 
-        {/* Timeline Tab */}
-        {activeTab === 'timeline' && (
-          <div className="flex-1 overflow-hidden relative">
-            {agent.pid ? (
-              <AgentTimeline pid={agent.pid} />
-            ) : (
-              <div className="flex flex-col items-center justify-center h-full text-gray-600 gap-2 p-3">
-                <Clock size={24} />
-                <span className="text-[10px]">No timeline available</span>
-                <span className="text-[9px]">Connect to kernel for agent history</span>
+            {/* Timeline tab */}
+            {sidebarTab === 'timeline' && (
+              <div className="flex-1 overflow-hidden relative">
+                {agent.pid ? (
+                  <AgentTimeline pid={agent.pid} />
+                ) : (
+                  <div className="flex flex-col items-center justify-center h-full text-gray-600 gap-2 p-3">
+                    <Clock size={24} />
+                    <span className="text-[10px]">No timeline available</span>
+                    <span className="text-[9px]">Connect to kernel for agent history</span>
+                  </div>
+                )}
               </div>
             )}
-          </div>
-        )}
 
-        {/* Plan Tab */}
-        {activeTab === 'plan' && (
-          <div className="flex-1 overflow-y-auto">
-            {planData ? (
-              <div className="flex flex-col h-full">
-                {/* Plan Header */}
-                <div className="p-3 border-b border-white/5 bg-[#12141d]">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <GitBranch size={12} className="text-purple-400" />
-                      <span className="text-[10px] font-bold text-white uppercase tracking-wide">
-                        Plan
-                      </span>
-                    </div>
-                    {getPlanStatusBadge(planData.status)}
+            {/* Activity / Skills / Memory tab */}
+            {sidebarTab === 'activity' && (
+              <div className="flex-1 overflow-y-auto p-3">
+                {/* Counters */}
+                <div className="grid grid-cols-3 gap-2 mb-4">
+                  <div className="bg-white/5 rounded-lg p-2.5 text-center">
+                    <Database size={14} className="mx-auto mb-1 text-cyan-400" />
+                    <div className="text-lg font-bold text-white">{memoryCount}</div>
+                    <div className="text-[9px] text-gray-500 uppercase">Memory</div>
                   </div>
-                  <p className="text-[11px] text-gray-300 leading-relaxed mb-2">{planData.goal}</p>
-                  <div className="text-[9px] text-gray-600 mb-2">
-                    Created{' '}
-                    {new Date(planData.created_at).toLocaleTimeString([], {
-                      hour12: false,
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                    {' | '}
-                    Updated{' '}
-                    {new Date(planData.updated_at).toLocaleTimeString([], {
-                      hour12: false,
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
+                  <div className="bg-white/5 rounded-lg p-2.5 text-center">
+                    <Wrench size={14} className="mx-auto mb-1 text-violet-400" />
+                    <div className="text-lg font-bold text-white">{skillCount}</div>
+                    <div className="text-[9px] text-gray-500 uppercase">Skills</div>
                   </div>
-
-                  {/* Progress bar */}
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1 h-1.5 bg-white/5 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-gradient-to-r from-purple-500 to-blue-500 rounded-full transition-all duration-500"
-                        style={{ width: `${planProgressPct}%` }}
-                      />
-                    </div>
-                    <span className="text-[9px] text-gray-500 font-mono shrink-0">
-                      {planCounts.completed}/{planCounts.total} ({planProgressPct}%)
-                    </span>
+                  <div className="bg-white/5 rounded-lg p-2.5 text-center">
+                    <Radio size={14} className="mx-auto mb-1 text-orange-400" />
+                    <div className="text-lg font-bold text-white">{ipcCount}</div>
+                    <div className="text-[9px] text-gray-500 uppercase">IPC</div>
                   </div>
                 </div>
 
-                {/* Plan Tree */}
-                <div className="flex-1 overflow-y-auto p-2">
-                  {planData.root_nodes.map((node) => (
-                    <PlanTreeNode key={node.id} node={node} />
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center h-full text-gray-600 gap-2 p-3">
-                <GitBranch size={24} />
-                <span className="text-[10px]">No plan available</span>
-                <span className="text-[9px]">Agent has not created a plan yet</span>
+                {/* Recent tool calls */}
+                <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">
+                  Recent Tool Calls
+                </h4>
+                {toolCalls.length === 0 ? (
+                  <div className="text-[10px] text-gray-600 text-center py-6">
+                    No tool calls recorded yet.
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    {toolCalls
+                      .slice(-30)
+                      .reverse()
+                      .map((tc, i) => (
+                        <div
+                          key={i}
+                          className="flex items-center gap-2 py-1 px-2 rounded hover:bg-white/5 transition-colors"
+                        >
+                          <Brain size={10} className="text-purple-400 shrink-0" />
+                          <span className="text-[10px] text-gray-300 truncate flex-1 font-mono">
+                            {tc.name}
+                          </span>
+                          <span className="text-[9px] text-gray-600 shrink-0">
+                            {formatTs(tc.ts)}
+                          </span>
+                        </div>
+                      ))}
+                  </div>
+                )}
               </div>
             )}
-          </div>
-        )}
 
-        {/* Process Info Footer */}
-        {agent.pid && (
-          <div className="p-2 border-t border-white/10 bg-[#1a1d26] text-[9px] text-gray-500 flex items-center gap-3">
-            <span className="flex items-center gap-1">
-              <Cpu size={8} /> PID {agent.pid}
-            </span>
-            <span className="flex items-center gap-1">
-              <HardDrive size={8} /> {agent.phase}
-            </span>
-            <span className="flex items-center gap-1">
-              <Activity size={8} /> Step {agent.progress}
-            </span>
-          </div>
+            {/* Sidebar footer - process info */}
+            {agent.pid && (
+              <div className="p-2 border-t border-white/10 bg-[#1a1d26] text-[9px] text-gray-500 flex items-center gap-3 shrink-0">
+                <span>PID {agent.pid}</span>
+                {agent.phase && <span>{agent.phase}</span>}
+                <span>Step {agent.progress}</span>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

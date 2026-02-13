@@ -329,10 +329,21 @@ export class AgentSubprocess {
 
     fs.writeFileSync(path.join(workDir, 'CLAUDE.md'), claudeMd);
 
-    // .mcp.json — MCP server config for Claude Code
-    // Phase 1: empty servers object; Phase 2 will add the aether-os stdio bridge
+    // .mcp.json — MCP server config pointing to the Aether stdio bridge
+    const bridgeScript = path.resolve(__dirname, '../src/aether-mcp-bridge.ts');
+    const bridgeDist = path.resolve(__dirname, './aether-mcp-bridge.js');
+    const bridgePath = fs.existsSync(bridgeDist) ? bridgeDist : bridgeScript;
+    const kernelPort = process.env.AETHER_PORT || '3001';
+
     const mcpConfig = {
-      mcpServers: {},
+      mcpServers: {
+        'aether-os': {
+          command: fs.existsSync(bridgeDist) ? 'node' : 'npx',
+          args: fs.existsSync(bridgeDist)
+            ? [bridgePath, '--pid', String(pid), '--port', kernelPort]
+            : ['tsx', bridgePath, '--pid', String(pid), '--port', kernelPort],
+        },
+      },
     };
     fs.writeFileSync(path.join(workDir, '.mcp.json'), JSON.stringify(mcpConfig, null, 2));
   }
@@ -355,6 +366,24 @@ export class AgentSubprocess {
       fs.mkdirSync(instructionsDir, { recursive: true });
     }
     fs.writeFileSync(path.join(instructionsDir, 'INSTRUCTIONS.md'), instructions);
+
+    // .mcp.json — same bridge config as Claude Code
+    const bridgeScript = path.resolve(__dirname, '../src/aether-mcp-bridge.ts');
+    const bridgeDist = path.resolve(__dirname, './aether-mcp-bridge.js');
+    const bridgePath = fs.existsSync(bridgeDist) ? bridgeDist : bridgeScript;
+    const kernelPort = process.env.AETHER_PORT || '3001';
+
+    const mcpConfig = {
+      mcpServers: {
+        'aether-os': {
+          command: fs.existsSync(bridgeDist) ? 'node' : 'npx',
+          args: fs.existsSync(bridgeDist)
+            ? [bridgePath, '--pid', String(pid), '--port', kernelPort]
+            : ['tsx', bridgePath, '--pid', String(pid), '--port', kernelPort],
+        },
+      },
+    };
+    fs.writeFileSync(path.join(workDir, '.mcp.json'), JSON.stringify(mcpConfig, null, 2));
   }
 
   // -------------------------------------------------------------------------
@@ -365,16 +394,18 @@ export class AgentSubprocess {
    * Build the command, args, and env for spawning the external agent process.
    */
   private buildCommand(
-    pid: PID,
+    _pid: PID,
     runtime: AgentRuntime,
     config: AgentConfig,
-    _workDir: string,
+    workDir: string,
   ): { command: string; args: string[]; env: Record<string, string> } {
     const env: Record<string, string> = {
-      AETHER_PID: String(pid),
+      AETHER_PID: String(_pid),
       AETHER_ROLE: config.role,
       AETHER_GOAL: config.goal,
     };
+
+    const mcpConfigPath = path.join(workDir, '.mcp.json');
 
     switch (runtime) {
       case 'claude-code':
@@ -383,6 +414,8 @@ export class AgentSubprocess {
           args: [
             '--print', // Non-interactive streaming output
             '--dangerously-skip-permissions', // Agent mode — no interactive prompts
+            '--mcp-config',
+            mcpConfigPath, // Connect to Aether MCP tools
             config.goal, // The task to accomplish
           ],
           env,
@@ -391,7 +424,7 @@ export class AgentSubprocess {
       case 'openclaw':
         return {
           command: 'openclaw',
-          args: ['agent', config.goal],
+          args: ['agent', '--mcp-config', mcpConfigPath, config.goal],
           env,
         };
 

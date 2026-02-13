@@ -2011,6 +2011,51 @@ export function createV1Router(
     return false;
   }
 
+  // ----- Aether MCP (bridge endpoints) -----
+
+  async function handleAetherMCP(
+    req: IncomingMessage,
+    res: ServerResponse,
+    url: URL,
+    _user: UserInfo,
+  ): Promise<boolean> {
+    const method = req.method || 'GET';
+    const pathname = url.pathname;
+
+    // GET /api/v1/mcp/aether/tools — List Aether MCP tools (for bridge)
+    if (pathname === '/api/v1/mcp/aether/tools' && method === 'GET') {
+      try {
+        const schemas = kernel.aetherMcp.getToolSchemas();
+        jsonOk(res, schemas);
+      } catch (err: any) {
+        jsonError(res, 500, 'MCP_ERROR', err.message);
+      }
+      return true;
+    }
+
+    // POST /api/v1/mcp/aether/call — Call an Aether MCP tool (for bridge)
+    if (pathname === '/api/v1/mcp/aether/call' && method === 'POST') {
+      try {
+        const body = await readBody(req);
+        const { tool, args, pid: callerPid, uid } = JSON.parse(body);
+        if (!tool) {
+          jsonError(res, 400, 'INVALID_INPUT', 'tool is required');
+          return true;
+        }
+        const result = await kernel.aetherMcp.callTool(tool, args || {}, {
+          pid: callerPid || 0,
+          uid: uid || 'agent',
+        });
+        jsonOk(res, result);
+      } catch (err: any) {
+        jsonError(res, 400, 'MCP_CALL_ERROR', err.message);
+      }
+      return true;
+    }
+
+    return false;
+  }
+
   // ----- Main handler -----
 
   return async function v1Handler(
@@ -2046,6 +2091,7 @@ export function createV1Router(
     if (await handleTools(req, res, url, user)) return true;
     if (await handleMCP(req, res, url, user)) return true;
     if (await handleOpenClaw(req, res, url, user)) return true;
+    if (await handleAetherMCP(req, res, url, user)) return true;
 
     return false;
   };
