@@ -23,3 +23,13 @@ Volle Kontrolle und Transparenz: Agenten laufen auf eigener Hardware, ohne Vendo
 3. **ML-Pipeline mit GPU** – Ein Data-Agent trainiert Modelle in einem Docker-Container mit NVIDIA-GPU-Passthrough, während ein Ops-Agent Metriken überwacht und bei Bedarf neu startet.
 4. **Autonomer Sysadmin** – Ein Ops-Agent überwacht Server per Cron-Jobs, reagiert auf Alerts und führt Wartungsaufgaben im eigenen Terminal aus – mit menschlicher Übernahme bei kritischen Entscheidungen.
 5. **Content-Produktion** – Ein Creative-Agent erstellt Texte/Grafiken im VNC-Desktop (z.B. mit Browser oder Code-Editor), ein zweiter Agent prüft Qualität und gibt Feedback über die IPC-Queue.
+
+## Dialektische Agenten-Sitzungen
+
+Über reine Aufgabenverteilung hinaus ermöglicht Aether OS ein ganz anderes Muster: **Agenten als Denkteam**. Mehrere Agenten mit unterschiedlichen Rollen, Perspektiven und Expertise diskutieren ein Thema über IPC – mit These, Gegenthese, Pro/Contra-Abwägung und strukturierter Entscheidungsfindung. Der Mensch kann jederzeit per Pause-Interact-Resume eingreifen.
+
+1. **Strategiesitzung** – Marktexperte, Teamleiter, Controller, Produktionsleiter und Moderator diskutieren Varianten A/B/C. Jeder bringt seine Fachperspektive ein, der Moderator strukturiert Pro/Contra und führt zur Entscheidung.
+2. **Geopolitische Szenariobewertung** – Ein dialektisches Team bewertet Szenarien aus politischer, wirtschaftlicher und gesellschaftlicher Sicht – These gegen Gegenthese, bis ein belastbares Lagebild entsteht.
+3. **Philosophisches Seminar** – Agenten vertreten unterschiedliche Denkschulen und diskutieren ethische oder erkenntnistheoretische Fragestellungen – strukturiert durch einen Moderator-Agenten.
+4. **Produktdesign-Review** – Designer, Ingenieur, Endnutzer-Vertreter und Kostenanalyst bewerten Entwürfe aus ihren jeweiligen Blickwinkeln und konvergieren auf den besten Kompromiss.
+5. **Verfahrens- & Logistikoptimierung** – Prozessexperte, Qualitätsmanager und Logistiker analysieren Engpässe, schlagen Alternativen vor und bewerten Aufwand vs. Nutzen im strukturierten Dialog.
