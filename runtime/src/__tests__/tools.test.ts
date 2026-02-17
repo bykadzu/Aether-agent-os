@@ -26,6 +26,17 @@ function createMockKernel() {
           { tag: 'p', text: 'This domain is for use in illustrative examples.' },
         ],
       }),
+      getSessionPage: vi.fn().mockReturnValue({
+        evaluate: vi.fn().mockImplementation((script: string) => {
+          // First evaluate extracts text content, second extracts links
+          if (typeof script === 'string' && script.includes('innerText')) {
+            return Promise.resolve('Example Domain\nThis domain is for use in illustrative examples.');
+          }
+          return Promise.resolve([
+            { text: 'More information...', href: 'https://www.iana.org/domains/example' },
+          ]);
+        }),
+      }),
       getScreenshot: vi.fn().mockResolvedValue('base64screenshotdata'),
       click: vi.fn().mockResolvedValue(undefined),
       type: vi.fn().mockResolvedValue(undefined),
@@ -354,22 +365,17 @@ describe('Tools', () => {
 
       expect(result.success).toBe(true);
       expect(result.output).toBe('docker output');
-      expect(mockKernel.containers.exec).toHaveBeenCalledWith(1, 'ls -la');
+      expect(mockKernel.containers.exec).toHaveBeenCalledWith(1, 'ls -la', expect.any(Object));
     });
 
-    it('falls back to child_process when Docker is unavailable', async () => {
+    it('returns sandbox-required error when Docker is unavailable', async () => {
       mockKernel.containers.isDockerAvailable.mockReturnValue(false);
-      // Add processes.get mock for the child_process fallback path
-      (mockKernel.processes as any).get = vi.fn(() => ({
-        info: { cwd: '/tmp', env: {} },
-      }));
-      (mockKernel.fs as any).getRealRoot = vi.fn(() => '/mock/root');
 
       const tool = tools.find((t) => t.name === 'run_command')!;
-      // This will attempt child_process.exec which may fail in test env,
-      // but the important thing is it does NOT call containers.exec
-      await tool.execute({ command: 'echo test' }, ctx);
+      const result = await tool.execute({ command: 'echo test' }, ctx);
 
+      expect(result.success).toBe(false);
+      expect(result.output).toContain('Docker container');
       expect(mockKernel.containers.exec).not.toHaveBeenCalled();
     });
 
@@ -381,34 +387,15 @@ describe('Tools', () => {
       expect(result.output).toContain('"command" argument is required');
     });
 
-    it('lazy-creates sandbox container when Docker is available but no container exists', async () => {
+    it('returns sandbox-required error when Docker is available but no container exists for the agent', async () => {
       mockKernel.containers.isDockerAvailable.mockReturnValue(true);
-      // First call returns null (no container), second call returns the new one
-      mockKernel.containers.get.mockReturnValueOnce(undefined).mockReturnValueOnce({
-        containerId: 'new123',
-        pid: 1,
-        image: 'ubuntu:22.04',
-        status: 'running',
-      });
-      (mockKernel.containers as any).create = vi.fn().mockResolvedValue({
-        containerId: 'new123',
-        pid: 1,
-      });
-      mockKernel.containers.exec.mockResolvedValue('sandbox output');
-      (mockKernel.processes as any).get = vi.fn(() => ({
-        info: { cwd: '/home/agent_1', env: {} },
-      }));
-      (mockKernel.fs as any).getRealRoot = vi.fn(() => '/mock/root');
+      mockKernel.containers.get.mockReturnValue(undefined);
 
       const tool = tools.find((t) => t.name === 'run_command')!;
       const result = await tool.execute({ command: 'whoami' }, ctx);
 
-      expect(result.success).toBe(true);
-      expect(result.output).toBe('sandbox output');
-      expect((mockKernel.containers as any).create).toHaveBeenCalledWith(
-        1,
-        expect.stringContaining('/mock/root'),
-      );
+      expect(result.success).toBe(false);
+      expect(result.output).toContain('Docker container');
     });
   });
 
@@ -435,7 +422,7 @@ describe('Tools', () => {
         'browser_1',
         'https://example.com',
       );
-      expect(mockKernel.browser.getDOMSnapshot).toHaveBeenCalledWith('browser_1');
+      expect(mockKernel.browser.getSessionPage).toHaveBeenCalledWith('browser_1');
     });
 
     it('emits agent.browsing events when using BrowserManager', async () => {
@@ -525,12 +512,16 @@ describe('Tools', () => {
       expect(result.output).toContain('Navigation timeout');
     });
 
-    it('truncates text content to 4000 characters', async () => {
-      const longText = 'A'.repeat(5000);
-      mockKernel.browser.getDOMSnapshot.mockResolvedValueOnce({
-        url: 'https://example.com',
-        title: 'Long Page',
-        elements: [{ tag: 'p', text: longText }],
+    it('truncates text content to 12000 characters', async () => {
+      const longText = 'A'.repeat(15000);
+      // Override getSessionPage to return long text for this test
+      mockKernel.browser.getSessionPage.mockReturnValueOnce({
+        evaluate: vi.fn().mockImplementation((script: string) => {
+          if (typeof script === 'string' && script.includes('innerText')) {
+            return Promise.resolve(longText);
+          }
+          return Promise.resolve([]);
+        }),
       });
       mockKernel.browser.navigateTo.mockResolvedValueOnce({
         url: 'https://example.com',
@@ -542,10 +533,10 @@ describe('Tools', () => {
       const result = await tool.execute({ url: 'https://example.com' }, ctx);
 
       expect(result.success).toBe(true);
-      // The text part after "Page: ...\nURL: ...\n\n" should be <= 4000
+      // The text part after "Page: ...\nURL: ...\n\n" should be <= 12000
       const lines = result.output.split('\n');
       const textPart = lines.slice(3).join('\n');
-      expect(textPart.length).toBeLessThanOrEqual(4000);
+      expect(textPart.length).toBeLessThanOrEqual(12000);
     });
   });
 
@@ -590,8 +581,7 @@ describe('Tools', () => {
       const result = await tool.execute({}, ctx);
 
       expect(result.success).toBe(false);
-      expect(result.output).toContain('Screenshot failed');
-      expect(result.output).toContain('Browser not available');
+      expect(result.output).toContain('Screenshot unavailable');
     });
 
     it('creates a browser session with correct session ID', async () => {
@@ -639,13 +629,12 @@ describe('Tools', () => {
       expect(mockKernel.browser.click).toHaveBeenCalledWith('browser_1', 50, 75, 'right');
     });
 
-    it('returns page info after click', async () => {
+    it('returns click confirmation after click', async () => {
       const tool = tools.find((t) => t.name === 'click_element')!;
       const result = await tool.execute({ x: 100, y: 200 }, ctx);
 
       expect(result.success).toBe(true);
-      expect(result.output).toContain('Page: Example');
-      expect(result.output).toContain('https://example.com');
+      expect(result.output).toContain('Clicked at (100, 200)');
     });
 
     it('returns error when browser is not available', async () => {
@@ -655,8 +644,7 @@ describe('Tools', () => {
       const result = await tool.execute({ x: 100, y: 200 }, ctx);
 
       expect(result.success).toBe(false);
-      expect(result.output).toContain('Click failed');
-      expect(result.output).toContain('Browser not available');
+      expect(result.output).toContain('Click unavailable');
     });
 
     it('handles click failure gracefully', async () => {
@@ -712,8 +700,7 @@ describe('Tools', () => {
       const result = await tool.execute({ text: 'test' }, ctx);
 
       expect(result.success).toBe(false);
-      expect(result.output).toContain('Type failed');
-      expect(result.output).toContain('Browser not available');
+      expect(result.output).toContain('Type unavailable');
     });
 
     it('handles type failure gracefully', async () => {

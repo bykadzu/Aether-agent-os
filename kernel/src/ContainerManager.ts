@@ -196,6 +196,13 @@ export class ContainerManager {
       containerName,
       '--hostname',
       `agent-${pid}`,
+      // Security hardening
+      '--cap-drop',
+      'ALL',
+      '--security-opt',
+      'no-new-privileges',
+      '--pids-limit',
+      '256',
       // Resource limits
       '--memory',
       `${memoryMB}m`,
@@ -204,13 +211,13 @@ export class ContainerManager {
       // Mount the agent's persistent home directory (same path as VirtualFS)
       '-v',
       `${hostVolumePath}:${internalHomePath || '/home/aether'}:rw`,
-      // Mount shared directory for cross-agent file exchange
+      // Mount shared directory for cross-agent file exchange (read-only, noexec, nosuid)
       ...(() => {
         const sharedDir = path.join(AETHER_ROOT, 'shared');
         if (!fs.existsSync(sharedDir)) {
           fs.mkdirSync(sharedDir, { recursive: true });
         }
-        return ['-v', `${sharedDir}:/home/agent/shared:rw`];
+        return ['-v', `${sharedDir}:/home/agent/shared:ro,noexec,nosuid`];
       })(),
       '-w',
       internalHomePath || '/home/aether',

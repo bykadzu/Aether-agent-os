@@ -40,6 +40,24 @@ vi.mock('better-sqlite3', () => {
   return { default: MockDatabase };
 });
 
+// Mock MCP SDK modules that Kernel transitively imports but are not installed
+vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
+  Client: vi.fn().mockImplementation(() => ({
+    connect: vi.fn(),
+    close: vi.fn(),
+    listTools: vi.fn().mockResolvedValue({ tools: [] }),
+    callTool: vi.fn(),
+  })),
+}));
+
+vi.mock('@modelcontextprotocol/sdk/client/stdio.js', () => ({
+  StdioClientTransport: vi.fn(),
+}));
+
+vi.mock('@modelcontextprotocol/sdk/client/sse.js', () => ({
+  SSEClientTransport: vi.fn(),
+}));
+
 import { Kernel } from '../Kernel.js';
 import type { KernelCommand, KernelEvent } from '@aether/shared';
 

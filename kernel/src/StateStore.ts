@@ -420,6 +420,8 @@ export class StateStore {
       CREATE INDEX IF NOT EXISTS idx_memories_agent ON agent_memories(agent_uid);
       CREATE INDEX IF NOT EXISTS idx_memories_agent_layer ON agent_memories(agent_uid, layer);
       CREATE INDEX IF NOT EXISTS idx_memories_importance ON agent_memories(importance DESC);
+      -- Composite index for the hot recall path: ORDER BY importance DESC, last_accessed DESC
+      CREATE INDEX IF NOT EXISTS idx_memories_agent_importance_access ON agent_memories(agent_uid, layer, importance DESC, last_accessed DESC);
 
       -- FTS5 virtual table for full-text search on memory content
       CREATE VIRTUAL TABLE IF NOT EXISTS agent_memories_fts USING fts5(
@@ -444,6 +446,8 @@ export class StateStore {
 
       CREATE INDEX IF NOT EXISTS idx_cron_enabled ON cron_jobs(enabled);
       CREATE INDEX IF NOT EXISTS idx_cron_next_run ON cron_jobs(next_run);
+      -- Composite index for the tick() hot path: WHERE enabled = 1 AND next_run <= ?
+      CREATE INDEX IF NOT EXISTS idx_cron_enabled_next_run ON cron_jobs(enabled, next_run);
 
       -- Event triggers table (v0.3 Wave 1)
       CREATE TABLE IF NOT EXISTS event_triggers (
@@ -462,6 +466,8 @@ export class StateStore {
 
       CREATE INDEX IF NOT EXISTS idx_triggers_event ON event_triggers(event_type);
       CREATE INDEX IF NOT EXISTS idx_triggers_enabled ON event_triggers(enabled);
+      -- Composite index for the event dispatch hot path: WHERE enabled = 1 AND event_type = ?
+      CREATE INDEX IF NOT EXISTS idx_triggers_enabled_event ON event_triggers(enabled, event_type);
 
       -- Reflections table (v0.3 Wave 2)
       CREATE TABLE IF NOT EXISTS agent_reflections (
@@ -1000,11 +1006,11 @@ export class StateStore {
       `),
       getMemoriesByAgent: this.db.prepare(`
         SELECT id, agent_uid, layer, content, tags, importance, access_count, created_at, last_accessed, expires_at, source_pid, related_memories
-        FROM agent_memories WHERE agent_uid = ? ORDER BY importance DESC, last_accessed DESC
+        FROM agent_memories WHERE agent_uid = ? ORDER BY importance DESC, last_accessed DESC LIMIT ?
       `),
       getMemoriesByAgentLayer: this.db.prepare(`
         SELECT id, agent_uid, layer, content, tags, importance, access_count, created_at, last_accessed, expires_at, source_pid, related_memories
-        FROM agent_memories WHERE agent_uid = ? AND layer = ? ORDER BY importance DESC, last_accessed DESC
+        FROM agent_memories WHERE agent_uid = ? AND layer = ? ORDER BY importance DESC, last_accessed DESC LIMIT ?
       `),
       updateMemoryAccess: this.db.prepare(`
         UPDATE agent_memories SET access_count = access_count + 1, last_accessed = ? WHERE id = ?
@@ -1914,12 +1920,12 @@ export class StateStore {
     return this.stmts.getMemory.get(id);
   }
 
-  getMemoriesByAgent(agent_uid: string): any[] {
-    return this.stmts.getMemoriesByAgent.all(agent_uid) as any[];
+  getMemoriesByAgent(agent_uid: string, limit: number = 200): any[] {
+    return this.stmts.getMemoriesByAgent.all(agent_uid, limit) as any[];
   }
 
-  getMemoriesByAgentLayer(agent_uid: string, layer: string): any[] {
-    return this.stmts.getMemoriesByAgentLayer.all(agent_uid, layer) as any[];
+  getMemoriesByAgentLayer(agent_uid: string, layer: string, limit: number = 200): any[] {
+    return this.stmts.getMemoriesByAgentLayer.all(agent_uid, layer, limit) as any[];
   }
 
   updateMemoryAccess(id: string): void {
@@ -1936,8 +1942,8 @@ export class StateStore {
   }
 
   deleteMemoriesByAgent(agent_uid: string): void {
-    // Delete FTS entries first
-    const memories = this.getMemoriesByAgent(agent_uid);
+    // Delete FTS entries first — use a high limit to ensure we get all memories
+    const memories = this.getMemoriesByAgent(agent_uid, 1_000_000);
     for (const m of memories) {
       this.stmts.deleteMemoryFts.run(m.id);
     }

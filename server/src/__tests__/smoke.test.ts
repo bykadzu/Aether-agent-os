@@ -8,7 +8,18 @@
  * with a unique temp directory and tears it down after.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+// Mock native modules that @aether/kernel transitively imports
+vi.mock('node-pty', () => ({
+  spawn: vi.fn(() => ({
+    onData: vi.fn(), onExit: vi.fn(), write: vi.fn(), resize: vi.fn(), kill: vi.fn(), pid: 9999,
+  })),
+}));
+vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({ Client: vi.fn() }));
+vi.mock('@modelcontextprotocol/sdk/client/stdio.js', () => ({ StdioClientTransport: vi.fn() }));
+vi.mock('@modelcontextprotocol/sdk/client/sse.js', () => ({ SSEClientTransport: vi.fn() }));
+
 import { Kernel } from '@aether/kernel';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -173,17 +184,18 @@ describe('smoke: Auth flow', () => {
   });
 
   it('smoke: default admin login → token → validate', async () => {
-    // Login with default credentials
-    const loginResult = await kernel.auth.authenticateUser('admin', 'aether');
+    // The auto-generated admin password is random; create a known user for testing
+    await kernel.auth.createUser('testadmin', 'test-password-123', 'Test Admin', 'admin');
+    const loginResult = await kernel.auth.authenticateUser('testadmin', 'test-password-123');
     expect(loginResult).toBeDefined();
     expect(loginResult!.token).toBeDefined();
-    expect(loginResult!.user.username).toBe('admin');
+    expect(loginResult!.user.username).toBe('testadmin');
     expect(loginResult!.user.role).toBe('admin');
 
     // Validate the token
     const validated = kernel.auth.validateToken(loginResult!.token);
     expect(validated).toBeDefined();
-    expect(validated!.username).toBe('admin');
+    expect(validated!.username).toBe('testadmin');
   });
 
   it('smoke: invalid credentials are rejected', async () => {
@@ -233,9 +245,9 @@ describe('smoke: Agent pause/resume/continue', () => {
     } as any);
     expect(pauseEvents.find((e) => e.type === 'response.ok')).toBeDefined();
 
-    // Verify state is stopped
+    // Verify state is paused
     const proc = kernel.processes.get(pid);
-    expect(proc?.info.state).toBe('stopped');
+    expect(proc?.info.state).toBe('paused');
 
     // Resume
     const resumeEvents = await kernel.handleCommand({

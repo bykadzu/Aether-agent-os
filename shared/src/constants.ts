@@ -4,6 +4,7 @@
 
 import * as os from 'node:os';
 import * as path from 'node:path';
+import * as crypto from 'node:crypto';
 
 export const AETHER_VERSION = '0.1.0';
 
@@ -59,7 +60,14 @@ export const STATE_DB_PATH = path.join(AETHER_ROOT, 'var', 'aether-state.db');
 // Authentication
 export const AUTH_TOKEN_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours in ms
 export const AUTH_DEFAULT_ADMIN_USER = 'admin';
-export const AUTH_DEFAULT_ADMIN_PASS = 'aether';
+
+/**
+ * Generate a cryptographically random admin password for first-boot.
+ * Never use a hardcoded default — each deployment gets a unique password.
+ */
+export function generateDefaultAdminPassword(): string {
+  return crypto.randomBytes(16).toString('base64url');
+}
 
 // Cluster
 export const CLUSTER_HEARTBEAT_INTERVAL = 10_000; // 10 seconds

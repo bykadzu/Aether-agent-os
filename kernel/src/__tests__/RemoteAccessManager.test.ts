@@ -6,7 +6,22 @@ import type { SSHTunnelConfig } from '../RemoteAccessManager.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
-import * as child_process from 'node:child_process';
+
+// ---------------------------------------------------------------------------
+// Module-level mocks for node:child_process (ESM-compatible)
+// ---------------------------------------------------------------------------
+
+const mockExecSync = vi.fn();
+const mockSpawn = vi.fn();
+
+vi.mock('node:child_process', async () => {
+  const actual = await vi.importActual<typeof import('node:child_process')>('node:child_process');
+  return {
+    ...actual,
+    execSync: (...args: any[]) => mockExecSync(...args),
+    spawn: (...args: any[]) => mockSpawn(...args),
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -36,6 +51,73 @@ function defaultTunnelConfig(overrides?: Partial<SSHTunnelConfig>): SSHTunnelCon
   };
 }
 
+function setupDefaultExecSync() {
+  mockExecSync.mockImplementation((cmd: string) => {
+    if (
+      typeof cmd === 'string' &&
+      (cmd.includes('which ssh') || cmd.includes('which tailscale'))
+    ) {
+      return Buffer.from('/usr/bin/ssh\n');
+    }
+    if (typeof cmd === 'string' && cmd.includes('tailscale status --json')) {
+      return Buffer.from(
+        JSON.stringify({
+          Version: '1.56.0',
+          TailscaleIPs: ['100.64.0.1', 'fd7a:115c:a1e0::1'],
+          Self: {
+            ID: 'self-id',
+            HostName: 'aether-node',
+            OS: 'linux',
+            Online: true,
+            LastSeen: '2025-01-01T00:00:00Z',
+          },
+          MagicDNSSuffix: 'tailnet-abc.ts.net',
+          Peer: {
+            'node-key-1': {
+              ID: 'peer-1',
+              HostName: 'peer-node',
+              TailscaleIPs: ['100.64.0.2', 'fd7a:115c:a1e0::2'],
+              OS: 'linux',
+              Online: true,
+              LastSeen: '2025-01-01T00:00:00Z',
+            },
+          },
+        }),
+      );
+    }
+    if (typeof cmd === 'string' && cmd.includes('tailscale up')) {
+      return Buffer.from('');
+    }
+    if (typeof cmd === 'string' && cmd.includes('tailscale down')) {
+      return Buffer.from('');
+    }
+    if (typeof cmd === 'string' && cmd.includes('tailscale serve')) {
+      return Buffer.from('');
+    }
+    if (typeof cmd === 'string' && cmd.includes('tailscale funnel')) {
+      return Buffer.from('');
+    }
+    return Buffer.from('');
+  });
+}
+
+function setupDefaultSpawn() {
+  const EventEmitter = require('node:events');
+  mockSpawn.mockImplementation(() => {
+    const proc = new EventEmitter();
+    proc.pid = 12345;
+    proc.killed = false;
+    proc.kill = vi.fn(() => {
+      proc.killed = true;
+    });
+    proc.stdin = null;
+    proc.stdout = new EventEmitter();
+    proc.stderr = new EventEmitter();
+    proc.stdio = [null, proc.stdout, proc.stderr];
+    return proc as any;
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -48,74 +130,13 @@ describe('RemoteAccessManager', () => {
   let tmpDir: string;
 
   beforeEach(async () => {
+    vi.clearAllMocks();
     bus = new EventBus();
     ({ dbPath, tmpDir } = makeTmpDb());
     store = new StateStore(bus, dbPath);
 
-    // Mock execSync so SSH and Tailscale appear available
-    vi.spyOn(child_process, 'execSync').mockImplementation((cmd: string) => {
-      if (
-        typeof cmd === 'string' &&
-        (cmd.includes('which ssh') || cmd.includes('which tailscale'))
-      ) {
-        return Buffer.from('/usr/bin/ssh\n');
-      }
-      if (typeof cmd === 'string' && cmd.includes('tailscale status --json')) {
-        return Buffer.from(
-          JSON.stringify({
-            Version: '1.56.0',
-            TailscaleIPs: ['100.64.0.1', 'fd7a:115c:a1e0::1'],
-            Self: {
-              ID: 'self-id',
-              HostName: 'aether-node',
-              OS: 'linux',
-              Online: true,
-              LastSeen: '2025-01-01T00:00:00Z',
-            },
-            MagicDNSSuffix: 'tailnet-abc.ts.net',
-            Peer: {
-              'node-key-1': {
-                ID: 'peer-1',
-                HostName: 'peer-node',
-                TailscaleIPs: ['100.64.0.2', 'fd7a:115c:a1e0::2'],
-                OS: 'linux',
-                Online: true,
-                LastSeen: '2025-01-01T00:00:00Z',
-              },
-            },
-          }),
-        );
-      }
-      if (typeof cmd === 'string' && cmd.includes('tailscale up')) {
-        return Buffer.from('');
-      }
-      if (typeof cmd === 'string' && cmd.includes('tailscale down')) {
-        return Buffer.from('');
-      }
-      if (typeof cmd === 'string' && cmd.includes('tailscale serve')) {
-        return Buffer.from('');
-      }
-      if (typeof cmd === 'string' && cmd.includes('tailscale funnel')) {
-        return Buffer.from('');
-      }
-      return Buffer.from('');
-    });
-
-    // Mock spawn so SSH tunnel processes are simulated
-    vi.spyOn(child_process, 'spawn').mockImplementation(() => {
-      const EventEmitter = require('node:events');
-      const proc = new EventEmitter();
-      proc.pid = 12345;
-      proc.killed = false;
-      proc.kill = vi.fn(() => {
-        proc.killed = true;
-      });
-      proc.stdin = null;
-      proc.stdout = new EventEmitter();
-      proc.stderr = new EventEmitter();
-      proc.stdio = [null, proc.stdout, proc.stderr];
-      return proc as any;
-    });
+    setupDefaultExecSync();
+    setupDefaultSpawn();
 
     manager = new RemoteAccessManager(bus, store);
     await manager.init();
@@ -129,7 +150,6 @@ describe('RemoteAccessManager', () => {
     } catch {
       /* ignore */
     }
-    vi.restoreAllMocks();
   });
 
   // ---------------------------------------------------------------------------
@@ -142,8 +162,7 @@ describe('RemoteAccessManager', () => {
     });
 
     it('detects SSH as unavailable when which fails', async () => {
-      vi.restoreAllMocks();
-      vi.spyOn(child_process, 'execSync').mockImplementation((cmd: string) => {
+      mockExecSync.mockImplementation((cmd: string) => {
         if (typeof cmd === 'string' && cmd.includes('which ssh')) {
           throw new Error('not found');
         }
@@ -213,10 +232,9 @@ describe('RemoteAccessManager', () => {
     });
 
     it('spawns an SSH process with correct arguments', () => {
-      const spawnSpy = vi.spyOn(child_process, 'spawn');
       manager.createTunnel(defaultTunnelConfig());
 
-      expect(spawnSpy).toHaveBeenCalledWith(
+      expect(mockSpawn).toHaveBeenCalledWith(
         'ssh',
         expect.arrayContaining(['-N', '-L', '8080:localhost:3000']),
         expect.any(Object),
@@ -224,7 +242,6 @@ describe('RemoteAccessManager', () => {
     });
 
     it('creates a remote tunnel with -R flag', () => {
-      const spawnSpy = vi.spyOn(child_process, 'spawn');
       manager.createTunnel(
         defaultTunnelConfig({
           type: 'remote',
@@ -233,7 +250,7 @@ describe('RemoteAccessManager', () => {
         }),
       );
 
-      expect(spawnSpy).toHaveBeenCalledWith(
+      expect(mockSpawn).toHaveBeenCalledWith(
         'ssh',
         expect.arrayContaining(['-R', '2222:localhost:22']),
         expect.any(Object),
@@ -241,7 +258,6 @@ describe('RemoteAccessManager', () => {
     });
 
     it('creates a dynamic SOCKS proxy with -D flag', () => {
-      const spawnSpy = vi.spyOn(child_process, 'spawn');
       manager.createTunnel(
         defaultTunnelConfig({
           type: 'dynamic',
@@ -249,7 +265,7 @@ describe('RemoteAccessManager', () => {
         }),
       );
 
-      expect(spawnSpy).toHaveBeenCalledWith(
+      expect(mockSpawn).toHaveBeenCalledWith(
         'ssh',
         expect.arrayContaining(['-D', '1080']),
         expect.any(Object),
@@ -257,8 +273,7 @@ describe('RemoteAccessManager', () => {
     });
 
     it('throws when SSH is not available', async () => {
-      vi.restoreAllMocks();
-      vi.spyOn(child_process, 'execSync').mockImplementation((cmd: string) => {
+      mockExecSync.mockImplementation((cmd: string) => {
         if (typeof cmd === 'string' && cmd.includes('which ssh')) {
           throw new Error('not found');
         }
@@ -267,7 +282,7 @@ describe('RemoteAccessManager', () => {
         }
         return Buffer.from('');
       });
-      vi.spyOn(child_process, 'spawn').mockImplementation(() => {
+      mockSpawn.mockImplementation(() => {
         throw new Error('should not be called');
       });
 
@@ -317,7 +332,7 @@ describe('RemoteAccessManager', () => {
       manager.destroyTunnel(tunnel.id);
 
       // The mocked process's kill should have been called
-      const spawnResult = (child_process.spawn as any).mock.results[0]?.value;
+      const spawnResult = mockSpawn.mock.results[0]?.value;
       if (spawnResult) {
         expect(spawnResult.kill).toHaveBeenCalled();
       }
@@ -340,7 +355,7 @@ describe('RemoteAccessManager', () => {
       );
 
       // Simulate the SSH process exiting
-      const spawnResult = (child_process.spawn as any).mock.results[0]?.value;
+      const spawnResult = mockSpawn.mock.results[0]?.value;
       if (spawnResult) {
         spawnResult.emit('exit', 1);
       }
@@ -349,7 +364,7 @@ describe('RemoteAccessManager', () => {
       vi.advanceTimersByTime(2500);
 
       // Spawn should have been called twice (initial + 1 reconnect)
-      expect(child_process.spawn).toHaveBeenCalledTimes(2);
+      expect(mockSpawn).toHaveBeenCalledTimes(2);
 
       vi.useRealTimers();
     });
@@ -364,7 +379,7 @@ describe('RemoteAccessManager', () => {
       );
 
       // Simulate the SSH process exiting
-      const spawnResult = (child_process.spawn as any).mock.results[0]?.value;
+      const spawnResult = mockSpawn.mock.results[0]?.value;
       if (spawnResult) {
         spawnResult.emit('exit', 1);
       }
@@ -372,7 +387,7 @@ describe('RemoteAccessManager', () => {
       vi.advanceTimersByTime(10000);
 
       // Spawn should have been called only once
-      expect(child_process.spawn).toHaveBeenCalledTimes(1);
+      expect(mockSpawn).toHaveBeenCalledTimes(1);
 
       vi.useRealTimers();
     });
@@ -388,18 +403,18 @@ describe('RemoteAccessManager', () => {
       );
 
       // First exit triggers reconnect after 2s
-      let spawnResult = (child_process.spawn as any).mock.results[0]?.value;
+      let spawnResult = mockSpawn.mock.results[0]?.value;
       spawnResult?.emit('exit', 1);
 
       vi.advanceTimersByTime(2100);
-      expect(child_process.spawn).toHaveBeenCalledTimes(2);
+      expect(mockSpawn).toHaveBeenCalledTimes(2);
 
       // Second exit triggers reconnect after 4s
-      spawnResult = (child_process.spawn as any).mock.results[1]?.value;
+      spawnResult = mockSpawn.mock.results[1]?.value;
       spawnResult?.emit('exit', 1);
 
       vi.advanceTimersByTime(4100);
-      expect(child_process.spawn).toHaveBeenCalledTimes(3);
+      expect(mockSpawn).toHaveBeenCalledTimes(3);
 
       vi.useRealTimers();
     });
@@ -418,18 +433,18 @@ describe('RemoteAccessManager', () => {
       );
 
       // First exit — will schedule reconnect
-      let spawnResult = (child_process.spawn as any).mock.results[0]?.value;
+      let spawnResult = mockSpawn.mock.results[0]?.value;
       spawnResult?.emit('exit', 1);
 
       vi.advanceTimersByTime(2100);
-      expect(child_process.spawn).toHaveBeenCalledTimes(2);
+      expect(mockSpawn).toHaveBeenCalledTimes(2);
 
       // Second exit — maxRetries reached, should not reconnect
-      spawnResult = (child_process.spawn as any).mock.results[1]?.value;
+      spawnResult = mockSpawn.mock.results[1]?.value;
       spawnResult?.emit('exit', 1);
 
       vi.advanceTimersByTime(60000);
-      expect(child_process.spawn).toHaveBeenCalledTimes(2);
+      expect(mockSpawn).toHaveBeenCalledTimes(2);
 
       // Should emit error about max retries
       const maxRetryError = errorEvents.find((e) => e.error?.includes('Max reconnection'));
@@ -450,7 +465,7 @@ describe('RemoteAccessManager', () => {
 
       manager.createTunnel(defaultTunnelConfig({ autoReconnect: false }));
 
-      const spawnResult = (child_process.spawn as any).mock.results[0]?.value;
+      const spawnResult = mockSpawn.mock.results[0]?.value;
       spawnResult?.stderr.emit('data', Buffer.from('Connection refused'));
 
       expect(events).toHaveLength(1);
@@ -458,9 +473,7 @@ describe('RemoteAccessManager', () => {
     });
 
     it('emits remote.tunnel.error when spawn throws', async () => {
-      vi.restoreAllMocks();
-
-      vi.spyOn(child_process, 'execSync').mockImplementation((cmd: string) => {
+      mockExecSync.mockImplementation((cmd: string) => {
         if (typeof cmd === 'string' && cmd.includes('which ssh')) {
           return Buffer.from('/usr/bin/ssh\n');
         }
@@ -470,7 +483,7 @@ describe('RemoteAccessManager', () => {
         return Buffer.from('');
       });
 
-      vi.spyOn(child_process, 'spawn').mockImplementation(() => {
+      mockSpawn.mockImplementation(() => {
         throw new Error('spawn ENOENT');
       });
 
@@ -513,8 +526,7 @@ describe('RemoteAccessManager', () => {
     });
 
     it('returns installed=false when Tailscale is not installed', async () => {
-      vi.restoreAllMocks();
-      vi.spyOn(child_process, 'execSync').mockImplementation((cmd: string) => {
+      mockExecSync.mockImplementation((cmd: string) => {
         if (typeof cmd === 'string' && cmd.includes('which ssh')) {
           return Buffer.from('/usr/bin/ssh\n');
         }
@@ -532,7 +544,7 @@ describe('RemoteAccessManager', () => {
     });
 
     it('returns installed=true running=false when tailscale status fails', () => {
-      vi.spyOn(child_process, 'execSync').mockImplementation((cmd: string) => {
+      mockExecSync.mockImplementation((cmd: string) => {
         if (typeof cmd === 'string' && cmd.includes('which ssh')) {
           return Buffer.from('/usr/bin/ssh\n');
         }
@@ -545,11 +557,7 @@ describe('RemoteAccessManager', () => {
         return Buffer.from('');
       });
 
-      // Re-init to pick up the new mocks (tailscale installed but daemon not running)
-      // The isTailscaleAvailable should still be true from init detection
       const status = manager.tailscaleStatus();
-      // Even though the actual status call throws, it should return installed=true, running=false
-      // Note: The mock here replaces the previously configured one during the test
       expect(status.installed).toBe(true);
     });
   });
@@ -570,15 +578,13 @@ describe('RemoteAccessManager', () => {
     });
 
     it('calls tailscale up with config options', async () => {
-      const execSpy = vi.spyOn(child_process, 'execSync');
-
       await manager.tailscaleUp({
         authKey: 'tskey-abcdef',
         hostname: 'my-node',
         acceptRoutes: true,
       });
 
-      expect(execSpy).toHaveBeenCalledWith(
+      expect(mockExecSync).toHaveBeenCalledWith(
         expect.stringContaining('--authkey'),
         expect.any(Object),
       );
@@ -595,8 +601,7 @@ describe('RemoteAccessManager', () => {
     });
 
     it('returns failure when Tailscale not installed', async () => {
-      vi.restoreAllMocks();
-      vi.spyOn(child_process, 'execSync').mockImplementation((cmd: string) => {
+      mockExecSync.mockImplementation((cmd: string) => {
         if (typeof cmd === 'string' && cmd.includes('which ssh')) {
           return Buffer.from('/usr/bin/ssh\n');
         }
@@ -638,8 +643,7 @@ describe('RemoteAccessManager', () => {
     });
 
     it('returns empty array when Tailscale not available', async () => {
-      vi.restoreAllMocks();
-      vi.spyOn(child_process, 'execSync').mockImplementation((cmd: string) => {
+      mockExecSync.mockImplementation((cmd: string) => {
         if (typeof cmd === 'string' && cmd.includes('which ssh')) {
           return Buffer.from('/usr/bin/ssh\n');
         }
@@ -668,11 +672,9 @@ describe('RemoteAccessManager', () => {
     });
 
     it('uses funnel when option is set', async () => {
-      const execSpy = vi.spyOn(child_process, 'execSync');
-
       await manager.tailscaleServe(8080, { funnel: true });
 
-      expect(execSpy).toHaveBeenCalledWith(
+      expect(mockExecSync).toHaveBeenCalledWith(
         expect.stringContaining('tailscale funnel'),
         expect.any(Object),
       );
