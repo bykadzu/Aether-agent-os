@@ -219,8 +219,14 @@ describe('Protocol', () => {
       expect(DEFAULT_PORT).toBe(3001);
     });
 
-    it('AETHER_ROOT is /tmp/aether', () => {
-      expect(AETHER_ROOT).toBe('/tmp/aether');
+    it('AETHER_ROOT respects AETHER_FS_ROOT env or defaults to ~/.aether', () => {
+      if (process.env.AETHER_FS_ROOT) {
+        expect(AETHER_ROOT).toBe(process.env.AETHER_FS_ROOT);
+      } else {
+        const os = require('node:os');
+        const path = require('node:path');
+        expect(AETHER_ROOT).toBe(path.join(os.homedir(), '.aether'));
+      }
     });
 
     it('AUTH_TOKEN_EXPIRY is 24 hours', () => {

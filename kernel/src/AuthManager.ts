@@ -13,7 +13,7 @@ import {
   UserInfo,
   AUTH_TOKEN_EXPIRY,
   AUTH_DEFAULT_ADMIN_USER,
-  AUTH_DEFAULT_ADMIN_PASS,
+  generateDefaultAdminPassword,
   Permission,
   OrgRole,
   TeamRole,
@@ -123,21 +123,23 @@ export class AuthManager {
   async init(): Promise<void> {
     const userCount = this.store.getUserCount();
     if (userCount === 0) {
+      const generatedPassword = generateDefaultAdminPassword();
       console.log('[Auth] No users found. Creating default admin account...');
       await this.createUser(
         AUTH_DEFAULT_ADMIN_USER,
-        AUTH_DEFAULT_ADMIN_PASS,
+        generatedPassword,
         'Administrator',
         'admin',
       );
       console.log('');
-      console.log('  ╔════════════════════════════════════════════╗');
-      console.log('  ║  DEFAULT ADMIN CREDENTIALS                  ║');
-      console.log(`  ║  Username: ${AUTH_DEFAULT_ADMIN_USER.padEnd(33)}║`);
-      console.log(`  ║  Password: ${AUTH_DEFAULT_ADMIN_PASS.padEnd(33)}║`);
-      console.log('  ║                                              ║');
-      console.log('  ║  ⚠ Change this password after first login!  ║');
-      console.log('  ╚════════════════════════════════════════════╝');
+      console.log('  ╔════════════════════════════════════════════════╗');
+      console.log('  ║  ADMIN CREDENTIALS (generated, one-time)        ║');
+      console.log(`  ║  Username: ${AUTH_DEFAULT_ADMIN_USER.padEnd(37)}║`);
+      console.log(`  ║  Password: ${generatedPassword.padEnd(37)}║`);
+      console.log('  ║                                                  ║');
+      console.log('  ║  Save this password now — it will not be shown   ║');
+      console.log('  ║  again. Change it after first login.             ║');
+      console.log('  ╚════════════════════════════════════════════════╝');
       console.log('');
     }
   }
@@ -187,6 +189,12 @@ export class AuthManager {
       if (parts.length !== 3) return null;
 
       const [header, body, signature] = parts;
+
+      // Validate JWT header algorithm — only accept HS256 to prevent alg-swap attacks
+      const headerObj = JSON.parse(this.base64UrlDecode(header));
+      if (headerObj.alg !== 'HS256') {
+        return null;
+      }
 
       // Verify signature
       const expected = crypto
@@ -865,7 +873,16 @@ export class AuthManager {
     if (allOrgs.length === 0) return true;
 
     // If orgs exist but no orgId specified, check if user is member of any org with this permission
-    return true;
+    const userOrgs = this.store.getOrgsByUser(userId);
+    for (const org of userOrgs) {
+      const member = this.store.getOrgMember(org.id, userId);
+      if (member) {
+        const role = member.role as OrgRole;
+        const perms = ROLE_PERMISSIONS[role];
+        if (perms && perms.includes(permission)) return true;
+      }
+    }
+    return false;
   }
 
   /**

@@ -248,38 +248,14 @@ export function createToolSet(): ToolDefinition[] {
             return { success: true, output };
           }
 
-          // Fallback: no container (Docker unavailable or creation failed at spawn)
-          // Security: refuse host execution unless explicitly allowed via env var
-          if (!process.env.AETHER_ALLOW_HOST_EXEC) {
-            return {
-              success: false,
-              output:
-                'Shell commands require a Docker container for sandboxing, but no container is available for this agent. ' +
-                'To allow unsandboxed host execution (development only), set AETHER_ALLOW_HOST_EXEC=1 in your environment.',
-            };
-          }
-          console.warn(
-            `[Tools] run_command falling back to HOST execution for PID ${ctx.pid} — no container available`,
-          );
-          const proc = ctx.kernel.processes.get(ctx.pid);
-          // proc.info.cwd is a virtual path — resolve to real path via FS root
-          const virtualCwd = proc?.info.cwd || '/tmp';
-          const cwd = ctx.kernel.fs.getRealRoot() + virtualCwd;
-          const shell = process.platform === 'win32' ? true : '/bin/bash';
-
-          const requestedTimeout = args.timeout
-            ? Math.min(Number(args.timeout) * 1000, MAX_COMMAND_TIMEOUT)
-            : DEFAULT_COMMAND_TIMEOUT;
-          const { stdout, stderr } = await execAsync(args.command, {
-            cwd,
-            shell,
-            timeout: requestedTimeout,
-            maxBuffer: 1024 * 1024,
-            env: { ...process.env, ...(proc?.info.env || {}) },
-          });
-
-          const output = (stdout + (stderr ? `\n${stderr}` : '')).trim();
-          return { success: true, output: output || '(no output)' };
+          // No container available — refuse to execute on the host.
+          // Host exec fallback has been removed for security (command injection risk).
+          return {
+            success: false,
+            output:
+              'Shell commands require a Docker container for sandboxing, but no container is available for this agent. ' +
+              'Ensure Docker is running and the agent was spawned with a sandbox.',
+          };
         } catch (err: any) {
           // If process was killed due to timeout but produced stdout, treat as partial success
           if (err.killed && err.stdout) {
@@ -481,7 +457,7 @@ export function createToolSet(): ToolDefinition[] {
 
           return { success: true, output };
         } catch (err: any) {
-          return { success: false, output: `Failed to browse ${url}: ${err.message}` };
+          return { success: false, output: `Failed to browse ${args.url}: ${err.message}` };
         }
       },
     },

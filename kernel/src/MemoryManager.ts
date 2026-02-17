@@ -285,8 +285,8 @@ export class MemoryManager {
     const now = Date.now();
     let removed = 0;
 
-    // Remove expired memories
-    const allMemories = this.state.getMemoriesByAgent(agent_uid);
+    // Remove expired memories — use high limit to scan all for consolidation
+    const allMemories = this.state.getMemoriesByAgent(agent_uid, 1_000_000);
     for (const raw of allMemories) {
       if (raw.expires_at && raw.expires_at <= now) {
         this.state.deleteMemory(raw.id, agent_uid);
@@ -326,16 +326,17 @@ export class MemoryManager {
     procedural: number;
     social: number;
   } {
+    // Query each layer once (4 queries instead of the previous 8)
+    const episodic = this.state.getMemoryCount(agent_uid, 'episodic');
+    const semantic = this.state.getMemoryCount(agent_uid, 'semantic');
+    const procedural = this.state.getMemoryCount(agent_uid, 'procedural');
+    const social = this.state.getMemoryCount(agent_uid, 'social');
     return {
-      total:
-        this.state.getMemoryCount(agent_uid, 'episodic') +
-        this.state.getMemoryCount(agent_uid, 'semantic') +
-        this.state.getMemoryCount(agent_uid, 'procedural') +
-        this.state.getMemoryCount(agent_uid, 'social'),
-      episodic: this.state.getMemoryCount(agent_uid, 'episodic'),
-      semantic: this.state.getMemoryCount(agent_uid, 'semantic'),
-      procedural: this.state.getMemoryCount(agent_uid, 'procedural'),
-      social: this.state.getMemoryCount(agent_uid, 'social'),
+      total: episodic + semantic + procedural + social,
+      episodic,
+      semantic,
+      procedural,
+      social,
     };
   }
 

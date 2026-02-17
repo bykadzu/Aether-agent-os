@@ -154,7 +154,7 @@ describe('BrowserManager', () => {
       const info = await manager.navigateTo('nav', 'https://example.com');
 
       expect(mockPage.goto).toHaveBeenCalledWith('https://example.com', {
-        waitUntil: 'domcontentloaded',
+        waitUntil: 'load',
       });
       expect(info.url).toBe('https://example.com');
       expect(info.title).toBe('Example Domain');

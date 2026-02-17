@@ -227,11 +227,25 @@ const v1Handler = createV1Router(
 // HTTP Server (with optional TLS)
 // ---------------------------------------------------------------------------
 
+// CORS origin allowlist — configure via AETHER_CORS_ORIGINS (comma-separated).
+// Defaults to localhost dev origins only.
+const CORS_ALLOWED_ORIGINS: Set<string> = new Set(
+  (process.env.AETHER_CORS_ORIGINS || `http://localhost:5173,http://localhost:${PORT}`)
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean),
+);
+
 const requestHandler = async (req: IncomingMessage, res: ServerResponse) => {
-  // CORS headers for Vite dev server
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  // CORS headers — validate Origin against allowlist instead of reflecting *
+  const origin = req.headers['origin'];
+  if (origin && CORS_ALLOWED_ORIGINS.has(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+  }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
