@@ -124,8 +124,8 @@ export const OpenClawImporter: React.FC = () => {
       } else {
         setScanError(json.error?.message || 'Import failed');
       }
-    } catch (err: any) {
-      setScanError(err.message || 'Network error');
+    } catch (err: unknown) {
+      setScanError(err instanceof Error ? err.message : 'Network error');
     } finally {
       setScanning(false);
     }
@@ -147,8 +147,8 @@ export const OpenClawImporter: React.FC = () => {
       } else {
         setScanError(json.error?.message || 'Import failed');
       }
-    } catch (err: any) {
-      setScanError(err.message || 'Network error');
+    } catch (err: unknown) {
+      setScanError(err instanceof Error ? err.message : 'Network error');
     } finally {
       setImporting(false);
     }

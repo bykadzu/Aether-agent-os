@@ -188,8 +188,8 @@ export const BrowserApp: React.FC = () => {
           url: tab.url,
         });
       }
-    } catch (err: any) {
-      const msg = err?.message || String(err);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
       createdSessions.current.delete(tab.sessionId);
       if (msg.includes('Playwright') || msg.includes('playwright') || msg.includes('browser')) {
         setSessionError('Browser engine not installed. Run: npx playwright install chromium');

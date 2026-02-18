@@ -195,10 +195,10 @@ export const VNCViewer = forwardRef<VNCViewerHandle, VNCViewerProps>(
             setStatus('error');
             setErrorMsg('noVNC library not loaded. Install with: npm install @novnc/novnc');
           }
-        } catch (err: any) {
+        } catch (err: unknown) {
           if (!destroyed) {
             setStatus('error');
-            setErrorMsg(err.message || 'Failed to initialize VNC viewer');
+            setErrorMsg(err instanceof Error ? err.message : 'Failed to initialize VNC viewer');
           }
         }
       };

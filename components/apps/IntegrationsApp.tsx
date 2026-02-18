@@ -368,8 +368,11 @@ export const IntegrationsApp: React.FC = () => {
         const result = await responsePromise;
         setTestResult(result);
         loadIntegrations();
-      } catch (err: any) {
-        setTestResult({ success: false, message: err.message });
+      } catch (err: unknown) {
+        setTestResult({
+          success: false,
+          message: err instanceof Error ? err.message : String(err),
+        });
       } finally {
         setTesting(false);
       }
@@ -798,8 +801,10 @@ export const IntegrationsApp: React.FC = () => {
                         );
                         const result = await responsePromise;
                         setActionResult(result);
-                      } catch (err: any) {
-                        setActionResult({ error: err.message });
+                      } catch (err: unknown) {
+                        setActionResult({
+                          error: err instanceof Error ? err.message : String(err),
+                        });
                       }
                     }}
                     className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-indigo-400 hover:bg-indigo-500/30 text-[11px] font-medium transition-colors"

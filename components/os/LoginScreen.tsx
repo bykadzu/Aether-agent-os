@@ -67,8 +67,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
         );
         triggerShake();
       }
-    } catch (err: any) {
-      setError(err.message || 'Connection error');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Connection error');
       triggerShake();
     } finally {
       setLoading(false);
