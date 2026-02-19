@@ -58,6 +58,7 @@ export class PTYManager {
   private sessions = new Map<string, PTYSession>();
   private bus: EventBus;
   private containerManager?: ContainerManager;
+  private nextId = 0;
 
   constructor(bus: EventBus, containerManager?: ContainerManager) {
     this.bus = bus;
@@ -86,7 +87,7 @@ export class PTYManager {
       shell?: string;
     } = {},
   ): PTYSession {
-    const id = `tty_${pid}_${Date.now()}`;
+    const id = `tty_${pid}_${Date.now()}_${this.nextId++}`;
     const cols = options.cols || DEFAULT_TTY_COLS;
     const rows = options.rows || DEFAULT_TTY_ROWS;
     const defaultCwd = process.platform === 'win32' ? process.env.TEMP || 'C:\\temp' : '/tmp';
