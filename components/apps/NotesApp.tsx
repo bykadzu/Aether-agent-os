@@ -1,11 +1,21 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { PenTool, Wand2, Check, RefreshCw, AlignLeft, Save, Plus, FileText, Trash2 } from 'lucide-react';
+import {
+  PenTool,
+  Wand2,
+  Check,
+  RefreshCw,
+  AlignLeft,
+  Save,
+  Plus,
+  FileText,
+  Trash2,
+} from 'lucide-react';
 import { generateText, GeminiModel } from '../../services/geminiService';
 import { getKernelClient } from '../../services/kernelClient';
 
 interface NotesAppProps {
-    initialContent?: string;
-    onSave?: (content: string) => void;
+  initialContent?: string;
+  onSave?: (content: string) => void;
 }
 
 interface NoteFile {
@@ -16,7 +26,9 @@ interface NoteFile {
 const NOTES_DIR = '/home/root/Documents/notes';
 
 export const NotesApp: React.FC<NotesAppProps> = ({ initialContent, onSave }) => {
-  const [content, setContent] = useState("Welcome to Aether Notes.\n\nStart typing here, then use the AI tools above to enhance your writing.");
+  const [content, setContent] = useState(
+    'Welcome to Aether Notes.\n\nStart typing here, then use the AI tools above to enhance your writing.',
+  );
   const [isProcessing, setIsProcessing] = useState(false);
   const [toolMessage, setToolMessage] = useState('');
   const [showSaved, setShowSaved] = useState(false);
@@ -26,25 +38,6 @@ export const NotesApp: React.FC<NotesAppProps> = ({ initialContent, onSave }) =>
   const [noteTitle, setNoteTitle] = useState('Untitled');
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Check kernel connection and load notes
-  useEffect(() => {
-    const client = getKernelClient();
-    if (client.connected) {
-      setUseKernel(true);
-      loadNotes();
-    } else {
-      // Load from localStorage
-      const savedNotes = localStorage.getItem('aether_notes');
-      if (savedNotes) {
-        try {
-          const parsed = JSON.parse(savedNotes);
-          if (parsed.content) setContent(parsed.content);
-          if (parsed.noteList) setNotes(parsed.noteList);
-        } catch {}
-      }
-    }
-  }, []);
-
   useEffect(() => {
     if (initialContent) {
       setContent(initialContent);
@@ -52,21 +45,41 @@ export const NotesApp: React.FC<NotesAppProps> = ({ initialContent, onSave }) =>
   }, [initialContent]);
 
   // Auto-save with debounce (2s of inactivity)
-  const debounceSave = useCallback((newContent: string) => {
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(() => {
-      if (useKernel && activeNote) {
-        const client = getKernelClient();
-        client.writeFile(activeNote, newContent).catch(() => {});
-      } else {
-        // Save to localStorage
-        localStorage.setItem('aether_notes', JSON.stringify({
-          content: newContent,
-          noteList: notes,
-        }));
-      }
-    }, 2000);
-  }, [useKernel, activeNote, notes]);
+  const debounceSave = useCallback(
+    (newContent: string) => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = setTimeout(() => {
+        if (useKernel && activeNote) {
+          const client = getKernelClient();
+          client.writeFile(activeNote, newContent).catch(() => {});
+        } else {
+          // Save to localStorage
+          localStorage.setItem(
+            'aether_notes',
+            JSON.stringify({
+              content: newContent,
+              noteList: notes,
+            }),
+          );
+        }
+      }, 2000);
+    },
+    [useKernel, activeNote, notes],
+  );
+
+  const loadNote = async (path: string, name: string) => {
+    const client = getKernelClient();
+    try {
+      const { content: fileContent } = await client.readFile(path);
+      setContent(fileContent);
+      setActiveNote(path);
+      setNoteTitle(name);
+    } catch {
+      setContent('');
+      setActiveNote(path);
+      setNoteTitle(name);
+    }
+  };
 
   const loadNotes = async () => {
     const client = getKernelClient();
@@ -88,19 +101,24 @@ export const NotesApp: React.FC<NotesAppProps> = ({ initialContent, onSave }) =>
     }
   };
 
-  const loadNote = async (path: string, name: string) => {
+  // Check kernel connection and load notes
+  useEffect(() => {
     const client = getKernelClient();
-    try {
-      const { content: fileContent } = await client.readFile(path);
-      setContent(fileContent);
-      setActiveNote(path);
-      setNoteTitle(name);
-    } catch {
-      setContent('');
-      setActiveNote(path);
-      setNoteTitle(name);
+    if (client.connected) {
+      setUseKernel(true);
+      loadNotes();
+    } else {
+      // Load from localStorage
+      const savedNotes = localStorage.getItem('aether_notes');
+      if (savedNotes) {
+        try {
+          const parsed = JSON.parse(savedNotes);
+          if (parsed.content) setContent(parsed.content);
+          if (parsed.noteList) setNotes(parsed.noteList);
+        } catch {}
+      }
     }
-  };
+  }, []);
 
   const createNewNote = async () => {
     const name = `Note ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
@@ -111,7 +129,7 @@ export const NotesApp: React.FC<NotesAppProps> = ({ initialContent, onSave }) =>
       try {
         await client.mkdir(NOTES_DIR).catch(() => {});
         await client.writeFile(path, `# ${name}\n\n`);
-        setNotes(prev => [...prev, { name, path }]);
+        setNotes((prev) => [...prev, { name, path }]);
         setContent(`# ${name}\n\n`);
         setActiveNote(path);
         setNoteTitle(name);
@@ -119,7 +137,7 @@ export const NotesApp: React.FC<NotesAppProps> = ({ initialContent, onSave }) =>
         console.error('[NotesApp] Failed to create note:', err);
       }
     } else {
-      setNotes(prev => [...prev, { name, path }]);
+      setNotes((prev) => [...prev, { name, path }]);
       setContent(`# ${name}\n\n`);
       setActiveNote(path);
       setNoteTitle(name);
@@ -134,7 +152,7 @@ export const NotesApp: React.FC<NotesAppProps> = ({ initialContent, onSave }) =>
         await client.rm(path);
       } catch {}
     }
-    setNotes(prev => prev.filter(n => n.path !== path));
+    setNotes((prev) => prev.filter((n) => n.path !== path));
     if (activeNote === path) {
       setContent('');
       setActiveNote(null);
@@ -163,10 +181,13 @@ export const NotesApp: React.FC<NotesAppProps> = ({ initialContent, onSave }) =>
     }
 
     // Save to localStorage fallback
-    localStorage.setItem('aether_notes', JSON.stringify({
-      content,
-      noteList: notes,
-    }));
+    localStorage.setItem(
+      'aether_notes',
+      JSON.stringify({
+        content,
+        noteList: notes,
+      }),
+    );
 
     setShowSaved(true);
     setTimeout(() => setShowSaved(false), 2000);
@@ -177,7 +198,7 @@ export const NotesApp: React.FC<NotesAppProps> = ({ initialContent, onSave }) =>
     setIsProcessing(true);
     setToolMessage(`Gemini is ${action === 'polish' ? 'polishing' : action + 'ing'}...`);
 
-    let prompt = "";
+    let prompt = '';
     let model = GeminiModel.FLASH;
 
     switch (action) {
@@ -206,7 +227,11 @@ export const NotesApp: React.FC<NotesAppProps> = ({ initialContent, onSave }) =>
       <div className="w-48 bg-gray-50/80 border-r border-gray-200/50 flex flex-col">
         <div className="p-2 border-b border-gray-200/50 flex items-center justify-between">
           <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Notes</span>
-          <button onClick={createNewNote} className="p-1 hover:bg-gray-200/50 rounded transition-colors text-gray-500 hover:text-gray-700" title="New Note">
+          <button
+            onClick={createNewNote}
+            className="p-1 hover:bg-gray-200/50 rounded transition-colors text-gray-500 hover:text-gray-700"
+            title="New Note"
+          >
             <Plus size={14} />
           </button>
         </div>
@@ -216,12 +241,21 @@ export const NotesApp: React.FC<NotesAppProps> = ({ initialContent, onSave }) =>
               No notes yet. Click + to create one.
             </div>
           )}
-          {notes.map(note => (
+          {notes.map((note) => (
             <button
               key={note.path}
-              onClick={() => useKernel ? loadNote(note.path, note.name) : (() => { setActiveNote(note.path); setNoteTitle(note.name); })()}
+              onClick={() =>
+                useKernel
+                  ? loadNote(note.path, note.name)
+                  : (() => {
+                      setActiveNote(note.path);
+                      setNoteTitle(note.name);
+                    })()
+              }
               className={`w-full text-left p-2 rounded-lg text-sm flex items-center gap-2 group transition-colors ${
-                activeNote === note.path ? 'bg-blue-100/50 text-blue-700 font-medium' : 'text-gray-600 hover:bg-gray-100/50'
+                activeNote === note.path
+                  ? 'bg-blue-100/50 text-blue-700 font-medium'
+                  : 'text-gray-600 hover:bg-gray-100/50'
               }`}
             >
               <FileText size={14} className="shrink-0" />
@@ -295,7 +329,9 @@ export const NotesApp: React.FC<NotesAppProps> = ({ initialContent, onSave }) =>
         />
 
         <div className="px-4 py-2 text-xs text-gray-400 border-t border-gray-200/50 flex justify-between">
-          <span>{content.length} characters · {noteTitle}</span>
+          <span>
+            {content.length} characters · {noteTitle}
+          </span>
           <span>{useKernel ? 'Kernel FS' : 'localStorage'}</span>
         </div>
       </div>
