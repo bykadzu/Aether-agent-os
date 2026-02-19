@@ -12,6 +12,7 @@
 
 import * as http from 'node:http';
 import * as readline from 'node:readline';
+import { getErrorMessage } from './errors.js';
 
 // ---------------------------------------------------------------------------
 // CLI args
@@ -137,8 +138,8 @@ async function handleToolsList(id: string | number | null): Promise<void> {
     const resp = await httpGet(`/api/v1/mcp/aether/tools?pid=${pid}`);
     const tools = resp.data || resp;
     writeResponse(id, { tools });
-  } catch (err: any) {
-    writeError(id, -32603, `Failed to list tools: ${err.message}`);
+  } catch (err: unknown) {
+    writeError(id, -32603, `Failed to list tools: ${getErrorMessage(err)}`);
   }
 }
 
@@ -161,9 +162,9 @@ async function handleToolsCall(
         content: [{ type: 'text', text: JSON.stringify(result) }],
       });
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
     writeResponse(id, {
-      content: [{ type: 'text', text: `Error: ${err.message}` }],
+      content: [{ type: 'text', text: `Error: ${getErrorMessage(err)}` }],
       isError: true,
     });
   }

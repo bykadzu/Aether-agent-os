@@ -38,8 +38,20 @@ import {
   AETHER_ROOT,
   RATE_LIMIT_REQUESTS_PER_MIN,
   RATE_LIMIT_REQUESTS_UNAUTH_PER_MIN,
+  WS_COMMANDS_PER_MIN,
 } from '@aether/shared';
 import { createV1Router } from './routes/v1.js';
+import { getErrorMessage, isNotFoundError } from './errors.js';
+import {
+  sendEventImmediate,
+  bufferEvent,
+  flushBuffer,
+  initBuffer,
+  destroyBuffer,
+  BATCH_FLUSH_INTERVAL_MS,
+  BATCH_MAX_SIZE,
+  type EventBuffer,
+} from './ws-buffer.js';
 
 const PORT = parseInt(process.env.AETHER_PORT || String(DEFAULT_PORT), 10);
 
@@ -327,9 +339,9 @@ const requestHandler = async (req: IncomingMessage, res: ServerResponse) => {
         res.writeHead(401, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Invalid credentials' }));
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: err.message }));
+      res.end(JSON.stringify({ error: getErrorMessage(err) }));
     }
     return;
   }
@@ -352,9 +364,9 @@ const requestHandler = async (req: IncomingMessage, res: ServerResponse) => {
         res.writeHead(401, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Invalid MFA code or token' }));
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: err.message }));
+      res.end(JSON.stringify({ error: getErrorMessage(err) }));
     }
     return;
   }
@@ -378,9 +390,9 @@ const requestHandler = async (req: IncomingMessage, res: ServerResponse) => {
       const result = await kernel.auth.authenticateUser(username, password);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ token: result!.token, user: result!.user }));
-    } catch (err: any) {
+    } catch (err: unknown) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: err.message }));
+      res.end(JSON.stringify({ error: getErrorMessage(err) }));
     }
     return;
   }
@@ -526,9 +538,9 @@ const requestHandler = async (req: IncomingMessage, res: ServerResponse) => {
       const result = kernel.auth.setupMfa(user.id);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(result));
-    } catch (err: any) {
+    } catch (err: unknown) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: err.message }));
+      res.end(JSON.stringify({ error: getErrorMessage(err) }));
     }
     return;
   }
@@ -545,9 +557,9 @@ const requestHandler = async (req: IncomingMessage, res: ServerResponse) => {
       const valid = kernel.auth.verifyMfaCode(user.id, code);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ valid }));
-    } catch (err: any) {
+    } catch (err: unknown) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: err.message }));
+      res.end(JSON.stringify({ error: getErrorMessage(err) }));
     }
     return;
   }
@@ -569,9 +581,9 @@ const requestHandler = async (req: IncomingMessage, res: ServerResponse) => {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Invalid TOTP code' }));
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: err.message }));
+      res.end(JSON.stringify({ error: getErrorMessage(err) }));
     }
     return;
   }
@@ -688,9 +700,9 @@ const requestHandler = async (req: IncomingMessage, res: ServerResponse) => {
           timestamp: Date.now(),
         }),
       );
-    } catch (err: any) {
+    } catch (err: unknown) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: err.message }));
+      res.end(JSON.stringify({ error: getErrorMessage(err) }));
     }
     return;
   }
@@ -713,9 +725,9 @@ const requestHandler = async (req: IncomingMessage, res: ServerResponse) => {
       const records = kernel.state.getAllProcesses();
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(records));
-    } catch (err: any) {
+    } catch (err: unknown) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: err.message }));
+      res.end(JSON.stringify({ error: getErrorMessage(err) }));
     }
     return;
   }
@@ -733,9 +745,9 @@ const requestHandler = async (req: IncomingMessage, res: ServerResponse) => {
       const logs = kernel.state.getAgentLogs(pid);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(logs));
-    } catch (err: any) {
+    } catch (err: unknown) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: err.message }));
+      res.end(JSON.stringify({ error: getErrorMessage(err) }));
     }
     return;
   }
@@ -747,9 +759,9 @@ const requestHandler = async (req: IncomingMessage, res: ServerResponse) => {
       const logs = kernel.state.getRecentLogs(limit);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(logs));
-    } catch (err: any) {
+    } catch (err: unknown) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: err.message }));
+      res.end(JSON.stringify({ error: getErrorMessage(err) }));
     }
     return;
   }
@@ -761,9 +773,9 @@ const requestHandler = async (req: IncomingMessage, res: ServerResponse) => {
       const files = owner ? kernel.state.getFilesByOwner(owner) : kernel.state.getAllFiles();
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(files));
-    } catch (err: any) {
+    } catch (err: unknown) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: err.message }));
+      res.end(JSON.stringify({ error: getErrorMessage(err) }));
     }
     return;
   }
@@ -777,9 +789,9 @@ const requestHandler = async (req: IncomingMessage, res: ServerResponse) => {
         since > 0 ? kernel.state.getMetrics(since) : kernel.state.getLatestMetrics(limit);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(metrics));
-    } catch (err: any) {
+    } catch (err: unknown) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: err.message }));
+      res.end(JSON.stringify({ error: getErrorMessage(err) }));
     }
     return;
   }
@@ -799,9 +811,9 @@ const requestHandler = async (req: IncomingMessage, res: ServerResponse) => {
       const plugins = kernel.plugins.getPluginInfos(pid);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(plugins));
-    } catch (err: any) {
+    } catch (err: unknown) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: err.message }));
+      res.end(JSON.stringify({ error: getErrorMessage(err) }));
     }
     return;
   }
@@ -840,9 +852,9 @@ const requestHandler = async (req: IncomingMessage, res: ServerResponse) => {
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true, pluginDir }));
-    } catch (err: any) {
+    } catch (err: unknown) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: err.message }));
+      res.end(JSON.stringify({ error: getErrorMessage(err) }));
     }
     return;
   }
@@ -855,9 +867,9 @@ const requestHandler = async (req: IncomingMessage, res: ServerResponse) => {
       const snapshots = await kernel.snapshots.listSnapshots();
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(snapshots));
-    } catch (err: any) {
+    } catch (err: unknown) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: err.message }));
+      res.end(JSON.stringify({ error: getErrorMessage(err) }));
     }
     return;
   }
@@ -880,9 +892,9 @@ const requestHandler = async (req: IncomingMessage, res: ServerResponse) => {
         const snapshots = await kernel.snapshots.listSnapshots(pid);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(snapshots));
-      } catch (err: any) {
+      } catch (err: unknown) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: err.message }));
+        res.end(JSON.stringify({ error: getErrorMessage(err) }));
       }
       return;
     }
@@ -894,9 +906,9 @@ const requestHandler = async (req: IncomingMessage, res: ServerResponse) => {
       const snapshot = await kernel.snapshots.createSnapshot(pid, description);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(snapshot));
-    } catch (err: any) {
+    } catch (err: unknown) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: err.message }));
+      res.end(JSON.stringify({ error: getErrorMessage(err) }));
     }
     return;
   }
@@ -909,9 +921,9 @@ const requestHandler = async (req: IncomingMessage, res: ServerResponse) => {
       const newPid = await kernel.snapshots.restoreSnapshot(snapshotId);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ newPid }));
-    } catch (err: any) {
+    } catch (err: unknown) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: err.message }));
+      res.end(JSON.stringify({ error: getErrorMessage(err) }));
     }
     return;
   }
@@ -923,9 +935,9 @@ const requestHandler = async (req: IncomingMessage, res: ServerResponse) => {
       await kernel.snapshots.deleteSnapshot(snapshotId);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true }));
-    } catch (err: any) {
+    } catch (err: unknown) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: err.message }));
+      res.end(JSON.stringify({ error: getErrorMessage(err) }));
     }
     return;
   }
@@ -937,9 +949,9 @@ const requestHandler = async (req: IncomingMessage, res: ServerResponse) => {
       const mounts = await kernel.fs.listSharedMounts();
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(mounts));
-    } catch (err: any) {
+    } catch (err: unknown) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: err.message }));
+      res.end(JSON.stringify({ error: getErrorMessage(err) }));
     }
     return;
   }
@@ -956,9 +968,9 @@ const requestHandler = async (req: IncomingMessage, res: ServerResponse) => {
       const mount = await kernel.fs.createSharedMount(name, ownerPid);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(mount));
-    } catch (err: any) {
+    } catch (err: unknown) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: err.message }));
+      res.end(JSON.stringify({ error: getErrorMessage(err) }));
     }
     return;
   }
@@ -975,9 +987,9 @@ const requestHandler = async (req: IncomingMessage, res: ServerResponse) => {
       await kernel.fs.mountShared(pid, name, mountPoint);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true }));
-    } catch (err: any) {
+    } catch (err: unknown) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: err.message }));
+      res.end(JSON.stringify({ error: getErrorMessage(err) }));
     }
     return;
   }
@@ -994,9 +1006,9 @@ const requestHandler = async (req: IncomingMessage, res: ServerResponse) => {
       await kernel.fs.unmountShared(pid, name);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true }));
-    } catch (err: any) {
+    } catch (err: unknown) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: err.message }));
+      res.end(JSON.stringify({ error: getErrorMessage(err) }));
     }
     return;
   }
@@ -1040,9 +1052,9 @@ const requestHandler = async (req: IncomingMessage, res: ServerResponse) => {
       const stats = await kernel.containers.getGPUStats();
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(stats));
-    } catch (err: any) {
+    } catch (err: unknown) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: err.message }));
+      res.end(JSON.stringify({ error: getErrorMessage(err) }));
     }
     return;
   }
@@ -1055,9 +1067,9 @@ const requestHandler = async (req: IncomingMessage, res: ServerResponse) => {
       const providers = listProviders();
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(providers));
-    } catch (err: any) {
+    } catch (err: unknown) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: err.message }));
+      res.end(JSON.stringify({ error: getErrorMessage(err) }));
     }
     return;
   }
@@ -1103,9 +1115,9 @@ const requestHandler = async (req: IncomingMessage, res: ServerResponse) => {
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true, id: record.id }));
-    } catch (err: any) {
+    } catch (err: unknown) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: err.message }));
+      res.end(JSON.stringify({ error: getErrorMessage(err) }));
     }
     return;
   }
@@ -1123,9 +1135,9 @@ const requestHandler = async (req: IncomingMessage, res: ServerResponse) => {
       const feedback = kernel.state.getFeedbackByPid(pid);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(feedback));
-    } catch (err: any) {
+    } catch (err: unknown) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: err.message }));
+      res.end(JSON.stringify({ error: getErrorMessage(err) }));
     }
     return;
   }
@@ -1236,19 +1248,19 @@ const requestHandler = async (req: IncomingMessage, res: ServerResponse) => {
         }
       });
       return;
-    } catch (err: any) {
-      if (err.code === 'ENOENT' || err.message?.includes('ENOENT')) {
+    } catch (err: unknown) {
+      if (isNotFoundError(err)) {
         res.writeHead(404, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'File not found' }));
         return;
       }
-      if (err.message?.includes('Access denied')) {
+      if (getErrorMessage(err).includes('Access denied')) {
         res.writeHead(403, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: err.message }));
+        res.end(JSON.stringify({ error: getErrorMessage(err) }));
         return;
       }
       res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: err.message }));
+      res.end(JSON.stringify({ error: getErrorMessage(err) }));
       return;
     }
   }
@@ -1299,9 +1311,9 @@ const requestHandler = async (req: IncomingMessage, res: ServerResponse) => {
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true, path: destPath, size: content.length }));
-    } catch (err: any) {
+    } catch (err: unknown) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: err.message }));
+      res.end(JSON.stringify({ error: getErrorMessage(err) }));
     }
     return;
   }
@@ -1355,71 +1367,6 @@ interface AuthenticatedClient {
  *  When a new connection arrives with a session ID that already exists (e.g. HMR reload),
  *  the old connection is closed gracefully so only one connection per tab is active. */
 const sessionMap = new Map<string, WebSocket>();
-
-// ---------------------------------------------------------------------------
-// WebSocket Event Batching
-// ---------------------------------------------------------------------------
-
-const BATCH_FLUSH_INTERVAL_MS = 50;
-const BATCH_MAX_SIZE = 20;
-
-interface EventBuffer {
-  events: KernelEvent[];
-  flushTimer: ReturnType<typeof setInterval>;
-}
-
-const eventBuffers = new Map<WebSocket, EventBuffer>();
-
-/** Send a single event immediately (bypass batching). */
-function sendEventImmediate(ws: WebSocket, event: KernelEvent): void {
-  if (ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(event), { compress: false });
-  }
-}
-
-/** Add an event to a connection's buffer, flushing if full. */
-function bufferEvent(ws: WebSocket, event: KernelEvent): void {
-  const buf = eventBuffers.get(ws);
-  if (!buf) {
-    // No buffer (disconnected or not initialized) — send directly
-    sendEventImmediate(ws, event);
-    return;
-  }
-  buf.events.push(event);
-  if (buf.events.length >= BATCH_MAX_SIZE) {
-    flushBuffer(ws, buf);
-  }
-}
-
-/** Flush all buffered events for a connection as a single JSON array frame. */
-function flushBuffer(ws: WebSocket, buf: EventBuffer): void {
-  if (buf.events.length === 0) return;
-  if (ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(buf.events), { compress: false });
-  }
-  buf.events = [];
-}
-
-/** Initialize the event buffer for a new connection. */
-function initBuffer(ws: WebSocket): void {
-  const buf: EventBuffer = {
-    events: [],
-    flushTimer: setInterval(() => {
-      const b = eventBuffers.get(ws);
-      if (b) flushBuffer(ws, b);
-    }, BATCH_FLUSH_INTERVAL_MS),
-  };
-  eventBuffers.set(ws, buf);
-}
-
-/** Clean up the event buffer when a connection closes. */
-function destroyBuffer(ws: WebSocket): void {
-  const buf = eventBuffers.get(ws);
-  if (buf) {
-    clearInterval(buf.flushTimer);
-    eventBuffers.delete(ws);
-  }
-}
 
 const clients = new Map<WebSocket, AuthenticatedClient>();
 
@@ -1484,6 +1431,25 @@ wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
         error: 'Invalid JSON',
       } as KernelEvent);
       return;
+    }
+
+    // WebSocket command rate limiting
+    {
+      const clientInfo = clients.get(ws);
+      const userId = clientInfo?.user?.id;
+      const remoteAddr = req.socket.remoteAddress || 'unknown';
+      const wsRateKey = `ws:${userId || remoteAddr}`;
+      const wsRate = checkRateLimit(wsRateKey, WS_COMMANDS_PER_MIN);
+      if (!wsRate.allowed) {
+        const retryAfterSec = Math.ceil((wsRate.retryAfterMs || 1000) / 1000);
+        sendEventImmediate(ws, {
+          type: 'response.error',
+          id: (cmd as any).id || 'rate_limited',
+          error: 'Too many commands',
+          retryAfter: retryAfterSec,
+        } as KernelEvent);
+        return;
+      }
     }
 
     // Allow auth commands without authentication
