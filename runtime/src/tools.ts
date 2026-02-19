@@ -11,12 +11,9 @@
  * - Tools operate within the agent's sandbox
  */
 
-import { exec as execCb } from 'node:child_process';
-import { promisify } from 'node:util';
 import { Kernel, PluginManager, MCPManager } from '@aether/kernel';
 import { PID, PlanNode, DEFAULT_COMMAND_TIMEOUT, MAX_COMMAND_TIMEOUT } from '@aether/shared';
-
-const execAsync = promisify(execCb);
+import type { ToolArgs } from '@aether/shared';
 import {
   createPlan,
   getActivePlan,
@@ -36,7 +33,7 @@ export interface ToolDefinition {
   name: string;
   description: string;
   requiresApproval?: boolean;
-  execute: (args: Record<string, any>, context: ToolContext) => Promise<ToolResult>;
+  execute: (args: ToolArgs, context: ToolContext) => Promise<ToolResult>;
 }
 
 export interface ToolContext {
@@ -44,6 +41,33 @@ export interface ToolContext {
   pid: PID;
   uid: string;
   cwd: string;
+}
+
+/**
+ * Extract a human-readable error message from an unknown caught value.
+ * Replaces unsafe `(err: any) => err.message` patterns.
+ */
+function errorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === 'string') return err;
+  return String(err);
+}
+
+/**
+ * Extract stdout/stderr from a child_process error (exec rejection).
+ * Returns null if the error doesn't have process output fields.
+ */
+function processError(err: unknown): { stdout: string; stderr: string; killed: boolean } | null {
+  if (typeof err !== 'object' || err === null) return null;
+  const e = err as Record<string, unknown>;
+  if (typeof e.stdout === 'string' || typeof e.stderr === 'string') {
+    return {
+      stdout: (typeof e.stdout === 'string' ? e.stdout : '').trim(),
+      stderr: (typeof e.stderr === 'string' ? e.stderr : '').trim(),
+      killed: e.killed === true,
+    };
+  }
+  return null;
 }
 
 /**
@@ -57,9 +81,9 @@ async function ensureBrowserSession(ctx: ToolContext): Promise<string> {
   }
   try {
     await ctx.kernel.browser.createSession(sessionId, { width: 1280, height: 720 });
-  } catch (err: any) {
+  } catch (err) {
     // Only swallow "already exists" — re-throw real failures (launch errors, etc.)
-    if (!err.message?.includes('already exists')) {
+    if (!errorMessage(err).includes('already exists')) {
       throw err;
     }
   }
@@ -86,8 +110,8 @@ export function createToolSet(): ToolDefinition[] {
           const filePath = resolveCwd(ctx.cwd, args.path);
           const result = await ctx.kernel.fs.readFile(filePath);
           return { success: true, output: result.content };
-        } catch (err: any) {
-          return { success: false, output: `Error: ${err.message}` };
+        } catch (err) {
+          return { success: false, output: `Error: ${errorMessage(err)}` };
         }
       },
     },
@@ -116,8 +140,8 @@ export function createToolSet(): ToolDefinition[] {
             output: `Wrote ${args.content.length} bytes to ${filePath}`,
             artifacts: [{ type: 'file', path: filePath, content: args.content }],
           };
-        } catch (err: any) {
-          return { success: false, output: `Error: ${err.message}` };
+        } catch (err) {
+          return { success: false, output: `Error: ${errorMessage(err)}` };
         }
       },
     },
@@ -136,8 +160,8 @@ export function createToolSet(): ToolDefinition[] {
             )
             .join('\n');
           return { success: true, output: listing || '(empty directory)' };
-        } catch (err: any) {
-          return { success: false, output: `Error: ${err.message}` };
+        } catch (err) {
+          return { success: false, output: `Error: ${errorMessage(err)}` };
         }
       },
     },
@@ -150,8 +174,8 @@ export function createToolSet(): ToolDefinition[] {
           const dirPath = resolveCwd(ctx.cwd, args.path);
           await ctx.kernel.fs.mkdir(dirPath, true);
           return { success: true, output: `Created directory: ${dirPath}` };
-        } catch (err: any) {
-          return { success: false, output: `Error: ${err.message}` };
+        } catch (err) {
+          return { success: false, output: `Error: ${errorMessage(err)}` };
         }
       },
     },
@@ -164,8 +188,8 @@ export function createToolSet(): ToolDefinition[] {
           const targetPath = resolveCwd(ctx.cwd, args.path);
           await ctx.kernel.fs.rm(targetPath);
           return { success: true, output: `Removed: ${targetPath}` };
-        } catch (err: any) {
-          return { success: false, output: `Error: ${err.message}` };
+        } catch (err) {
+          return { success: false, output: `Error: ${errorMessage(err)}` };
         }
       },
     },
@@ -186,8 +210,8 @@ export function createToolSet(): ToolDefinition[] {
             `Modified: ${new Date(info.modifiedAt).toISOString()}`,
           ];
           return { success: true, output: lines.join('\n') };
-        } catch (err: any) {
-          return { success: false, output: `Error: ${err.message}` };
+        } catch (err) {
+          return { success: false, output: `Error: ${errorMessage(err)}` };
         }
       },
     },
@@ -201,8 +225,8 @@ export function createToolSet(): ToolDefinition[] {
           const destPath = resolveCwd(ctx.cwd, args.destination);
           await ctx.kernel.fs.mv(srcPath, destPath);
           return { success: true, output: `Moved ${srcPath} -> ${destPath}` };
-        } catch (err: any) {
-          return { success: false, output: `Error: ${err.message}` };
+        } catch (err) {
+          return { success: false, output: `Error: ${errorMessage(err)}` };
         }
       },
     },
@@ -216,8 +240,8 @@ export function createToolSet(): ToolDefinition[] {
           const destPath = resolveCwd(ctx.cwd, args.destination);
           await ctx.kernel.fs.cp(srcPath, destPath);
           return { success: true, output: `Copied ${srcPath} -> ${destPath}` };
-        } catch (err: any) {
-          return { success: false, output: `Error: ${err.message}` };
+        } catch (err) {
+          return { success: false, output: `Error: ${errorMessage(err)}` };
         }
       },
     },
@@ -256,18 +280,25 @@ export function createToolSet(): ToolDefinition[] {
               'Shell commands require a Docker container for sandboxing, but no container is available for this agent. ' +
               'Ensure Docker is running and the agent was spawned with a sandbox.',
           };
-        } catch (err: any) {
-          // If process was killed due to timeout but produced stdout, treat as partial success
-          if (err.killed && err.stdout) {
-            return { success: true, output: `(process timed out)\n${err.stdout}`.trim() };
+        } catch (err) {
+          const proc = processError(err);
+          if (proc) {
+            // If process was killed due to timeout but produced stdout, treat as partial success
+            if (proc.killed && proc.stdout) {
+              return { success: true, output: `(process timed out)\n${proc.stdout}`.trim() };
+            }
+            // If exit code is non-zero but there's stdout, include both
+            if (proc.stdout) {
+              return {
+                success: true,
+                output: proc.stdout + (proc.stderr ? `\n(stderr: ${proc.stderr})` : ''),
+              };
+            }
+            if (proc.stderr) {
+              return { success: false, output: `Error: ${proc.stderr}` };
+            }
           }
-          // If exit code is non-zero but there's stdout, include both
-          const stdout = (err.stdout || '').trim();
-          const stderr = (err.stderr || '').trim();
-          if (stdout) {
-            return { success: true, output: stdout + (stderr ? `\n(stderr: ${stderr})` : '') };
-          }
-          return { success: false, output: `Error: ${stderr || err.message}` };
+          return { success: false, output: `Error: ${errorMessage(err)}` };
         }
       },
     },
@@ -350,8 +381,7 @@ export function createToolSet(): ToolDefinition[] {
                 )
                 .catch(() => [])) as Array<{ text: string; href: string }>;
               if (Array.isArray(linkData) && linkData.length > 0) {
-                links =
-                  '\n\nLinks:\n' + linkData.map((l: any) => `- [${l.text}](${l.href})`).join('\n');
+                links = '\n\nLinks:\n' + linkData.map((l) => `- [${l.text}](${l.href})`).join('\n');
               }
             }
 
@@ -456,8 +486,8 @@ export function createToolSet(): ToolDefinition[] {
           });
 
           return { success: true, output };
-        } catch (err: any) {
-          return { success: false, output: `Failed to browse ${args.url}: ${err.message}` };
+        } catch (err) {
+          return { success: false, output: `Failed to browse ${args.url}: ${errorMessage(err)}` };
         }
       },
     },
@@ -486,8 +516,8 @@ export function createToolSet(): ToolDefinition[] {
             output: base64,
             artifacts: [{ type: 'image/png', content: base64 }],
           };
-        } catch (err: any) {
-          return { success: false, output: `Screenshot failed: ${err.message}` };
+        } catch (err) {
+          return { success: false, output: `Screenshot failed: ${errorMessage(err)}` };
         }
       },
     },
@@ -537,8 +567,8 @@ export function createToolSet(): ToolDefinition[] {
             success: true,
             output: `Clicked element at (${coords.x}, ${coords.y}) with ${btn} button.`,
           };
-        } catch (err: any) {
-          return { success: false, output: `Click failed: ${err.message}` };
+        } catch (err) {
+          return { success: false, output: `Click failed: ${errorMessage(err)}` };
         }
       },
     },
@@ -565,8 +595,8 @@ export function createToolSet(): ToolDefinition[] {
 
           await ctx.kernel.browser.type(sessionId, args.text);
           return { success: true, output: `Typed: ${args.text}` };
-        } catch (err: any) {
-          return { success: false, output: `Type failed: ${err.message}` };
+        } catch (err) {
+          return { success: false, output: `Type failed: ${errorMessage(err)}` };
         }
       },
     },
@@ -592,8 +622,8 @@ export function createToolSet(): ToolDefinition[] {
             success: true,
             output: listing || 'No other agents are currently running.',
           };
-        } catch (err: any) {
-          return { success: false, output: `Error: ${err.message}` };
+        } catch (err) {
+          return { success: false, output: `Error: ${errorMessage(err)}` };
         }
       },
     },
@@ -633,8 +663,8 @@ export function createToolSet(): ToolDefinition[] {
             success: true,
             output: `Message sent to PID ${toPid} on channel "${channel}" (id: ${message.id})`,
           };
-        } catch (err: any) {
-          return { success: false, output: `Error: ${err.message}` };
+        } catch (err) {
+          return { success: false, output: `Error: ${errorMessage(err)}` };
         }
       },
     },
@@ -660,8 +690,8 @@ export function createToolSet(): ToolDefinition[] {
             success: true,
             output: `${messages.length} message(s) received:\n${formatted}`,
           };
-        } catch (err: any) {
-          return { success: false, output: `Error: ${err.message}` };
+        } catch (err) {
+          return { success: false, output: `Error: ${errorMessage(err)}` };
         }
       },
     },
@@ -688,8 +718,8 @@ export function createToolSet(): ToolDefinition[] {
             success: true,
             output: `Review request sent to PID ${toPid} (correlation: ${correlationId}). Check messages later for the response.`,
           };
-        } catch (err: any) {
-          return { success: false, output: `Error: ${err.message}` };
+        } catch (err) {
+          return { success: false, output: `Error: ${errorMessage(err)}` };
         }
       },
     },
@@ -714,8 +744,8 @@ export function createToolSet(): ToolDefinition[] {
             success: true,
             output: `Review response sent to PID ${toPid}. ${args.approved ? 'Approved' : 'Changes requested'}.`,
           };
-        } catch (err: any) {
-          return { success: false, output: `Error: ${err.message}` };
+        } catch (err) {
+          return { success: false, output: `Error: ${errorMessage(err)}` };
         }
       },
     },
@@ -740,8 +770,8 @@ export function createToolSet(): ToolDefinition[] {
             success: true,
             output: `Task delegated to PID ${toPid} (correlation: ${correlationId}): "${args.goal}"`,
           };
-        } catch (err: any) {
-          return { success: false, output: `Error: ${err.message}` };
+        } catch (err) {
+          return { success: false, output: `Error: ${errorMessage(err)}` };
         }
       },
     },
@@ -767,8 +797,8 @@ export function createToolSet(): ToolDefinition[] {
             success: true,
             output: `Knowledge shared with PID ${toPid}: "${args.topic}"`,
           };
-        } catch (err: any) {
-          return { success: false, output: `Error: ${err.message}` };
+        } catch (err) {
+          return { success: false, output: `Error: ${errorMessage(err)}` };
         }
       },
     },
@@ -789,8 +819,8 @@ export function createToolSet(): ToolDefinition[] {
             success: true,
             output: `Created shared workspace "${name}" at ${mount.path}. Other agents can mount it using mount_workspace.`,
           };
-        } catch (err: any) {
-          return { success: false, output: `Error: ${err.message}` };
+        } catch (err) {
+          return { success: false, output: `Error: ${errorMessage(err)}` };
         }
       },
     },
@@ -810,8 +840,8 @@ export function createToolSet(): ToolDefinition[] {
             success: true,
             output: `Mounted shared workspace "${name}" at ~/${mountPoint}. You can now read and write files there.`,
           };
-        } catch (err: any) {
-          return { success: false, output: `Error: ${err.message}` };
+        } catch (err) {
+          return { success: false, output: `Error: ${errorMessage(err)}` };
         }
       },
     },
@@ -832,8 +862,8 @@ export function createToolSet(): ToolDefinition[] {
             )
             .join('\n');
           return { success: true, output: `Shared workspaces:\n${listing}` };
-        } catch (err: any) {
-          return { success: false, output: `Error: ${err.message}` };
+        } catch (err) {
+          return { success: false, output: `Error: ${errorMessage(err)}` };
         }
       },
     },
@@ -867,8 +897,8 @@ export function createToolSet(): ToolDefinition[] {
             success: true,
             output: `Stored ${layer} memory (id: ${memory.id}): "${args.content.substring(0, 100)}${args.content.length > 100 ? '...' : ''}"`,
           };
-        } catch (err: any) {
-          return { success: false, output: `Error: ${err.message}` };
+        } catch (err) {
+          return { success: false, output: `Error: ${errorMessage(err)}` };
         }
       },
     },
@@ -902,8 +932,8 @@ export function createToolSet(): ToolDefinition[] {
             success: true,
             output: `Found ${memories.length} memor${memories.length === 1 ? 'y' : 'ies'}:\n${formatted}`,
           };
-        } catch (err: any) {
-          return { success: false, output: `Error: ${err.message}` };
+        } catch (err) {
+          return { success: false, output: `Error: ${errorMessage(err)}` };
         }
       },
     },
@@ -923,8 +953,8 @@ export function createToolSet(): ToolDefinition[] {
           return deleted
             ? { success: true, output: `Memory ${args.memoryId} has been forgotten.` }
             : { success: false, output: `Memory ${args.memoryId} not found or not owned by you.` };
-        } catch (err: any) {
-          return { success: false, output: `Error: ${err.message}` };
+        } catch (err) {
+          return { success: false, output: `Error: ${errorMessage(err)}` };
         }
       },
     },
@@ -943,8 +973,8 @@ export function createToolSet(): ToolDefinition[] {
             const sessionId = `browser_${ctx.pid}`;
             try {
               imageData = await ctx.kernel.browser.getScreenshot(sessionId);
-            } catch (err: any) {
-              return { success: false, output: `Screenshot failed: ${err.message}` };
+            } catch (err) {
+              return { success: false, output: `Screenshot failed: ${errorMessage(err)}` };
             }
           }
 
@@ -977,8 +1007,8 @@ export function createToolSet(): ToolDefinition[] {
             output: response.content || 'Image analyzed but no description returned.',
             artifacts: [{ type: 'analysis', content: response.content }],
           };
-        } catch (err: any) {
-          return { success: false, output: `Vision analysis failed: ${err.message}` };
+        } catch (err) {
+          return { success: false, output: `Vision analysis failed: ${errorMessage(err)}` };
         }
       },
     },
@@ -1021,8 +1051,8 @@ export function createToolSet(): ToolDefinition[] {
             success: true,
             output: `Plan created (id: ${plan.id}) with ${progress.total} nodes:\n${renderPlanAsMarkdown(plan)}`,
           };
-        } catch (err: any) {
-          return { success: false, output: `Error: ${err.message}` };
+        } catch (err) {
+          return { success: false, output: `Error: ${errorMessage(err)}` };
         }
       },
     },
@@ -1074,8 +1104,8 @@ export function createToolSet(): ToolDefinition[] {
             success: true,
             output: `Plan updated. Progress: ${progress.completed}/${progress.total} nodes completed.\n${renderPlanAsMarkdown(updated)}`,
           };
-        } catch (err: any) {
-          return { success: false, output: `Error: ${err.message}` };
+        } catch (err) {
+          return { success: false, output: `Error: ${errorMessage(err)}` };
         }
       },
     },
@@ -1108,8 +1138,8 @@ export function createToolSet(): ToolDefinition[] {
             success: true,
             output: `Feedback summary: ${positive} positive, ${negative} negative (${feedback.length} total):\n${formatted}`,
           };
-        } catch (err: any) {
-          return { success: false, output: `Error: ${err.message}` };
+        } catch (err) {
+          return { success: false, output: `Error: ${errorMessage(err)}` };
         }
       },
     },
@@ -1261,10 +1291,10 @@ export function createToolSet(): ToolDefinition[] {
           const tools = ctx.kernel.mcp.getTools(args.server_id);
           return {
             success: true,
-            output: `Connected to MCP server '${args.server_id}'. Discovered ${tools.length} tool(s): ${tools.map((t: any) => t.name).join(', ')}`,
+            output: `Connected to MCP server '${args.server_id}'. Discovered ${tools.length} tool(s): ${tools.map((t) => t.name).join(', ')}`,
           };
-        } catch (err: any) {
-          return { success: false, output: `Failed to connect: ${err.message}` };
+        } catch (err) {
+          return { success: false, output: `Failed to connect: ${errorMessage(err)}` };
         }
       },
     },
@@ -1300,8 +1330,8 @@ export function createToolSet(): ToolDefinition[] {
             });
           }
           return { success: true, output: 'Profile updated successfully.' };
-        } catch (err: any) {
-          return { success: false, output: `Error: ${err.message}` };
+        } catch (err) {
+          return { success: false, output: `Error: ${errorMessage(err)}` };
         }
       },
     },
@@ -1351,8 +1381,8 @@ export function createToolSet(): ToolDefinition[] {
             success: true,
             output: `Spawned ${args.role} agent (PID ${proc.info.pid}) with goal: "${args.goal}".${skillInfo}`,
           };
-        } catch (err: any) {
-          return { success: false, output: `Failed to spawn agent: ${err.message}` };
+        } catch (err) {
+          return { success: false, output: `Failed to spawn agent: ${errorMessage(err)}` };
         }
       },
     },
@@ -1437,8 +1467,8 @@ export function getToolsForAgent(
                 kernel: ctx.kernel,
               });
               return { success: true, output: result };
-            } catch (err: any) {
-              return { success: false, output: `Plugin error: ${err.message}` };
+            } catch (err) {
+              return { success: false, output: `Plugin error: ${errorMessage(err)}` };
             }
           },
         });
@@ -1459,8 +1489,8 @@ export function getToolsForAgent(
           try {
             const result = await mcpManager.callTool(mcpTool.serverId, mcpTool.mcpName, args);
             return { success: true, output: result };
-          } catch (err: any) {
-            return { success: false, output: `MCP tool error: ${err.message}` };
+          } catch (err) {
+            return { success: false, output: `MCP tool error: ${errorMessage(err)}` };
           }
         },
       });

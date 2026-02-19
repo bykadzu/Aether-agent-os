@@ -26,7 +26,7 @@ import {
   CONTEXT_COMPACTION_TOKEN_THRESHOLD,
   CONTEXT_COMPACTION_KEEP_RECENT,
 } from '@aether/shared';
-import type { AgentProfile } from '@aether/shared';
+import type { AgentProfile, ToolArgs, ContextCompactionEvent } from '@aether/shared';
 import {
   createToolSet,
   getToolsForAgent,
@@ -58,8 +58,36 @@ interface AgentMessage {
 
 interface LLMDecision {
   tool: string;
-  args: Record<string, any>;
+  args: ToolArgs;
   reasoning: string;
+}
+
+/** Max consecutive errors before the loop terminates to prevent infinite error cycling */
+const MAX_CONSECUTIVE_ERRORS = 5;
+
+/**
+ * Extract error message from an unknown caught value.
+ */
+function errorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === 'string') return err;
+  return String(err);
+}
+
+/**
+ * Classify whether an error is transient (retryable) or fatal.
+ */
+function isTransientError(err: unknown): boolean {
+  const msg = errorMessage(err).toLowerCase();
+  return (
+    msg.includes('429') ||
+    msg.includes('rate limit') ||
+    msg.includes('503') ||
+    msg.includes('timeout') ||
+    msg.includes('econnreset') ||
+    msg.includes('econnrefused') ||
+    msg.includes('socket hang up')
+  );
 }
 
 /**
@@ -229,6 +257,7 @@ export async function runAgentLoop(
   // After step limit, waits for a continue signal and re-enters the same loop
   // (no degraded copy — all guards, injection checks, and journaling always apply).
   let loopActive = true;
+  let consecutiveErrors = 0;
   while (loopActive) {
     while (state.step < state.maxSteps) {
       // Check abort signal
@@ -392,6 +421,9 @@ export async function runAgentLoop(
         // Execute the tool
         const result = await tool.execute(decision.args, ctx);
 
+        // Reset consecutive error counter on successful tool execution
+        consecutiveErrors = 0;
+
         // Phase 3: Observe - record the result
         const output = result.output || '';
         kernel.processes.setState(pid, 'running', 'observing');
@@ -475,22 +507,47 @@ export async function runAgentLoop(
 
         // Rate limit between steps
         await sleep(AGENT_STEP_INTERVAL);
-      } catch (err: any) {
-        console.error(`[AgentLoop] Error in step ${state.step} for PID ${pid}:`, err);
+      } catch (err) {
+        const msg = errorMessage(err);
+        const transient = isTransientError(err);
+        consecutiveErrors++;
+
+        console.error(
+          `[AgentLoop] Error in step ${state.step} for PID ${pid} (${transient ? 'transient' : 'non-transient'}):`,
+          msg,
+        );
         kernel.bus.emit('agent.thought', {
           pid,
-          thought: `Error: ${err.message}`,
+          thought: `Error: ${msg}`,
         });
 
         state.history.push({
           role: 'tool',
-          content: `Error: ${err.message}`,
+          content: `Error: ${msg}`,
           timestamp: Date.now(),
         });
 
+        // Terminate if too many consecutive errors to prevent infinite error cycling
+        if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+          const reason = `Agent terminated after ${MAX_CONSECUTIVE_ERRORS} consecutive errors. Last: ${msg}`;
+          kernel.bus.emit('agent.thought', { pid, thought: reason });
+          kernel.bus.emit('agent.completed', {
+            pid,
+            outcome: 'error',
+            steps: state.step,
+            durationMs: Date.now() - startedAt,
+            role: config.role,
+            goal: config.goal,
+            summary: reason,
+          });
+          kernel.processes.setState(pid, 'zombie', 'failed');
+          return;
+        }
+
         // Continue on non-fatal errors
         state.step++;
-        await sleep(AGENT_STEP_INTERVAL);
+        // Back off longer for transient errors (API rate limits, timeouts)
+        await sleep(transient ? AGENT_STEP_INTERVAL * 2 : AGENT_STEP_INTERVAL);
       }
     }
 
@@ -710,9 +767,9 @@ async function getNextAction(
 
       // Try to parse JSON from text response (for Gemini-style responses)
       if (response.content) {
-        let parsed: any;
+        let parsed: Record<string, unknown>;
         try {
-          parsed = JSON.parse(response.content);
+          parsed = JSON.parse(response.content) as Record<string, unknown>;
         } catch {
           // Not JSON, use as reasoning
           return {
@@ -722,18 +779,21 @@ async function getNextAction(
           };
         }
 
-        if (parsed.tool && typeof parsed.tool === 'string') {
+        if (typeof parsed.tool === 'string' && parsed.tool) {
           return {
-            reasoning: parsed.reasoning || response.content,
+            reasoning: typeof parsed.reasoning === 'string' ? parsed.reasoning : response.content,
             tool: parsed.tool,
-            args: parsed.args || {},
+            args: parsed.args && typeof parsed.args === 'object' ? (parsed.args as ToolArgs) : {},
           };
         }
 
         // Response parsed but missing tool field
         console.warn('[AgentLoop] LLM response missing tool field, using think');
         return {
-          reasoning: parsed.reasoning || 'LLM response missing tool selection.',
+          reasoning:
+            typeof parsed.reasoning === 'string'
+              ? parsed.reasoning
+              : 'LLM response missing tool selection.',
           tool: 'think',
           args: { thought: 'Re-evaluating which tool to use.' },
         };
@@ -744,11 +804,11 @@ async function getNextAction(
         tool: 'think',
         args: { thought: 'LLM returned empty response' },
       };
-    } catch (err: any) {
-      lastError = err;
-      const isRateLimit =
-        err.message?.includes('429') || err.message?.toLowerCase().includes('rate limit');
-      const isServerError = err.message?.includes('500') || err.message?.includes('503');
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      const msg = errorMessage(err);
+      const isRateLimit = msg.includes('429') || msg.toLowerCase().includes('rate limit');
+      const isServerError = msg.includes('500') || msg.includes('503');
 
       if ((isRateLimit || isServerError) && attempt < MAX_LLM_RETRIES - 1) {
         const backoffMs = Math.pow(2, attempt + 1) * 1000; // 2s, 4s, 8s
@@ -1082,15 +1142,19 @@ async function compactHistory(
         `[AgentLoop] Compacted history for PID ${pid}: ${oldEntries.length} entries → 1 summary`,
       );
 
-      kernel.bus.emit('agent.contextCompacted', {
+      const llmEvent: ContextCompactionEvent = {
         pid,
         entriesCompacted: oldEntries.length,
         newHistorySize: state.history.length,
-        method: 'llm' as const,
-      });
+        method: 'llm',
+      };
+      kernel.bus.emit('agent.contextCompacted', llmEvent);
       return;
     } catch (err) {
-      console.warn(`[AgentLoop] History summarization failed for PID ${pid}, using fallback:`, err);
+      console.warn(
+        `[AgentLoop] History summarization failed for PID ${pid}, using fallback:`,
+        errorMessage(err),
+      );
     }
   }
 
@@ -1103,12 +1167,13 @@ async function compactHistory(
     `[AgentLoop] Compacted history for PID ${pid} (fallback): kept last ${CONTEXT_COMPACTION_KEEP_RECENT} entries`,
   );
 
-  kernel.bus.emit('agent.contextCompacted', {
+  const fallbackEvent: ContextCompactionEvent = {
     pid,
     entriesCompacted: entriesBefore - state.history.length,
     newHistorySize: state.history.length,
-    method: 'fallback' as const,
-  });
+    method: 'fallback',
+  };
+  kernel.bus.emit('agent.contextCompacted', fallbackEvent);
 }
 
 // ---------------------------------------------------------------------------
