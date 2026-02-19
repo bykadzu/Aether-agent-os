@@ -4,6 +4,7 @@ import { VirtualFS } from '../VirtualFS.js';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
+import os from 'node:os';
 
 describe('VirtualFS', () => {
   let bus: EventBus;
@@ -12,7 +13,7 @@ describe('VirtualFS', () => {
 
   beforeEach(async () => {
     bus = new EventBus();
-    testRoot = path.join('/tmp', `aether-test-${crypto.randomBytes(8).toString('hex')}`);
+    testRoot = path.join(os.tmpdir(), `aether-test-${crypto.randomBytes(8).toString('hex')}`);
     vfs = new VirtualFS(bus, testRoot);
     await vfs.init();
   });

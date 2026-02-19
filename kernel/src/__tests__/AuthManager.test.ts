@@ -5,6 +5,7 @@ import { AuthManager } from '../AuthManager.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
+import os from 'node:os';
 
 describe('AuthManager', () => {
   let bus: EventBus;
@@ -15,7 +16,7 @@ describe('AuthManager', () => {
 
   beforeEach(() => {
     bus = new EventBus();
-    tmpDir = path.join('/tmp', `aether-auth-test-${crypto.randomBytes(8).toString('hex')}`);
+    tmpDir = path.join(os.tmpdir(), `aether-auth-test-${crypto.randomBytes(8).toString('hex')}`);
     fs.mkdirSync(tmpDir, { recursive: true });
     dbPath = path.join(tmpDir, 'auth-test.db');
     // Set a fixed secret for testing

@@ -3,7 +3,12 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 // Mock native modules that @aether/kernel transitively imports
 vi.mock('node-pty', () => ({
   spawn: vi.fn(() => ({
-    onData: vi.fn(), onExit: vi.fn(), write: vi.fn(), resize: vi.fn(), kill: vi.fn(), pid: 9999,
+    onData: vi.fn(),
+    onExit: vi.fn(),
+    write: vi.fn(),
+    resize: vi.fn(),
+    kill: vi.fn(),
+    pid: 9999,
   })),
 }));
 vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({ Client: vi.fn() }));
@@ -15,6 +20,7 @@ import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
+import os from 'node:os';
 import * as http from 'node:http';
 import * as nodePath from 'node:path';
 
@@ -135,7 +141,10 @@ function createTestServer(kernel: Kernel) {
   });
 }
 
-function fetch(url: string, options: { headers?: Record<string, string> } = {}): Promise<{
+function fetch(
+  url: string,
+  options: { headers?: Record<string, string> } = {},
+): Promise<{
   status: number;
   headers: http.IncomingHttpHeaders;
   body: Buffer;
@@ -164,7 +173,7 @@ describe('/api/fs/raw endpoint', () => {
   let baseUrl: string;
 
   beforeEach(async () => {
-    testRoot = path.join('/tmp', `aether-raw-test-${crypto.randomBytes(8).toString('hex')}`);
+    testRoot = path.join(os.tmpdir(), `aether-raw-test-${crypto.randomBytes(8).toString('hex')}`);
     fs.mkdirSync(testRoot, { recursive: true });
     dbPath = path.join(testRoot, 'test.db');
     process.env.AETHER_SECRET = 'raw-test-secret';

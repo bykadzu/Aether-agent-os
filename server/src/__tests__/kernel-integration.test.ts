@@ -3,7 +3,12 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 // Mock native modules that @aether/kernel transitively imports
 vi.mock('node-pty', () => ({
   spawn: vi.fn(() => ({
-    onData: vi.fn(), onExit: vi.fn(), write: vi.fn(), resize: vi.fn(), kill: vi.fn(), pid: 9999,
+    onData: vi.fn(),
+    onExit: vi.fn(),
+    write: vi.fn(),
+    resize: vi.fn(),
+    kill: vi.fn(),
+    pid: 9999,
   })),
 }));
 vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({ Client: vi.fn() }));
@@ -14,6 +19,7 @@ import { Kernel } from '@aether/kernel';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
+import os from 'node:os';
 
 describe('Kernel Integration', () => {
   let kernel: Kernel;
@@ -21,7 +27,7 @@ describe('Kernel Integration', () => {
   let dbPath: string;
 
   beforeEach(async () => {
-    testRoot = path.join('/tmp', `aether-integ-${crypto.randomBytes(8).toString('hex')}`);
+    testRoot = path.join(os.tmpdir(), `aether-integ-${crypto.randomBytes(8).toString('hex')}`);
     fs.mkdirSync(testRoot, { recursive: true });
     dbPath = path.join(testRoot, 'integration-test.db');
     // Set env to prevent auth prompts

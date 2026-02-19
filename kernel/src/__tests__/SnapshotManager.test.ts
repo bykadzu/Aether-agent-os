@@ -9,6 +9,7 @@ import * as fs from 'node:fs';
 import * as fsPromises from 'node:fs/promises';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
+import os from 'node:os';
 
 // Mock child_process execFile to avoid needing actual tar
 vi.mock('node:child_process', async (importOriginal) => {
@@ -49,7 +50,10 @@ describe('SnapshotManager', () => {
   beforeEach(async () => {
     bus = new EventBus();
     pm = new ProcessManager(bus);
-    const tmpDir = path.join('/tmp', `aether-snap-test-${crypto.randomBytes(8).toString('hex')}`);
+    const tmpDir = path.join(
+      os.tmpdir(),
+      `aether-snap-test-${crypto.randomBytes(8).toString('hex')}`,
+    );
     fs.mkdirSync(tmpDir, { recursive: true });
     testRoot = tmpDir;
     dbPath = path.join(tmpDir, 'snap-test.db');
@@ -60,7 +64,7 @@ describe('SnapshotManager', () => {
     await snapMgr.init();
 
     // Create snapshots dir (mimic what init does)
-    fs.mkdirSync(path.join('/tmp/aether/var/snapshots'), { recursive: true });
+    fs.mkdirSync(path.join(os.tmpdir(), 'aether', 'var', 'snapshots'), { recursive: true });
   });
 
   afterEach(() => {

@@ -4,6 +4,7 @@ import { StateStore } from '../StateStore.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
+import os from 'node:os';
 
 describe('StateStore', () => {
   let bus: EventBus;
@@ -12,7 +13,10 @@ describe('StateStore', () => {
 
   beforeEach(() => {
     bus = new EventBus();
-    const tmpDir = path.join('/tmp', `aether-state-test-${crypto.randomBytes(8).toString('hex')}`);
+    const tmpDir = path.join(
+      os.tmpdir(),
+      `aether-state-test-${crypto.randomBytes(8).toString('hex')}`,
+    );
     fs.mkdirSync(tmpDir, { recursive: true });
     dbPath = path.join(tmpDir, 'test.db');
     store = new StateStore(bus, dbPath);

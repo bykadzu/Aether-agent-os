@@ -4,6 +4,7 @@ import { PluginManager } from '../PluginManager.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
+import os from 'node:os';
 
 describe('PluginManager', () => {
   let bus: EventBus;
@@ -12,7 +13,10 @@ describe('PluginManager', () => {
 
   beforeEach(() => {
     bus = new EventBus();
-    testRoot = path.join('/tmp', `aether-plugin-test-${crypto.randomBytes(8).toString('hex')}`);
+    testRoot = path.join(
+      os.tmpdir(),
+      `aether-plugin-test-${crypto.randomBytes(8).toString('hex')}`,
+    );
     fs.mkdirSync(testRoot, { recursive: true });
     pm = new PluginManager(bus, testRoot);
   });
@@ -37,19 +41,24 @@ describe('PluginManager', () => {
 
   describe('loadPluginsForAgent()', () => {
     it('scans plugin directory and loads valid manifests', async () => {
-      createPluginDir('agent_1', 'test-plugin', {
-        name: 'test-plugin',
-        version: '1.0.0',
-        description: 'A test plugin',
-        tools: [
-          {
-            name: 'test_tool',
-            description: 'A test tool',
-            parameters: {},
-            handler: 'handler.js',
-          },
-        ],
-      }, 'export default async function(params, ctx) { return "test result"; }');
+      createPluginDir(
+        'agent_1',
+        'test-plugin',
+        {
+          name: 'test-plugin',
+          version: '1.0.0',
+          description: 'A test plugin',
+          tools: [
+            {
+              name: 'test_tool',
+              description: 'A test tool',
+              parameters: {},
+              handler: 'handler.js',
+            },
+          ],
+        },
+        'export default async function(params, ctx) { return "test result"; }',
+      );
 
       const plugins = await pm.loadPluginsForAgent(1, 'agent_1');
       expect(plugins).toHaveLength(1);
@@ -120,19 +129,24 @@ describe('PluginManager', () => {
 
   describe('getPluginInfos()', () => {
     it('returns plugin info summaries', async () => {
-      createPluginDir('agent_1', 'test-plugin', {
-        name: 'test-plugin',
-        version: '2.0.0',
-        description: 'Test desc',
-        tools: [
-          {
-            name: 'tool_a',
-            description: 'Tool A',
-            parameters: {},
-            handler: 'handler.js',
-          },
-        ],
-      }, 'export default async function() { return "ok"; }');
+      createPluginDir(
+        'agent_1',
+        'test-plugin',
+        {
+          name: 'test-plugin',
+          version: '2.0.0',
+          description: 'Test desc',
+          tools: [
+            {
+              name: 'tool_a',
+              description: 'Tool A',
+              parameters: {},
+              handler: 'handler.js',
+            },
+          ],
+        },
+        'export default async function() { return "ok"; }',
+      );
 
       await pm.loadPluginsForAgent(1, 'agent_1');
       const infos = pm.getPluginInfos(1);
@@ -150,9 +164,7 @@ describe('PluginManager', () => {
         name: 'installed-plugin',
         version: '1.0.0',
         description: 'Installed via API',
-        tools: [
-          { name: 'my_tool', description: 'test', parameters: {}, handler: 'handler.js' },
-        ],
+        tools: [{ name: 'my_tool', description: 'test', parameters: {}, handler: 'handler.js' }],
       };
 
       const handlers = {
@@ -178,14 +190,17 @@ describe('PluginManager', () => {
 
   describe('unloadPlugins()', () => {
     it('removes plugins from memory', async () => {
-      createPluginDir('agent_1', 'test-plugin', {
-        name: 'test-plugin',
-        version: '1.0.0',
-        description: 'test',
-        tools: [
-          { name: 'tool', description: 'test', parameters: {}, handler: 'handler.js' },
-        ],
-      }, 'export default async function() { return "ok"; }');
+      createPluginDir(
+        'agent_1',
+        'test-plugin',
+        {
+          name: 'test-plugin',
+          version: '1.0.0',
+          description: 'test',
+          tools: [{ name: 'tool', description: 'test', parameters: {}, handler: 'handler.js' }],
+        },
+        'export default async function() { return "ok"; }',
+      );
 
       await pm.loadPluginsForAgent(1, 'agent_1');
       expect(pm.getPlugins(1)).toHaveLength(1);

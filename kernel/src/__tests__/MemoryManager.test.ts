@@ -5,6 +5,7 @@ import { MemoryManager } from '../MemoryManager.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
+import os from 'node:os';
 
 describe('MemoryManager', () => {
   let bus: EventBus;
@@ -14,7 +15,10 @@ describe('MemoryManager', () => {
 
   beforeEach(() => {
     bus = new EventBus();
-    const tmpDir = path.join('/tmp', `aether-memory-test-${crypto.randomBytes(8).toString('hex')}`);
+    const tmpDir = path.join(
+      os.tmpdir(),
+      `aether-memory-test-${crypto.randomBytes(8).toString('hex')}`,
+    );
     fs.mkdirSync(tmpDir, { recursive: true });
     dbPath = path.join(tmpDir, 'test.db');
     store = new StateStore(bus, dbPath);

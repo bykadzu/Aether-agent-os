@@ -11,6 +11,10 @@ import {
   type ContainerStatus,
   type NodeStatus,
   type ClusterRole,
+  type ToolArgs,
+  type AgentLoopError,
+  type InjectionCheckResult,
+  type ContextCompactionEvent,
 } from '../protocol.js';
 import {
   AETHER_VERSION,
@@ -281,6 +285,59 @@ describe('Protocol', () => {
         'SIGUSR2',
       ];
       expect(signals).toHaveLength(7);
+    });
+  });
+
+  describe('Tool & Agent Loop types', () => {
+    it('ToolArgs accepts arbitrary string keys with unknown values', () => {
+      const args: ToolArgs = { path: '/home/agent/file.txt', content: 'data', count: 42 };
+      expect(args.path).toBe('/home/agent/file.txt');
+    });
+
+    it('AgentLoopError has required fields', () => {
+      const err: AgentLoopError = {
+        message: 'Rate limited',
+        category: 'transient',
+        step: 5,
+        toolName: 'browse_web',
+      };
+      expect(err.category).toBe('transient');
+      expect(err.message).toBe('Rate limited');
+      expect(err.step).toBe(5);
+    });
+
+    it('AgentLoopError categories cover expected values', () => {
+      const categories: AgentLoopError['category'][] = [
+        'transient',
+        'fatal',
+        'tool',
+        'llm',
+        'injection',
+      ];
+      expect(categories).toHaveLength(5);
+    });
+
+    it('InjectionCheckResult supports encoding field', () => {
+      const safe: InjectionCheckResult = { safe: true };
+      const blocked: InjectionCheckResult = {
+        safe: false,
+        reason: 'system prompt override',
+        pattern: 'ignore previous instructions',
+        encoding: 'base64',
+      };
+      expect(safe.safe).toBe(true);
+      expect(blocked.encoding).toBe('base64');
+    });
+
+    it('ContextCompactionEvent has correct shape', () => {
+      const evt: ContextCompactionEvent = {
+        pid: 42,
+        entriesCompacted: 12,
+        newHistorySize: 10,
+        method: 'llm',
+      };
+      expect(evt.method).toBe('llm');
+      expect(evt.entriesCompacted).toBe(12);
     });
   });
 });
