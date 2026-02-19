@@ -42,6 +42,11 @@ export const WS_MAX_RECONNECT_ATTEMPTS = 10;
 export const IPC_MESSAGE_MAX_SIZE = 1024 * 1024; // 1MB per IPC message
 export const IPC_QUEUE_MAX_LENGTH = 100; // Max queued messages per process
 
+// WebSocket backpressure & rate limiting
+export const WS_MAX_BUFFER_BYTES = 10 * 1024 * 1024; // 10MB bufferedAmount threshold
+export const WS_MAX_QUEUED_EVENTS = 500; // Max events in per-client buffer
+export const WS_COMMANDS_PER_MIN = 600; // 10 commands/sec per client
+
 // Container defaults
 export const DEFAULT_CONTAINER_IMAGE = 'aether-agent:latest'; // Custom image with Python, Node.js, pip, git pre-installed
 export const DEFAULT_GRAPHICAL_IMAGE = 'aether-desktop:latest'; // Xvfb + x11vnc + X11 utils

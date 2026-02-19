@@ -1363,6 +1363,32 @@ export type KernelCommand =
       agentPid?: number;
     }
 
+  // Skill commands
+  | { type: 'skill.list'; id: string; category?: string }
+  | { type: 'skill.get'; id: string; skillId: string }
+  | { type: 'skill.register'; id: string; definition: Record<string, any> }
+  | { type: 'skill.unregister'; id: string; skillId: string }
+  | {
+      type: 'skill.execute';
+      id: string;
+      skillId: string;
+      inputs?: Record<string, any>;
+      context?: Record<string, any>;
+    }
+
+  // Remote Access commands
+  | { type: 'remote.tunnel.list'; id: string }
+  | { type: 'remote.tunnel.create'; id: string; config: Record<string, any> }
+  | { type: 'remote.tunnel.destroy'; id: string; tunnelId: string }
+  | { type: 'remote.tailscale.status'; id: string }
+  | { type: 'remote.tailscale.up'; id: string; config?: Record<string, any> }
+  | { type: 'remote.tailscale.down'; id: string }
+  | { type: 'remote.tailscale.devices'; id: string }
+  | { type: 'remote.tailscale.serve'; id: string; port: number; options?: Record<string, any> }
+  | { type: 'remote.keys.list'; id: string }
+  | { type: 'remote.keys.add'; id: string; key: string; label: string }
+  | { type: 'remote.keys.remove'; id: string; keyId: string }
+
   // AetherMCPServer commands (v0.8)
   | { type: 'aether-mcp.status'; id: string }
   | { type: 'aether-mcp.listTools'; id: string }
@@ -1897,3 +1923,35 @@ export function createMessageId(): string {
 
 /** Standard result type for kernel operations */
 export type KernelResult<T> = { ok: true; data: T } | { ok: false; error: string; code?: string };
+
+// ---------------------------------------------------------------------------
+// Tool & Agent Loop Types (shared across runtime packages)
+// ---------------------------------------------------------------------------
+
+/** Tool argument map — replaces raw Record<string, any> for tool execute() signatures */
+export type ToolArgs = Record<string, unknown>;
+
+/** Categorized error from the agent loop or tool execution */
+export interface AgentLoopError {
+  message: string;
+  category: 'transient' | 'fatal' | 'tool' | 'llm' | 'injection';
+  originalError?: unknown;
+  step?: number;
+  toolName?: string;
+}
+
+/** Result of a prompt injection check */
+export interface InjectionCheckResult {
+  safe: boolean;
+  reason?: string;
+  pattern?: string;
+  encoding?: 'plaintext' | 'base64' | 'hex' | 'url' | 'unicode';
+}
+
+/** Context compaction event payload */
+export interface ContextCompactionEvent {
+  pid: PID;
+  entriesCompacted: number;
+  newHistorySize: number;
+  method: 'llm' | 'fallback';
+}
