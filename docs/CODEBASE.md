@@ -141,6 +141,7 @@ components/
 │   ├── Dock.tsx            # App launcher bar
 │   ├── VirtualDesktop.tsx  # Multi-workspace with VNC viewer
 │   ├── VNCViewer.tsx       # noVNC remote desktop viewer
+│   ├── AgentDesktopView.tsx # Live agent screen (VNC/screencast/mock browser)
 │   ├── XTerminal.tsx       # xterm.js terminal emulator
 │   └── LoginScreen.tsx     # Authentication UI
 ├── apps/

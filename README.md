@@ -351,10 +351,12 @@ The dashboard shows all agents in a grid of live virtual desktop previews. Each 
 
 Click into any agent to see their full virtual desktop with:
 
-- **Live terminal** (xterm.js) showing real shell output with ANSI colors
-- **Agent logs** with color-coded entries (purple: thoughts, blue: actions, cyan: observations)
-- **Floating control bar**: Status, PID, GitHub sync toggle, emergency stop
+- **Screen tab** (default): Live view of the agent's desktop — VNC stream for graphical containers, browser screencast for kernel Playwright sessions, or simulated browser (iframe) in mock mode. Watch the agent work in real-time; when paused, take control with mouse and keyboard
+- **Logs tab**: Color-coded log entries (purple: thoughts, blue: actions, cyan: observations)
+- **Status badges**: AGENT ACTIVE (green pulse), WATCHING (gray), CONTROLLING (blue pulse when paused)
+- **Floating control bar**: Status, PID, GitHub sync toggle, pause/resume, emergency stop
 - **Approval modal**: When an agent needs permission, a dialog appears over the desktop
+- **Fullscreen mode**: Expand the agent's screen to fill the browser window
 
 ### Virtual Desktop
 
@@ -400,6 +402,7 @@ The host OS itself is a full desktop environment:
 │   │   ├── VirtualDesktop.tsx   # Agent desktop compositor
 │   │   ├── XTerminal.tsx        # xterm.js React wrapper (Tokyo Night theme)
 │   │   ├── VNCViewer.tsx        # noVNC RFB client for graphical agent desktops
+│   │   ├── AgentDesktopView.tsx # Live agent screen (VNC/screencast/mock browser)
 │   │   ├── ErrorBoundary.tsx    # React error boundary with recovery UI
 │   │   ├── DesktopWidgets.tsx   # Weather, calendar, music widgets
 │   │   ├── ContextMenu.tsx      # Right-click menu
@@ -407,7 +410,7 @@ The host OS itself is a full desktop environment:
 │   │   └── UserMenu.tsx         # User dropdown menu in menu bar
 │   └── apps/
 │       ├── AgentDashboard.tsx   # Mission Control with metrics and filtering
-│       ├── AgentVM.tsx          # Full agent view with terminal + logs tabs
+│       ├── AgentVM.tsx          # Full agent view with Screen/Logs tabs + desktop view
 │       ├── AgentTimeline.tsx    # Vertical timeline of agent think/act/observe steps
 │       ├── TerminalApp.tsx      # System terminal (real or mock)
 │       ├── ChatApp.tsx          # LLM chat interface

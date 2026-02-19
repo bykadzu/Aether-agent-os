@@ -111,6 +111,7 @@ export function useAgentBridge(
         goal,
         status: 'thinking',
         progress: 0,
+        currentUrl: 'https://www.wikipedia.org',
         logs: [{ timestamp: Date.now(), type: 'system', message: `Agent ${id} initialized.` }],
       };
       setAgents((prev) => [...prev, newAgent]);

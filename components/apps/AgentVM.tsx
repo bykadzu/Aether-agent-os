@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import {
   Terminal,
   AlertTriangle,
@@ -20,12 +20,17 @@ import {
   Database,
   Radio,
   ArrowDownToLine,
+  Monitor,
 } from 'lucide-react';
 import { Agent } from '../../types';
 import { getKernelClient } from '../../services/kernelClient';
 import { XTerminal } from '../os/XTerminal';
 import { AgentTimeline } from './AgentTimeline';
 import { exportLogsAsJson, exportLogsAsText } from '../../services/agentLogExport';
+
+const AgentDesktopView = React.lazy(() =>
+  import('../os/AgentDesktopView').then((m) => ({ default: m.AgentDesktopView })),
+);
 
 // ---------------------------------------------------------------------------
 // Types
@@ -43,6 +48,7 @@ interface ToolCall {
 }
 
 type SidebarTab = 'terminal' | 'timeline' | 'activity';
+type MainTab = 'screen' | 'logs';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -128,6 +134,7 @@ interface AgentVMProps {
 export const AgentVM: React.FC<AgentVMProps> = React.memo(
   ({ agent, onApprove, onReject, onStop, onSyncGithub, onPause, onResume, onSendMessage }) => {
     // ---- State ----
+    const [mainTab, setMainTab] = useState<MainTab>('screen');
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [sidebarTab, setSidebarTab] = useState<SidebarTab>('terminal');
     const [showExportMenu, setShowExportMenu] = useState(false);
@@ -310,6 +317,8 @@ export const AgentVM: React.FC<AgentVMProps> = React.memo(
     const phaseLabel = agent.phase || agent.status;
     const rtBadge = runtimeBadge(agent);
     const isRunning = ['working', 'thinking'].includes(agent.status);
+    const kernel = getKernelClient();
+    const kernelConnected = kernel.connected;
     const canSendMessage =
       isRunning || agent.status === 'paused' || agent.status === 'waiting_approval';
 
@@ -450,63 +459,104 @@ export const AgentVM: React.FC<AgentVMProps> = React.memo(
             </button>
           </div>
 
-          {/* -- Log Stream (Main View) -- */}
-          <div
-            ref={logContainerRef}
-            onScroll={handleLogScroll}
-            className="flex-1 overflow-y-auto bg-[#0a0b10] font-mono text-[11px] leading-[1.6] select-text"
-          >
-            {logLines.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-gray-600 gap-3">
-                <Terminal size={32} className="opacity-40" />
-                <span className="text-sm">Waiting for agent output...</span>
-                {agent.pid && (
-                  <span className="text-xs text-gray-700">Listening on PID {agent.pid}</span>
-                )}
-              </div>
-            ) : (
-              <div className="p-3 pb-1">
-                {logLines.map((line, i) => (
-                  <div key={i} className="flex gap-0 hover:bg-white/[0.02] py-[1px]">
-                    {/* Line number */}
-                    <span className="text-gray-700 w-10 text-right pr-3 shrink-0 select-none">
-                      {i + 1}
-                    </span>
-                    {/* Timestamp */}
-                    <span className="text-gray-600 w-[70px] shrink-0 select-none">
-                      {formatTs(line.ts)}
-                    </span>
-                    {/* Source tag */}
-                    <span
-                      className={`w-[50px] shrink-0 font-bold ${sourceColor(line.source)} opacity-70`}
-                    >
-                      {sourceTag(line.source)}
-                    </span>
-                    {/* Message */}
-                    <span
-                      className={`flex-1 whitespace-pre-wrap break-all ${sourceColor(line.source)}`}
-                    >
-                      {line.text}
-                    </span>
-                  </div>
-                ))}
-                <div ref={logEndRef} />
-              </div>
-            )}
-
-            {/* Auto-scroll indicator */}
-            {!autoScroll && logLines.length > 0 && (
-              <button
-                onClick={() => {
-                  setAutoScroll(true);
-                  logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-                }}
-                className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-indigo-600/90 hover:bg-indigo-500 text-white text-[10px] px-3 py-1.5 rounded-full flex items-center gap-1.5 shadow-lg transition-colors"
-              >
-                <ArrowDownToLine size={12} /> Scroll to bottom
-              </button>
-            )}
+          {/* -- Main Tab Bar -- */}
+          <div className="flex border-b border-white/10 bg-[#12141d] shrink-0">
+            <button
+              onClick={() => setMainTab('screen')}
+              className={`px-4 py-2 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 transition-colors ${
+                mainTab === 'screen'
+                  ? 'text-white border-b-2 border-indigo-500'
+                  : 'text-gray-500 hover:text-gray-300'
+              }`}
+            >
+              <Monitor size={10} /> Screen
+            </button>
+            <button
+              onClick={() => setMainTab('logs')}
+              className={`px-4 py-2 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 transition-colors ${
+                mainTab === 'logs'
+                  ? 'text-white border-b-2 border-green-500'
+                  : 'text-gray-500 hover:text-gray-300'
+              }`}
+            >
+              <Terminal size={10} /> Logs
+            </button>
           </div>
+
+          {/* -- Screen Tab -- */}
+          {mainTab === 'screen' && (
+            <div className="flex-1 overflow-hidden">
+              <Suspense
+                fallback={
+                  <div className="flex items-center justify-center h-full text-gray-600">
+                    <Monitor size={24} className="animate-pulse" />
+                  </div>
+                }
+              >
+                <AgentDesktopView agent={agent} kernelConnected={kernelConnected} />
+              </Suspense>
+            </div>
+          )}
+
+          {/* -- Logs Tab (existing log stream) -- */}
+          {mainTab === 'logs' && (
+            <div
+              ref={logContainerRef}
+              onScroll={handleLogScroll}
+              className="flex-1 overflow-y-auto bg-[#0a0b10] font-mono text-[11px] leading-[1.6] select-text"
+            >
+              {logLines.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full text-gray-600 gap-3">
+                  <Terminal size={32} className="opacity-40" />
+                  <span className="text-sm">Waiting for agent output...</span>
+                  {agent.pid && (
+                    <span className="text-xs text-gray-700">Listening on PID {agent.pid}</span>
+                  )}
+                </div>
+              ) : (
+                <div className="p-3 pb-1">
+                  {logLines.map((line, i) => (
+                    <div key={i} className="flex gap-0 hover:bg-white/[0.02] py-[1px]">
+                      {/* Line number */}
+                      <span className="text-gray-700 w-10 text-right pr-3 shrink-0 select-none">
+                        {i + 1}
+                      </span>
+                      {/* Timestamp */}
+                      <span className="text-gray-600 w-[70px] shrink-0 select-none">
+                        {formatTs(line.ts)}
+                      </span>
+                      {/* Source tag */}
+                      <span
+                        className={`w-[50px] shrink-0 font-bold ${sourceColor(line.source)} opacity-70`}
+                      >
+                        {sourceTag(line.source)}
+                      </span>
+                      {/* Message */}
+                      <span
+                        className={`flex-1 whitespace-pre-wrap break-all ${sourceColor(line.source)}`}
+                      >
+                        {line.text}
+                      </span>
+                    </div>
+                  ))}
+                  <div ref={logEndRef} />
+                </div>
+              )}
+
+              {/* Auto-scroll indicator */}
+              {!autoScroll && logLines.length > 0 && (
+                <button
+                  onClick={() => {
+                    setAutoScroll(true);
+                    logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+                  }}
+                  className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-indigo-600/90 hover:bg-indigo-500 text-white text-[10px] px-3 py-1.5 rounded-full flex items-center gap-1.5 shadow-lg transition-colors"
+                >
+                  <ArrowDownToLine size={12} /> Scroll to bottom
+                </button>
+              )}
+            </div>
+          )}
 
           {/* -- Approval Overlay -- */}
           {agent.status === 'waiting_approval' && (

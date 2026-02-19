@@ -84,7 +84,8 @@ Status legend:
 | App | Status | Details |
 |-----|--------|---------|
 | Mission Control (Agent Dashboard) | Done | Grid of agents, deploy modal, live status, metrics cards |
-| Agent VM | Done | Full agent view — terminal, thought logs, approval modal, timeline, Plan Viewer tab, feedback thumbs up/down on actions |
+| Agent VM | Done | Full agent view — Screen/Logs tabs, live desktop view (VNC/screencast/mock browser), terminal, thought logs, approval modal, timeline, Plan Viewer tab, feedback thumbs up/down on actions |
+| Agent Desktop View | Done | `components/os/AgentDesktopView.tsx` — live agent screen with 3-tier fallback: VNC desktop (graphical containers), browser screencast (kernel Playwright), mock browser (iframe with simulated chrome). Watch/control modes, fullscreen, status badges |
 | Agent Timeline | Done | Color-coded history of thoughts, actions, observations |
 | Terminal | Done | `xterm.js` wrapper, connects to kernel PTY or host shell |
 | Chat | Done | Gemini-powered chat interface with streaming |
