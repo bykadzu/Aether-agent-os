@@ -172,6 +172,7 @@ describe('Protocol', () => {
           createdAt: Date.now(),
           cpuPercent: 0,
           memoryMB: 0,
+          priority: 0,
         },
       };
       expect(evt.type).toBe('process.spawned');

@@ -37,7 +37,7 @@ interface FileExplorerProps {
 // Convert kernel file stat to FileSystemItem for UI compatibility
 function kernelStatToFile(stat: KernelFileStat, parentPath: string): FileSystemItem {
   const ext = stat.name.split('.').pop()?.toLowerCase() || '';
-  let kind: string = 'text';
+  let kind: FileSystemItem['kind'] = 'text';
   if (stat.type === 'directory') kind = 'folder';
   else if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp'].includes(ext)) kind = 'image';
   else if (['mp3', 'wav', 'ogg', 'flac', 'aac'].includes(ext)) kind = 'audio';

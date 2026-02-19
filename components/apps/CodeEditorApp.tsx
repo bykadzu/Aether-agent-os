@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Editor, { OnMount } from '@monaco-editor/react';
-import type { editor as MonacoEditor } from 'monaco-editor';
 import {
   Save,
   X,
@@ -225,7 +224,7 @@ export const CodeEditorApp: React.FC<CodeEditorAppProps> = ({
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [loading, setLoading] = useState(false);
 
-  const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
+  const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
 
   // ---- Derived state ----
   const activeTab = tabs.find((t) => t.id === activeTabId) || tabs[0];

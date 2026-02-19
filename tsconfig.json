@@ -6,6 +6,7 @@
     "module": "ESNext",
     "lib": [
       "ES2022",
+      "ES2023",
       "DOM",
       "DOM.Iterable"
     ],
@@ -25,5 +26,13 @@
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
+  },
+  "exclude": [
+    "cli",
+    "kernel",
+    "runtime",
+    "server",
+    "shared",
+    "**/__tests__/**"
+  ]
 }

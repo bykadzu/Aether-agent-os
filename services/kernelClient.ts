@@ -651,7 +651,7 @@ export class KernelClient {
     return headers;
   }
 
-  private getBaseUrl(): string {
+  getBaseUrl(): string {
     return this.url
       .replace('ws://', 'http://')
       .replace('wss://', 'https://')

@@ -920,7 +920,6 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = React.memo(
                       <ExternalLink size={12} />
                     </button>
                     {(agent.status === 'working' || agent.status === 'thinking') &&
-                      agent.status !== 'paused' &&
                       onPauseAgent && (
                         <button
                           onClick={(e) => {
