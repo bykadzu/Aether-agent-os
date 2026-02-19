@@ -16,6 +16,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { EventBus } from './EventBus.js';
+import { errMsg } from './logger.js';
 import { StateStore } from './StateStore.js';
 import type { MCPServerConfig, MCPServerInfo, MCPToolInfo } from '@aether/shared';
 
@@ -103,8 +104,8 @@ export class MCPManager {
         if (config.autoConnect && config.enabled) {
           try {
             await this.connect(config);
-          } catch (err: any) {
-            console.error(`[MCPManager] Auto-connect failed for ${config.name}: ${err.message}`);
+          } catch (err: unknown) {
+            console.error(`[MCPManager] Auto-connect failed for ${config.name}: ${errMsg(err)}`);
           }
         }
       } catch {
@@ -293,10 +294,10 @@ export class MCPManager {
       );
 
       return info;
-    } catch (err: any) {
+    } catch (err: unknown) {
       info.status = 'error';
-      info.lastError = err.message;
-      this.bus.emit('mcp.server.error', { serverId: config.id, error: err.message });
+      info.lastError = errMsg(err);
+      this.bus.emit('mcp.server.error', { serverId: config.id, error: errMsg(err) });
       throw err;
     }
   }

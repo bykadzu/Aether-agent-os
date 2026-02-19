@@ -10,6 +10,7 @@
 
 import * as crypto from 'node:crypto';
 import { EventBus } from './EventBus.js';
+import { errMsg } from './logger.js';
 import { StateStore } from './StateStore.js';
 import type { IIntegration } from './integrations/IIntegration.js';
 import { GitHubIntegration } from './integrations/GitHubIntegration.js';
@@ -150,7 +151,7 @@ export class IntegrationManager {
 
       this.bus.emit('integration.action_result', { integrationId, action, result });
       return result;
-    } catch (err: any) {
+    } catch (err: unknown) {
       const durationMs = Date.now() - startTime;
 
       this.state.insertIntegrationLog({
@@ -158,13 +159,13 @@ export class IntegrationManager {
         action,
         status: 'error',
         request_summary: JSON.stringify(params || {}).slice(0, 500),
-        response_summary: err.message || String(err),
+        response_summary: errMsg(err) || String(err),
         duration_ms: durationMs,
         created_at: Date.now(),
       });
 
-      this.state.updateIntegrationStatus(integrationId, 'error', err.message);
-      this.bus.emit('integration.error', { integrationId, action, error: err.message });
+      this.state.updateIntegrationStatus(integrationId, 'error', errMsg(err));
+      this.bus.emit('integration.error', { integrationId, action, error: errMsg(err) });
       throw err;
     }
   }

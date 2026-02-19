@@ -8,6 +8,7 @@
 
 import * as crypto from 'node:crypto';
 import type { IIntegration, IntegrationActionDef } from './IIntegration.js';
+import { errMsg } from '../logger.js';
 
 const ACTIONS: IntegrationActionDef[] = [
   {
@@ -94,8 +95,8 @@ export class S3Integration implements IIntegration {
         return { success: true, message: `Connected to S3 in ${region}` };
       }
       return { success: false, message: `S3 API returned ${res.status}` };
-    } catch (err: any) {
-      return { success: false, message: err.message || 'Connection failed' };
+    } catch (err: unknown) {
+      return { success: false, message: errMsg(err) || 'Connection failed' };
     }
   }
 

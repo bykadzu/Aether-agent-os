@@ -9,6 +9,7 @@
  */
 
 import type { IIntegration, IntegrationActionDef } from './IIntegration.js';
+import { errMsg } from '../logger.js';
 
 const DISCORD_API = 'https://discord.com/api/v10';
 
@@ -94,8 +95,8 @@ export class DiscordIntegration implements IIntegration {
         };
       }
       return { success: false, message: `Discord API returned ${res.status}` };
-    } catch (err: any) {
-      return { success: false, message: err.message || 'Connection failed' };
+    } catch (err: unknown) {
+      return { success: false, message: errMsg(err) || 'Connection failed' };
     }
   }
 

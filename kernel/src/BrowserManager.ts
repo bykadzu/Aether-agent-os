@@ -10,6 +10,7 @@
  */
 
 import { EventBus } from './EventBus.js';
+import { errMsg } from './logger.js';
 import type {
   BrowserPageInfo,
   BrowserSessionOptions,
@@ -164,8 +165,8 @@ export class BrowserManager {
           });
           console.log(`[BrowserManager] Download captured: ${filename}`);
         }
-      } catch (err: any) {
-        console.warn(`[BrowserManager] Download handling failed: ${err.message}`);
+      } catch (err: unknown) {
+        console.warn(`[BrowserManager] Download handling failed: ${errMsg(err)}`);
       }
     });
 

@@ -11,6 +11,7 @@
 
 import * as crypto from 'node:crypto';
 import type { IIntegration, IntegrationActionDef } from './IIntegration.js';
+import { errMsg } from '../logger.js';
 
 const SLACK_API = 'https://slack.com/api';
 
@@ -183,8 +184,8 @@ export class SlackIntegration implements IIntegration {
         return { success: true, message: `Connected as ${data.user} in ${data.team}` };
       }
       return { success: false, message: data.error || 'auth.test failed' };
-    } catch (err: any) {
-      return { success: false, message: err.message || 'Connection failed' };
+    } catch (err: unknown) {
+      return { success: false, message: errMsg(err) || 'Connection failed' };
     }
   }
 

@@ -17,6 +17,7 @@
  */
 
 import { EventBus } from './EventBus.js';
+import { errMsg } from './logger.js';
 import {
   NodeInfo,
   ClusterInfo,
@@ -33,9 +34,12 @@ import * as crypto from 'node:crypto';
 
 interface RegisteredNode {
   info: NodeInfo;
-  ws: any;  // WebSocket instance (from ws library on server side)
+  ws: any; // WebSocket instance (from ws library on server side)
   lastHeartbeat: number;
-  pendingRequests: Map<string, { resolve: (events: KernelEvent[]) => void; timeout: ReturnType<typeof setTimeout> }>;
+  pendingRequests: Map<
+    string,
+    { resolve: (events: KernelEvent[]) => void; timeout: ReturnType<typeof setTimeout> }
+  >;
 }
 
 export class ClusterManager {
@@ -43,7 +47,7 @@ export class ClusterManager {
   private role: ClusterRole;
   private nodeId: string;
   private nodes = new Map<string, RegisteredNode>();
-  private hubWs: any = null;           // WebSocket to hub (node mode)
+  private hubWs: any = null; // WebSocket to hub (node mode)
   private hubUrl?: string;
   private heartbeatInterval?: ReturnType<typeof setInterval>;
   private healthCheckInterval?: ReturnType<typeof setInterval>;
@@ -62,7 +66,9 @@ export class ClusterManager {
       this.role = 'node';
       this.hubUrl = process.env.AETHER_HUB_URL;
       if (!this.hubUrl) {
-        console.warn('[Cluster] AETHER_CLUSTER_ROLE=node but AETHER_HUB_URL not set. Running standalone.');
+        console.warn(
+          '[Cluster] AETHER_CLUSTER_ROLE=node but AETHER_HUB_URL not set. Running standalone.',
+        );
         this.role = 'standalone';
       }
     } else if (envRole === 'hub') {
@@ -71,7 +77,10 @@ export class ClusterManager {
       this.role = 'standalone';
     }
 
-    this.localCapacity = parseInt(process.env.AETHER_NODE_CAPACITY || String(CLUSTER_DEFAULT_CAPACITY), 10);
+    this.localCapacity = parseInt(
+      process.env.AETHER_NODE_CAPACITY || String(CLUSTER_DEFAULT_CAPACITY),
+      10,
+    );
   }
 
   /**
@@ -89,7 +98,9 @@ export class ClusterManager {
     }
 
     if (this.role === 'node') {
-      console.log(`[Cluster] Running as NODE (id: ${this.nodeId}), connecting to hub: ${this.hubUrl}`);
+      console.log(
+        `[Cluster] Running as NODE (id: ${this.nodeId}), connecting to hub: ${this.hubUrl}`,
+      );
       // Connection is established externally by the server when WS is available
     }
   }
@@ -124,7 +135,9 @@ export class ClusterManager {
     };
 
     this.nodes.set(info.id, node);
-    console.log(`[Cluster] Node registered: ${info.id} (${info.host}:${info.port}, capacity: ${info.capacity})`);
+    console.log(
+      `[Cluster] Node registered: ${info.id} (${info.host}:${info.port}, capacity: ${info.capacity})`,
+    );
 
     this.bus.emit('cluster.nodeJoined', { node: info });
   }
@@ -145,7 +158,10 @@ export class ClusterManager {
   /**
    * Handle a heartbeat from a node.
    */
-  handleNodeHeartbeat(nodeId: string, data: { load: number; capacity: number; gpuAvailable?: boolean; dockerAvailable?: boolean }): void {
+  handleNodeHeartbeat(
+    nodeId: string,
+    data: { load: number; capacity: number; gpuAvailable?: boolean; dockerAvailable?: boolean },
+  ): void {
     const node = this.nodes.get(nodeId);
     if (!node) return;
 
@@ -167,7 +183,7 @@ export class ClusterManager {
    * Get all registered nodes.
    */
   getNodes(): NodeInfo[] {
-    return Array.from(this.nodes.values()).map(n => ({ ...n.info }));
+    return Array.from(this.nodes.values()).map((n) => ({ ...n.info }));
   }
 
   /**
@@ -196,7 +212,6 @@ export class ClusterManager {
 
     for (const node of this.nodes.values()) {
       if (node.info.status !== 'online') continue;
-      if (node.info.status === 'draining' as any) continue;
       if (node.info.load >= node.info.capacity) continue;
 
       if (node.info.load < lowestLoad) {
@@ -219,11 +234,11 @@ export class ClusterManager {
   async forwardCommand(nodeId: string, cmd: KernelCommand): Promise<KernelEvent[]> {
     const node = this.nodes.get(nodeId);
     if (!node || node.info.status !== 'online') {
-      return [{ type: 'response.error', id: (cmd as any).id, error: `Node ${nodeId} is not available` }];
+      return [{ type: 'response.error', id: cmd.id, error: `Node ${nodeId} is not available` }];
     }
 
     return new Promise((resolve) => {
-      const cmdId = (cmd as any).id;
+      const cmdId = cmd.id;
       const timeout = setTimeout(() => {
         node.pendingRequests.delete(cmdId);
         resolve([{ type: 'response.error', id: cmdId, error: `Node ${nodeId} timed out` }]);
@@ -236,7 +251,9 @@ export class ClusterManager {
       } catch {
         clearTimeout(timeout);
         node.pendingRequests.delete(cmdId);
-        resolve([{ type: 'response.error', id: cmdId, error: `Failed to send command to node ${nodeId}` }]);
+        resolve([
+          { type: 'response.error', id: cmdId, error: `Failed to send command to node ${nodeId}` },
+        ]);
       }
     });
   }
@@ -269,7 +286,9 @@ export class ClusterManager {
     // Notify the node
     try {
       node.ws.send(JSON.stringify({ type: 'cluster.drain' }));
-    } catch { /* node may already be disconnected */ }
+    } catch {
+      /* node may already be disconnected */
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -299,25 +318,27 @@ export class ClusterManager {
     });
 
     ws.on('error', (err: any) => {
-      console.error('[Cluster] Hub connection error:', err.message);
+      console.error('[Cluster] Hub connection error:', errMsg(err));
     });
 
     // Send registration
     try {
-      ws.send(JSON.stringify({
-        type: 'cluster.register',
-        node: {
-          id: this.nodeId,
-          host: process.env.AETHER_NODE_HOST || 'localhost',
-          port: parseInt(process.env.AETHER_PORT || '3001', 10),
-          capacity: this.localCapacity,
-          load: this.localLoad,
-          gpuAvailable: this.localGpuAvailable,
-          dockerAvailable: this.localDockerAvailable,
-        },
-      }));
-    } catch (err: any) {
-      console.error('[Cluster] Failed to send registration:', err.message);
+      ws.send(
+        JSON.stringify({
+          type: 'cluster.register',
+          node: {
+            id: this.nodeId,
+            host: process.env.AETHER_NODE_HOST || 'localhost',
+            port: parseInt(process.env.AETHER_PORT || '3001', 10),
+            capacity: this.localCapacity,
+            load: this.localLoad,
+            gpuAvailable: this.localGpuAvailable,
+            dockerAvailable: this.localDockerAvailable,
+          },
+        }),
+      );
+    } catch (err: unknown) {
+      console.error('[Cluster] Failed to send registration:', errMsg(err));
       return;
     }
 
@@ -331,14 +352,18 @@ export class ClusterManager {
    */
   private _scheduleReconnect(): void {
     if (this._reconnectAttempt >= this._maxReconnectAttempts) {
-      console.error(`[Cluster] Max reconnect attempts (${this._maxReconnectAttempts}) reached. Operating standalone.`);
+      console.error(
+        `[Cluster] Max reconnect attempts (${this._maxReconnectAttempts}) reached. Operating standalone.`,
+      );
       this.bus.emit('cluster.reconnectFailed', {});
       return;
     }
 
     const backoffMs = Math.min(1000 * Math.pow(2, this._reconnectAttempt), 30_000);
     this._reconnectAttempt++;
-    console.log(`[Cluster] Reconnecting to hub in ${backoffMs}ms (attempt ${this._reconnectAttempt}/${this._maxReconnectAttempts})`);
+    console.log(
+      `[Cluster] Reconnecting to hub in ${backoffMs}ms (attempt ${this._reconnectAttempt}/${this._maxReconnectAttempts})`,
+    );
 
     this._reconnectTimer = setTimeout(() => {
       this.bus.emit('cluster.reconnecting', { attempt: this._reconnectAttempt });
@@ -352,14 +377,16 @@ export class ClusterManager {
     if (!this.hubWs || this.role !== 'node') return;
 
     try {
-      this.hubWs.send(JSON.stringify({
-        type: 'cluster.heartbeat',
-        nodeId: this.nodeId,
-        load: this.localLoad,
-        capacity: this.localCapacity,
-        gpuAvailable: this.localGpuAvailable,
-        dockerAvailable: this.localDockerAvailable,
-      }));
+      this.hubWs.send(
+        JSON.stringify({
+          type: 'cluster.heartbeat',
+          nodeId: this.nodeId,
+          load: this.localLoad,
+          capacity: this.localCapacity,
+          gpuAvailable: this.localGpuAvailable,
+          dockerAvailable: this.localDockerAvailable,
+        }),
+      );
     } catch {
       console.error('[Cluster] Failed to send heartbeat to hub');
     }
@@ -387,7 +414,9 @@ export class ClusterManager {
 
         const elapsed = now - node.lastHeartbeat;
         if (elapsed > CLUSTER_HEARTBEAT_TIMEOUT) {
-          console.warn(`[Cluster] Node ${nodeId} missed heartbeats (${elapsed}ms). Marking offline.`);
+          console.warn(
+            `[Cluster] Node ${nodeId} missed heartbeats (${elapsed}ms). Marking offline.`,
+          );
           node.info.status = 'offline';
           this.bus.emit('cluster.nodeOffline', { nodeId });
         }
@@ -470,7 +499,9 @@ export class ClusterManager {
     for (const [, node] of this.nodes) {
       try {
         node.ws.close(1001, 'Hub shutting down');
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }
     this.nodes.clear();
 
@@ -478,7 +509,9 @@ export class ClusterManager {
     if (this.hubWs) {
       try {
         this.hubWs.close(1001, 'Node shutting down');
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
       this.hubWs = null;
     }
   }

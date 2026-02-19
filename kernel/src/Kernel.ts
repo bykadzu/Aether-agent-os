@@ -51,6 +51,7 @@ import { OpenClawAdapter } from './OpenClawAdapter.js';
 import { SkillForge } from './SkillForge.js';
 import { AetherMCPServer } from './AetherMCPServer.js';
 import { AgentSubprocess } from './AgentSubprocess.js';
+import { createLogger, errMsg } from './logger.js';
 import {
   KernelCommand,
   KernelEvent,
@@ -62,6 +63,8 @@ import {
   AgentProfile,
   MCPServerConfig,
 } from '@aether/shared';
+
+const log = createLogger('Kernel');
 
 export class Kernel {
   readonly version = AETHER_VERSION;
@@ -161,8 +164,7 @@ export class Kernel {
   async boot(): Promise<void> {
     if (this.running) return;
 
-    console.log(`[Kernel] Aether OS v${this.version} booting...`);
-    console.log(`[Kernel] Data root: ${this.fs.getRealRoot()}`);
+    log.info(`Aether OS v${this.version} booting`, { dataRoot: this.fs.getRealRoot() });
 
     // Warn about legacy /tmp/aether data if the new default is in use
     if (!process.env.AETHER_FS_ROOT) {
@@ -171,11 +173,7 @@ export class Kernel {
         const legacyFs = await import('node:fs/promises');
         const legacyStat = await legacyFs.stat(legacyRoot).catch(() => null);
         if (legacyStat?.isDirectory()) {
-          console.warn(`[Kernel] ⚠ Legacy data found at ${legacyRoot}`);
-          console.warn(`[Kernel]   Data now lives at ${this.fs.getRealRoot()}`);
-          console.warn(
-            `[Kernel]   To migrate: copy contents from ${legacyRoot} to ${this.fs.getRealRoot()}`,
-          );
+          log.warn('Legacy data found', { legacyRoot, currentRoot: this.fs.getRealRoot() });
         }
       } catch {
         /* ignore */
@@ -184,7 +182,7 @@ export class Kernel {
 
     // Initialize filesystem
     await this.fs.init();
-    console.log('[Kernel] Filesystem initialized');
+    log.info('Filesystem initialized');
 
     // Seed CODEBASE.md into the shared directory for agent self-knowledge
     try {
@@ -201,43 +199,40 @@ export class Kernel {
         if (fs.existsSync(src)) {
           const dest = path.join(sharedDir, 'CODEBASE.md');
           fs.copyFileSync(src, dest);
-          console.log('[Kernel] Agent self-knowledge seeded to shared/CODEBASE.md');
+          log.info('Agent self-knowledge seeded to shared/CODEBASE.md');
           break;
         }
       }
-    } catch (err: any) {
-      console.warn('[Kernel] Could not seed CODEBASE.md:', err.message);
+    } catch (err: unknown) {
+      log.warn('Could not seed CODEBASE.md', { error: errMsg(err) });
     }
 
     // Initialize container manager (detects Docker + GPU availability)
     await this.containers.init();
-    console.log(
-      `[Kernel] Container manager initialized (Docker: ${this.containers.isDockerAvailable() ? 'available' : 'unavailable, using process fallback'})`,
-    );
-    console.log(
-      `[Kernel] GPU: ${this.containers.isGPUAvailable() ? `${this.containers.getGPUs().length} GPU(s) detected` : 'not available'}`,
-    );
+    log.info('Container manager initialized', {
+      docker: this.containers.isDockerAvailable(),
+      gpu: this.containers.isGPUAvailable(),
+      gpuCount: this.containers.isGPUAvailable() ? this.containers.getGPUs().length : 0,
+    });
 
     // VNC manager is initialized (starts proxies on demand)
-    console.log('[Kernel] VNC manager initialized');
+    log.info('VNC manager initialized');
 
     // Initialize browser manager (detects Playwright availability)
     await this.browser.init();
-    console.log(
-      `[Kernel] Browser manager initialized (Playwright: ${this.browser.isAvailable() ? 'available' : 'unavailable'})`,
-    );
+    log.info('Browser manager initialized', { playwright: this.browser.isAvailable() });
 
     // Wire container manager into PTY manager
     this.pty.setContainerManager(this.containers);
 
     // Initialize snapshot manager
     await this.snapshots.init();
-    console.log('[Kernel] Snapshot manager initialized');
+    log.info('Snapshot manager initialized');
 
-    console.log('[Kernel] State store initialized (SQLite)');
+    log.info('State store initialized (SQLite)');
 
     // Initialize memory manager (uses StateStore tables)
-    console.log('[Kernel] Memory manager initialized');
+    log.info('Memory manager initialized');
 
     // Initialize cron manager
     this.cron.start(async (config) => {
@@ -253,20 +248,20 @@ export class Kernel {
       }
       return null;
     });
-    console.log('[Kernel] Cron manager initialized');
+    log.info('Cron manager initialized');
 
     // Initialize auth
     await this.auth.init();
-    console.log('[Kernel] Auth manager initialized');
+    log.info('Auth manager initialized');
 
     // Initialize cluster
     await this.cluster.init();
     this.cluster.setLocalCapabilities(this.containers.isDockerAvailable(), false);
-    console.log(`[Kernel] Cluster manager initialized (role: ${this.cluster.getRole()})`);
+    log.info('Cluster manager initialized', { role: this.cluster.getRole() });
 
     // Initialize app manager
     await this.apps.init();
-    console.log('[Kernel] App manager initialized');
+    log.info('App manager initialized');
 
     // Initialize webhook manager
     await this.webhooks.init();
@@ -283,60 +278,60 @@ export class Kernel {
       }
       return null;
     });
-    console.log('[Kernel] Webhook manager initialized');
+    log.info('Webhook manager initialized');
 
     // Initialize plugin registry
     await this.pluginRegistry.init();
-    console.log('[Kernel] Plugin registry initialized');
+    log.info('Plugin registry initialized');
 
     // Initialize integration manager
     await this.integrations.init();
-    console.log('[Kernel] Integration manager initialized');
+    log.info('Integration manager initialized');
 
     // Initialize template marketplace
     await this.templateMarketplace.init();
-    console.log('[Kernel] Template marketplace initialized');
+    log.info('Template marketplace initialized');
 
     // Initialize skill manager
     await this.skills.init();
-    console.log('[Kernel] Skill manager initialized');
+    log.info('Skill manager initialized');
 
     // Initialize remote access manager
     await this.remoteAccess.init();
-    console.log('[Kernel] Remote access manager initialized');
+    log.info('Remote access manager initialized');
 
     // Resource governor is ready (no async init needed)
-    console.log('[Kernel] Resource governor initialized');
+    log.info('Resource governor initialized');
 
     // Audit logger is ready (subscribed to EventBus, prune timer started)
-    console.log('[Kernel] Audit logger initialized');
+    log.info('Audit logger initialized');
 
     // Model router is ready (stateless, no async init needed)
-    console.log('[Kernel] Model router initialized');
+    log.info('Model router initialized');
 
     // Initialize metrics exporter (subscribes to EventBus)
     this.metrics.init();
-    console.log('[Kernel] Metrics exporter initialized');
+    log.info('Metrics exporter initialized');
 
     // Initialize tool compatibility layer
     await this.toolCompat.init();
-    console.log('[Kernel] Tool compatibility layer initialized');
+    log.info('Tool compatibility layer initialized');
 
     // Initialize MCP manager
     await this.mcp.init();
-    console.log('[Kernel] MCP manager initialized');
+    log.info('MCP manager initialized');
 
     // Initialize OpenClaw adapter
     await this.openClaw.init();
-    console.log('[Kernel] OpenClaw adapter initialized');
+    log.info('OpenClaw adapter initialized');
 
     // SkillForge — agent self-modification (v0.7)
     await this.skillForge.init();
-    console.log('[Kernel] SkillForge initialized');
+    log.info('SkillForge initialized');
 
     // AetherMCPServer — exposes kernel as MCP tools for external agents (v0.8)
     await this.aetherMcp.init();
-    console.log('[Kernel] AetherMCP server initialized');
+    log.info('AetherMCP server initialized');
 
     // Subscribe to subprocess exit events to update process state
     this.bus.on('subprocess.exited', (evt: any) => {
@@ -350,7 +345,7 @@ export class Kernel {
     // Wire procedural memory integration for reflection-sourced skills (v0.7 Sprint 3)
     if (this.memory) {
       this.memory.registerEventListeners();
-      console.log('[Kernel] MemoryManager event listeners registered');
+      log.info('MemoryManager event listeners registered');
     }
 
     // Listen for process cleanup events to remove agent home directories
@@ -359,7 +354,7 @@ export class Kernel {
       try {
         const snapshots = await this.snapshots.listSnapshots(data.pid);
         if (snapshots && snapshots.length > 0) {
-          console.log(`[Kernel] Skipping home cleanup for PID ${data.pid} (snapshot exists)`);
+          log.info('Skipping home cleanup (snapshot exists)', { pid: data.pid });
           return;
         }
       } catch {
@@ -368,7 +363,7 @@ export class Kernel {
 
       const removed = await this.fs.removeHome(data.uid);
       if (removed) {
-        console.log(`[Kernel] Cleaned up home directory for ${data.uid} (PID ${data.pid})`);
+        log.info('Cleaned up home directory', { uid: data.uid, pid: data.pid });
       }
     });
 
@@ -382,10 +377,10 @@ export class Kernel {
           if (content !== null) {
             const downloadPath = `/home/downloads/${data.filename}`;
             await this.fs.writeFile(downloadPath, content);
-            console.log(`[Kernel] Browser download saved to ${downloadPath}`);
+            log.info('Browser download saved', { path: downloadPath });
           }
-        } catch (err: any) {
-          console.warn(`[Kernel] Failed to save browser download: ${err.message}`);
+        } catch (err: unknown) {
+          log.warn('Failed to save browser download', { error: errMsg(err) });
         }
       },
     );
@@ -468,14 +463,12 @@ export class Kernel {
                 try {
                   const proxy = await this.vnc.startProxy(pid, containerInfo.vncPort);
                   vncWsPort = proxy.wsPort;
-                } catch (err: any) {
-                  console.error(`[Kernel] Failed to start VNC proxy for PID ${pid}:`, err.message);
+                } catch (err: unknown) {
+                  log.error('Failed to start VNC proxy', { pid, error: errMsg(err) });
                 }
               }
             } else {
-              console.warn(
-                `[Kernel] Container creation failed for PID ${pid}, agent will use host fallback`,
-              );
+              log.warn('Container creation failed, using host fallback', { pid });
             }
           }
 
@@ -990,11 +983,11 @@ export class Kernel {
               id: cmd.id,
               data: { output },
             });
-          } catch (err: any) {
+          } catch (err: unknown) {
             events.push({
               type: 'response.error',
               id: cmd.id,
-              error: err.message,
+              error: errMsg(err),
             });
           }
           break;
@@ -1066,11 +1059,11 @@ export class Kernel {
               id: cmd.id,
               data: { token: authResult!.token, user: authResult!.user },
             });
-          } catch (err: any) {
+          } catch (err: unknown) {
             events.push({
               type: 'response.error',
               id: cmd.id,
-              error: err.message,
+              error: errMsg(err),
             });
           }
           break;
@@ -1112,8 +1105,8 @@ export class Kernel {
           try {
             this.auth.deleteUser(cmd.userId);
             events.push({ type: 'response.ok', id: cmd.id });
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
@@ -1307,8 +1300,8 @@ export class Kernel {
               cmd.owner_uid,
             );
             events.push({ type: 'response.ok', id: cmd.id, data: job });
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
@@ -1346,7 +1339,7 @@ export class Kernel {
         case 'cron.list': {
           const jobs = this.cron.listJobs();
           events.push({ type: 'response.ok', id: cmd.id, data: jobs });
-          events.push({ type: 'cron.list', jobs } as any);
+          events.push({ type: 'cron.list', jobs } as KernelEvent);
           break;
         }
 
@@ -1376,7 +1369,7 @@ export class Kernel {
         case 'trigger.list': {
           const triggers = this.cron.listTriggers();
           events.push({ type: 'response.ok', id: cmd.id, data: triggers });
-          events.push({ type: 'trigger.list', triggers } as any);
+          events.push({ type: 'trigger.list', triggers } as KernelEvent);
           break;
         }
 
@@ -1443,8 +1436,8 @@ export class Kernel {
             const app = this.apps.install(cmd.manifest, cmd.source, cmd.owner_uid);
             events.push({ type: 'response.ok', id: cmd.id, data: app });
             events.push({ type: 'app.installed', app } as KernelEvent);
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
@@ -1454,8 +1447,8 @@ export class Kernel {
             this.apps.uninstall(cmd.appId);
             events.push({ type: 'response.ok', id: cmd.id });
             events.push({ type: 'app.uninstalled', appId: cmd.appId } as KernelEvent);
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
@@ -1465,8 +1458,8 @@ export class Kernel {
             this.apps.enable(cmd.appId);
             events.push({ type: 'response.ok', id: cmd.id });
             events.push({ type: 'app.enabled', appId: cmd.appId } as KernelEvent);
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
@@ -1476,8 +1469,8 @@ export class Kernel {
             this.apps.disable(cmd.appId);
             events.push({ type: 'response.ok', id: cmd.id });
             events.push({ type: 'app.disabled', appId: cmd.appId } as KernelEvent);
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
@@ -1598,8 +1591,8 @@ export class Kernel {
             const plugin = this.pluginRegistry.install(cmd.manifest, cmd.source, cmd.owner_uid);
             events.push({ type: 'response.ok', id: cmd.id, data: plugin });
             events.push({ type: 'plugin.registry.installed', plugin } as KernelEvent);
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
@@ -1612,8 +1605,8 @@ export class Kernel {
               type: 'plugin.registry.uninstalled',
               pluginId: cmd.pluginId,
             } as KernelEvent);
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
@@ -1660,8 +1653,8 @@ export class Kernel {
               rating: cmd.rating,
               newAvg: rateResult.newAvg,
             } as KernelEvent);
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
@@ -1683,8 +1676,8 @@ export class Kernel {
           try {
             const integration = this.integrations.register(cmd.config, cmd.owner_uid);
             events.push({ type: 'response.ok', id: cmd.id, data: integration });
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
@@ -1724,8 +1717,8 @@ export class Kernel {
           try {
             const testResult = await this.integrations.test(cmd.integrationId);
             events.push({ type: 'response.ok', id: cmd.id, data: testResult });
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
@@ -1738,8 +1731,8 @@ export class Kernel {
               cmd.params,
             );
             events.push({ type: 'response.ok', id: cmd.id, data: execResult });
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
@@ -1750,8 +1743,8 @@ export class Kernel {
             const entry = this.templateMarketplace.publish(cmd.template);
             events.push({ type: 'response.ok', id: cmd.id, data: entry });
             events.push({ type: 'template.published', entry } as KernelEvent);
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
@@ -1785,8 +1778,8 @@ export class Kernel {
               rating: cmd.rating,
               newAvg: rateRes.newAvg,
             } as KernelEvent);
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
@@ -1800,8 +1793,8 @@ export class Kernel {
               originalId: cmd.templateId,
               newId: forked.id,
             } as KernelEvent);
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
@@ -1812,8 +1805,8 @@ export class Kernel {
             const org = this.auth.createOrg(cmd.name, user!.id, cmd.displayName);
             events.push({ type: 'response.ok', id: cmd.id, data: org });
             events.push({ type: 'org.created', org } as KernelEvent);
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
@@ -1823,8 +1816,8 @@ export class Kernel {
             this.auth.deleteOrg(cmd.orgId, user!.id);
             events.push({ type: 'response.ok', id: cmd.id });
             events.push({ type: 'org.deleted', orgId: cmd.orgId } as KernelEvent);
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
@@ -1850,8 +1843,8 @@ export class Kernel {
             const org = this.auth.updateOrg(cmd.orgId, { settings: cmd.settings }, user!.id);
             events.push({ type: 'response.ok', id: cmd.id, data: org });
             events.push({ type: 'org.updated', org } as KernelEvent);
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
@@ -1872,8 +1865,8 @@ export class Kernel {
               userId: cmd.userId,
               role: cmd.role,
             } as KernelEvent);
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
@@ -1887,8 +1880,8 @@ export class Kernel {
               orgId: cmd.orgId,
               userId: cmd.userId,
             } as KernelEvent);
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
@@ -1903,8 +1896,8 @@ export class Kernel {
               userId: cmd.userId,
               role: cmd.role,
             } as KernelEvent);
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
@@ -1914,8 +1907,8 @@ export class Kernel {
             const team = this.auth.createTeam(cmd.orgId, cmd.name, user!.id, cmd.description);
             events.push({ type: 'response.ok', id: cmd.id, data: team });
             events.push({ type: 'org.team.created', team } as KernelEvent);
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
@@ -1925,8 +1918,8 @@ export class Kernel {
             this.auth.deleteTeam(cmd.teamId, user!.id);
             events.push({ type: 'response.ok', id: cmd.id });
             events.push({ type: 'org.team.deleted', teamId: cmd.teamId } as KernelEvent);
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
@@ -1941,8 +1934,8 @@ export class Kernel {
           try {
             this.auth.addToTeam(cmd.teamId, cmd.userId, user!.id, cmd.role || 'member');
             events.push({ type: 'response.ok', id: cmd.id });
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
@@ -1951,8 +1944,8 @@ export class Kernel {
           try {
             this.auth.removeFromTeam(cmd.teamId, cmd.userId, user!.id);
             events.push({ type: 'response.ok', id: cmd.id });
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
@@ -2015,13 +2008,13 @@ export class Kernel {
 
         // ----- Skill Commands -----
         case 'skill.list': {
-          const category = (cmd as any).category;
+          const category = cmd.category;
           const skills = this.skills.list(category);
           events.push({ type: 'response.ok', id: cmd.id, data: skills });
           break;
         }
         case 'skill.get': {
-          const skill = this.skills.get((cmd as any).skillId);
+          const skill = this.skills.get(cmd.skillId);
           if (skill) {
             events.push({ type: 'response.ok', id: cmd.id, data: skill });
           } else {
@@ -2031,28 +2024,28 @@ export class Kernel {
         }
         case 'skill.register': {
           try {
-            const registered = this.skills.register((cmd as any).definition);
+            const registered = this.skills.register(cmd.definition);
             events.push({ type: 'response.ok', id: cmd.id, data: registered });
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
         case 'skill.unregister': {
-          const removed = this.skills.unregister((cmd as any).skillId);
+          const removed = this.skills.unregister(cmd.skillId);
           events.push({ type: 'response.ok', id: cmd.id, data: { removed } });
           break;
         }
         case 'skill.execute': {
           try {
             const result = await this.skills.execute(
-              (cmd as any).skillId,
-              (cmd as any).inputs || {},
-              (cmd as any).context || { agentUid: 'system', pid: 0, fsRoot: this.fs.getRealRoot() },
+              cmd.skillId,
+              cmd.inputs || {},
+              cmd.context || { agentUid: 'system', pid: 0, fsRoot: this.fs.getRealRoot() },
             );
             events.push({ type: 'response.ok', id: cmd.id, data: result });
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
@@ -2065,15 +2058,15 @@ export class Kernel {
         }
         case 'remote.tunnel.create': {
           try {
-            const tunnel = this.remoteAccess.createTunnel((cmd as any).config);
+            const tunnel = this.remoteAccess.createTunnel(cmd.config);
             events.push({ type: 'response.ok', id: cmd.id, data: tunnel });
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
         case 'remote.tunnel.destroy': {
-          const destroyed = this.remoteAccess.destroyTunnel((cmd as any).tunnelId);
+          const destroyed = this.remoteAccess.destroyTunnel(cmd.tunnelId);
           events.push({ type: 'response.ok', id: cmd.id, data: { destroyed } });
           break;
         }
@@ -2084,10 +2077,10 @@ export class Kernel {
         }
         case 'remote.tailscale.up': {
           try {
-            const result = await this.remoteAccess.tailscaleUp((cmd as any).config);
+            const result = await this.remoteAccess.tailscaleUp(cmd.config);
             events.push({ type: 'response.ok', id: cmd.id, data: result });
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
@@ -2095,8 +2088,8 @@ export class Kernel {
           try {
             const result = await this.remoteAccess.tailscaleDown();
             events.push({ type: 'response.ok', id: cmd.id, data: result });
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
@@ -2107,13 +2100,10 @@ export class Kernel {
         }
         case 'remote.tailscale.serve': {
           try {
-            const result = await this.remoteAccess.tailscaleServe(
-              (cmd as any).port,
-              (cmd as any).options,
-            );
+            const result = await this.remoteAccess.tailscaleServe(cmd.port, cmd.options);
             events.push({ type: 'response.ok', id: cmd.id, data: result });
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
@@ -2124,15 +2114,15 @@ export class Kernel {
         }
         case 'remote.keys.add': {
           try {
-            const key = this.remoteAccess.addAuthorizedKey((cmd as any).key, (cmd as any).label);
+            const key = this.remoteAccess.addAuthorizedKey(cmd.key, cmd.label);
             events.push({ type: 'response.ok', id: cmd.id, data: key });
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
         case 'remote.keys.remove': {
-          const removed = this.remoteAccess.removeAuthorizedKey((cmd as any).keyId);
+          const removed = this.remoteAccess.removeAuthorizedKey(cmd.keyId);
           events.push({ type: 'response.ok', id: cmd.id, data: { removed } });
           break;
         }
@@ -2199,8 +2189,8 @@ export class Kernel {
                 error: `Process ${cmd.pid} not found`,
               });
             }
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
@@ -2215,51 +2205,47 @@ export class Kernel {
         case 'permission.grant': {
           try {
             const policy = this.auth.grantPermission({
-              subject: (cmd as any).subject,
-              action: (cmd as any).action,
-              resource: (cmd as any).resource,
-              effect: (cmd as any).effect,
+              subject: cmd.subject,
+              action: cmd.action,
+              resource: cmd.resource,
+              effect: cmd.effect,
               created_by: user?.id,
             });
             events.push({ type: 'response.ok', id: cmd.id, data: policy });
             events.push({ type: 'permission.granted', policy } as KernelEvent);
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
 
         case 'permission.revoke': {
           try {
-            const deleted = this.auth.revokePermission((cmd as any).policyId);
+            const deleted = this.auth.revokePermission(cmd.policyId);
             if (deleted) {
               events.push({ type: 'response.ok', id: cmd.id });
               events.push({
                 type: 'permission.revoked',
-                policyId: (cmd as any).policyId,
+                policyId: cmd.policyId,
               } as KernelEvent);
             } else {
               events.push({ type: 'response.error', id: cmd.id, error: 'Policy not found' });
             }
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
 
         case 'permission.list': {
-          const policies = this.auth.listPolicies((cmd as any).subject);
+          const policies = this.auth.listPolicies(cmd.subject);
           events.push({ type: 'response.ok', id: cmd.id, data: policies });
           events.push({ type: 'permission.list', policies } as KernelEvent);
           break;
         }
 
         case 'permission.check': {
-          const allowed = this.auth.checkPermission(
-            (cmd as any).userId,
-            (cmd as any).action,
-            (cmd as any).resource,
-          );
+          const allowed = this.auth.checkPermission(cmd.userId, cmd.action, cmd.resource);
           events.push({ type: 'response.ok', id: cmd.id, data: { allowed } });
           break;
         }
@@ -2283,8 +2269,8 @@ export class Kernel {
               format: cmd.format,
               names: imported.map((t: any) => t.name),
             } as KernelEvent);
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
@@ -2316,8 +2302,8 @@ export class Kernel {
             const serverInfo = this.mcp.addServer(cmd.config);
             events.push({ type: 'response.ok', id: cmd.id, data: serverInfo });
             events.push({ type: 'mcp.server.added', server: serverInfo } as KernelEvent);
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
@@ -2327,8 +2313,8 @@ export class Kernel {
             this.mcp.removeServer(cmd.serverId);
             events.push({ type: 'response.ok', id: cmd.id });
             events.push({ type: 'mcp.server.removed', serverId: cmd.serverId } as KernelEvent);
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
@@ -2337,8 +2323,8 @@ export class Kernel {
           try {
             this.mcp.updateServer(cmd.serverId, cmd.updates);
             events.push({ type: 'response.ok', id: cmd.id });
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
@@ -2356,8 +2342,8 @@ export class Kernel {
             }
             const serverInfo = await this.mcp.connect(config);
             events.push({ type: 'response.ok', id: cmd.id, data: serverInfo });
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
@@ -2366,8 +2352,8 @@ export class Kernel {
           try {
             await this.mcp.disconnect(cmd.serverId);
             events.push({ type: 'response.ok', id: cmd.id });
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
@@ -2390,8 +2376,8 @@ export class Kernel {
           try {
             const toolResult = await this.mcp.callTool(cmd.serverId, cmd.toolName, cmd.args);
             events.push({ type: 'response.ok', id: cmd.id, data: { output: toolResult } });
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
@@ -2399,7 +2385,7 @@ export class Kernel {
         // ----- OpenClaw Commands (v0.6) -----
         case 'openclaw.importSkill': {
           try {
-            const importResult = await this.openClaw.importSkill((cmd as any).path);
+            const importResult = await this.openClaw.importSkill(cmd.path);
             events.push({ type: 'response.ok', id: cmd.id, data: importResult });
             events.push({
               type: 'openclaw.skill.imported',
@@ -2408,15 +2394,15 @@ export class Kernel {
               warnings: importResult.warnings,
               dependenciesMet: importResult.dependenciesMet,
             } as KernelEvent);
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
 
         case 'openclaw.importDirectory': {
           try {
-            const batchResult = await this.openClaw.importDirectory((cmd as any).dirPath);
+            const batchResult = await this.openClaw.importDirectory(cmd.dirPath);
             events.push({ type: 'response.ok', id: cmd.id, data: batchResult });
             events.push({
               type: 'openclaw.batch.imported',
@@ -2424,8 +2410,8 @@ export class Kernel {
               failed: batchResult.failed.length,
               totalScanned: batchResult.totalScanned,
             } as KernelEvent);
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
@@ -2438,32 +2424,32 @@ export class Kernel {
         }
 
         case 'openclaw.removeImport': {
-          const removed = this.openClaw.removeImport((cmd as any).skillId);
+          const removed = this.openClaw.removeImport(cmd.skillId);
           if (removed) {
             events.push({ type: 'response.ok', id: cmd.id });
             events.push({
               type: 'openclaw.import.removed',
-              skillId: (cmd as any).skillId,
+              skillId: cmd.skillId,
             } as KernelEvent);
           } else {
             events.push({
               type: 'response.error',
               id: cmd.id,
-              error: `OpenClaw skill not found: ${(cmd as any).skillId}`,
+              error: `OpenClaw skill not found: ${cmd.skillId}`,
             });
           }
           break;
         }
 
         case 'openclaw.getInstructions': {
-          const instructions = this.openClaw.getInstructions((cmd as any).skillId);
+          const instructions = this.openClaw.getInstructions(cmd.skillId);
           if (instructions !== undefined) {
             events.push({ type: 'response.ok', id: cmd.id, data: { instructions } });
           } else {
             events.push({
               type: 'response.error',
               id: cmd.id,
-              error: `OpenClaw skill not found: ${(cmd as any).skillId}`,
+              error: `OpenClaw skill not found: ${cmd.skillId}`,
             });
           }
           break;
@@ -2472,50 +2458,42 @@ export class Kernel {
         // ----- SkillForge Commands (v0.7) -----
         case 'skillforge.discover': {
           try {
-            const results = await this.skillForge.discover(
-              (cmd as any).query,
-              (cmd as any).source,
-              (cmd as any).limit,
-            );
+            const results = await this.skillForge.discover(cmd.query, cmd.source, cmd.limit);
             events.push({ type: 'response.ok', id: cmd.id, data: results });
             events.push({
               type: 'skillforge.discover.results',
               results,
             } as KernelEvent);
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
 
         case 'skillforge.install': {
           try {
-            const result = await this.skillForge.install(
-              (cmd as any).skillId,
-              (cmd as any).source,
-              user?.id,
-            );
+            const result = await this.skillForge.install(cmd.skillId, cmd.source, user?.id);
             if (result.success) {
               events.push({ type: 'response.ok', id: cmd.id, data: result });
             } else {
               events.push({ type: 'response.error', id: cmd.id, error: result.message });
             }
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
 
         case 'skillforge.create': {
           try {
-            const result = await this.skillForge.create((cmd as any).params, user?.id || 'system');
+            const result = await this.skillForge.create(cmd.params, user?.id || 'system');
             if (result.success) {
               events.push({ type: 'response.ok', id: cmd.id, data: result });
             } else {
               events.push({ type: 'response.error', id: cmd.id, error: result.message });
             }
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
@@ -2523,9 +2501,9 @@ export class Kernel {
         case 'skillforge.compose': {
           try {
             const result = await this.skillForge.compose(
-              (cmd as any).name,
-              (cmd as any).description,
-              (cmd as any).steps,
+              cmd.name,
+              cmd.description,
+              cmd.steps,
               user?.id || 'system',
             );
             if (result.success) {
@@ -2533,58 +2511,55 @@ export class Kernel {
             } else {
               events.push({ type: 'response.error', id: cmd.id, error: result.message });
             }
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
 
         case 'skillforge.remove': {
           try {
-            await this.skillForge.remove((cmd as any).skillId);
+            await this.skillForge.remove(cmd.skillId);
             events.push({ type: 'response.ok', id: cmd.id });
             events.push({
               type: 'skillforge.skill.removed',
-              skillId: (cmd as any).skillId,
+              skillId: cmd.skillId,
             } as KernelEvent);
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
 
         case 'skillforge.rollback': {
           try {
-            const success = await this.skillForge.rollback(
-              (cmd as any).skillId,
-              (cmd as any).version,
-            );
+            const success = await this.skillForge.rollback(cmd.skillId, cmd.version);
             if (success) {
               events.push({ type: 'response.ok', id: cmd.id });
             } else {
               events.push({
                 type: 'response.error',
                 id: cmd.id,
-                error: `Rollback failed for ${(cmd as any).skillId}@v${(cmd as any).version}`,
+                error: `Rollback failed for ${cmd.skillId}@v${cmd.version}`,
               });
             }
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
 
         case 'skillforge.listVersions': {
           try {
-            const versions = await this.skillForge.listVersions((cmd as any).skillId);
+            const versions = await this.skillForge.listVersions(cmd.skillId);
             events.push({ type: 'response.ok', id: cmd.id, data: versions });
             events.push({
               type: 'skillforge.versions.list',
-              skillId: (cmd as any).skillId,
+              skillId: cmd.skillId,
               versions,
             } as KernelEvent);
-          } catch (err: any) {
-            events.push({ type: 'response.error', id: cmd.id, error: err.message });
+          } catch (err: unknown) {
+            events.push({ type: 'response.error', id: cmd.id, error: errMsg(err) });
           }
           break;
         }
@@ -2615,15 +2590,15 @@ export class Kernel {
         default:
           events.push({
             type: 'response.error',
-            id: (cmd as any).id || 'unknown',
-            error: `Unknown command type: ${(cmd as any).type}`,
+            id: ((cmd as Record<string, unknown>).id as string) || 'unknown',
+            error: `Unknown command type: ${(cmd as Record<string, unknown>).type}`,
           });
       }
     } catch (err) {
       events.push({
         type: 'response.error',
-        id: (cmd as any).id || 'unknown',
-        error: err instanceof Error ? err.message : String(err),
+        id: ((cmd as Record<string, unknown>).id as string) || 'unknown',
+        error: err instanceof Error ? errMsg(err) : String(err),
       });
     }
 
@@ -2699,17 +2674,17 @@ export class Kernel {
     const role = this.cluster.getRole();
     const total = left.length + right.length;
 
-    console.log('');
-    console.log(
+    log.raw('');
+    log.raw(
       `  ${B}\u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510${R}`,
     );
-    console.log(
+    log.raw(
       `  ${B}\u2502${R}        ${C}${B}Aether Kernel${R}  v${this.version}          ${B}\u2502${R}`,
     );
-    console.log(
+    log.raw(
       `  ${B}\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518${R}`,
     );
-    console.log('');
+    log.raw('');
 
     const maxRows = Math.max(left.length, right.length);
     for (let i = 0; i < maxRows; i++) {
@@ -2717,17 +2692,17 @@ export class Kernel {
       const rPart = right[i];
       const lStr = lPart ? `${lPart[1] ? ok : warn} ${lPart[0].padEnd(20)}` : ''.padEnd(22);
       const rStr = rPart ? `${rPart[1] ? ok : warn} ${rPart[0]}` : '';
-      console.log(`    ${lStr}${rStr}`);
+      log.raw(`    ${lStr}${rStr}`);
     }
 
-    console.log('');
+    log.raw('');
     const gpuStr = gpuUp ? `  ${D}GPU:${R} ${gpuCount}` : '';
-    console.log(
+    log.raw(
       `    ${D}Port:${R} ${port}  ${D}FS root:${R} ${fsRoot}  ${D}Cluster:${R} ${role}${gpuStr}`,
     );
-    console.log('');
-    console.log(`  ${G}Kernel ready${R} ${D}\u2014${R} ${total} subsystems online`);
-    console.log('');
+    log.raw('');
+    log.raw(`  ${G}Kernel ready${R} ${D}\u2014${R} ${total} subsystems online`);
+    log.raw('');
   }
 
   /**
@@ -2735,7 +2710,7 @@ export class Kernel {
    */
   async shutdown(): Promise<void> {
     if (!this.running) return;
-    console.log('[Kernel] Shutting down...');
+    log.info('Shutting down...');
 
     this.running = false;
 
@@ -2779,6 +2754,6 @@ export class Kernel {
     this.state.close();
     this.bus.off();
 
-    console.log('[Kernel] Shutdown complete');
+    log.info('Shutdown complete');
   }
 }

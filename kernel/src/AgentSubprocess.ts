@@ -83,22 +83,25 @@ export class AgentSubprocess {
     const { command, args, env } = this.buildCommand(pid, runtime, config, workDir);
 
     // 4. Spawn the process
-    // On Windows, .cmd scripts (like claude.cmd) need shell: true.
-    // To avoid DEP0190 (unescaped args with shell: true), we build a single
-    // command string with properly quoted args instead of passing an args array.
-    const isWin = process.platform === 'win32';
-    const quotedArgs = args.map((a) => (a.includes(' ') ? `"${a}"` : a));
-    const spawnCmd = isWin ? `${command} ${quotedArgs.join(' ')}` : command;
-    const spawnArgs = isWin ? [] : args;
-    const child = spawn(spawnCmd, spawnArgs, {
-      cwd: workDir,
-      env: { ...process.env, ...env },
-      stdio: ['pipe', 'pipe', 'pipe'],
-      shell: isWin,
-    });
+    // When we resolved the CLI script directly (e.g., node.exe cli.js), we don't
+    // need shell: true and can pass args as an array for reliable pipe capture.
+    // Fall back to shell: true only for unresolved .cmd commands (e.g., openclaw).
+    const needsShell = process.platform === 'win32' && !command.endsWith('.exe');
+    const child = needsShell
+      ? spawn(`${command} ${args.map((a) => (a.includes(' ') ? `"${a}"` : a)).join(' ')}`, [], {
+          cwd: workDir,
+          env: { ...process.env, ...env },
+          stdio: ['pipe', 'pipe', 'pipe'],
+          shell: true,
+        })
+      : spawn(command, args, {
+          cwd: workDir,
+          env: { ...process.env, ...env },
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
 
     console.log(
-      `[AgentSubprocess] Spawning PID ${pid}: ${spawnCmd} ${spawnArgs.join(' ')} (cwd: ${workDir})`,
+      `[AgentSubprocess] Spawning PID ${pid}: ${command} ${args.join(' ')} (shell: ${needsShell}, cwd: ${workDir})`,
     );
 
     const info: SubprocessInfo = {
@@ -114,8 +117,15 @@ export class AgentSubprocess {
     this.subprocesses.set(pid, info);
 
     // 5. Capture stdout
+    let stdoutChunks = 0;
     child.stdout?.on('data', (data: Buffer) => {
       const text = data.toString();
+      stdoutChunks++;
+      if (stdoutChunks <= 3) {
+        console.log(
+          `[AgentSubprocess] PID ${pid} stdout chunk #${stdoutChunks} (${text.length} bytes): ${text.slice(0, 200)}`,
+        );
+      }
       info.outputBuffer += text;
       if (info.outputBuffer.length > SUBPROCESS_OUTPUT_MAX_BUFFER) {
         info.outputBuffer = info.outputBuffer.slice(-SUBPROCESS_OUTPUT_MAX_BUFFER);
@@ -126,8 +136,15 @@ export class AgentSubprocess {
     });
 
     // 6. Capture stderr
+    let stderrChunks = 0;
     child.stderr?.on('data', (data: Buffer) => {
       const text = data.toString();
+      stderrChunks++;
+      if (stderrChunks <= 3) {
+        console.log(
+          `[AgentSubprocess] PID ${pid} stderr chunk #${stderrChunks} (${text.length} bytes): ${text.slice(0, 200)}`,
+        );
+      }
       info.errorBuffer += text;
       if (info.errorBuffer.length > SUBPROCESS_OUTPUT_MAX_BUFFER) {
         info.errorBuffer = info.errorBuffer.slice(-SUBPROCESS_OUTPUT_MAX_BUFFER);
@@ -138,10 +155,13 @@ export class AgentSubprocess {
     // 7. Handle exit
     child.on('exit', (code, signal) => {
       console.log(
-        `[AgentSubprocess] PID ${pid} exited: code=${code} signal=${signal} (ran ${Math.round((Date.now() - info.startedAt) / 1000)}s)`,
+        `[AgentSubprocess] PID ${pid} exited: code=${code} signal=${signal} (ran ${Math.round((Date.now() - info.startedAt) / 1000)}s) stdout=${stdoutChunks} chunks (${info.outputBuffer.length} bytes) stderr=${stderrChunks} chunks (${info.errorBuffer.length} bytes)`,
       );
       if (info.errorBuffer) {
         console.error(`[AgentSubprocess] PID ${pid} stderr: ${info.errorBuffer.slice(0, 500)}`);
+      }
+      if (info.outputBuffer) {
+        console.log(`[AgentSubprocess] PID ${pid} stdout tail: ${info.outputBuffer.slice(-300)}`);
       }
       this.bus.emit('subprocess.exited', {
         pid,
@@ -433,18 +453,37 @@ export class AgentSubprocess {
     const mcpConfigPath = path.join(workDir, '.mcp.json');
 
     switch (runtime) {
-      case 'claude-code':
+      case 'claude-code': {
+        // On Windows, spawning `claude.cmd` through shell: true can swallow
+        // stdout/stderr (pipes don't connect through the batch wrapper reliably).
+        // Instead, resolve the underlying Node CLI script and invoke it directly.
+        let claudeCmd = 'claude';
+        const claudeArgs = [
+          '--print', // Non-interactive streaming output
+          '--dangerously-skip-permissions', // Agent mode — no interactive prompts
+          '--mcp-config',
+          mcpConfigPath, // Connect to Aether MCP tools
+          config.goal, // The task to accomplish
+        ];
+
+        if (process.platform === 'win32') {
+          // Resolve the actual CLI script from the npm .cmd wrapper
+          const npmPrefix = process.env.APPDATA ? path.join(process.env.APPDATA, 'npm') : '';
+          const cliScript = npmPrefix
+            ? path.join(npmPrefix, 'node_modules', '@anthropic-ai', 'claude-code', 'cli.js')
+            : '';
+          if (cliScript && fs.existsSync(cliScript)) {
+            claudeCmd = process.execPath; // node.exe
+            claudeArgs.unshift(cliScript);
+          }
+        }
+
         return {
-          command: 'claude',
-          args: [
-            '--print', // Non-interactive streaming output
-            '--dangerously-skip-permissions', // Agent mode — no interactive prompts
-            '--mcp-config',
-            mcpConfigPath, // Connect to Aether MCP tools
-            config.goal, // The task to accomplish
-          ],
+          command: claudeCmd,
+          args: claudeArgs,
           env,
         };
+      }
 
       case 'openclaw':
         return {

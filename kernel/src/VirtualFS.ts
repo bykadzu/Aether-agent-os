@@ -18,6 +18,7 @@ import * as fs from 'node:fs/promises';
 import * as fsSync from 'node:fs';
 import * as path from 'node:path';
 import { EventBus } from './EventBus.js';
+import { errMsg } from './logger.js';
 import { FileStat, FileType, FileMode, SharedMountInfo, PID, AETHER_ROOT } from '@aether/shared';
 
 const DEFAULT_MODE: FileMode = {
@@ -201,11 +202,11 @@ export class VirtualFS {
       if (!realResolved.startsWith(resolvedRoot)) {
         throw new Error(`Access denied: symlink target outside aether root (${virtualPath})`);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       // ENOENT is fine - the path doesn't exist yet
       if (err.code !== 'ENOENT') {
         // Re-throw access denied errors
-        if (err.message?.includes('Access denied')) throw err;
+        if (errMsg(err)?.includes('Access denied')) throw err;
       }
     }
 
@@ -233,7 +234,7 @@ export class VirtualFS {
     try {
       const content = await fs.readFile(realPath, 'utf-8');
       return { content, size: Buffer.byteLength(content) };
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (err.code === 'EACCES') {
         throw new Error(`Permission denied: cannot read ${virtualPath}`);
       }
@@ -248,7 +249,7 @@ export class VirtualFS {
     const realPath = this.resolvePath(virtualPath);
     try {
       return await fs.readFile(realPath);
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (err.code === 'EACCES') {
         throw new Error(`Permission denied: cannot read ${virtualPath}`);
       }
@@ -282,7 +283,7 @@ export class VirtualFS {
     try {
       await fs.writeFile(tmpPath, content, 'utf-8');
       await fs.rename(tmpPath, realPath);
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Clean up temp file on error
       try {
         await fs.unlink(tmpPath);
@@ -321,7 +322,7 @@ export class VirtualFS {
     try {
       await fs.writeFile(tmpPath, content);
       await fs.rename(tmpPath, realPath);
-    } catch (err: any) {
+    } catch (err: unknown) {
       try {
         await fs.unlink(tmpPath);
       } catch {
@@ -347,7 +348,7 @@ export class VirtualFS {
     const realPath = this.resolvePath(virtualPath);
     try {
       await fs.mkdir(realPath, { recursive });
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (err.code === 'ENOSPC') {
         throw new Error(`Disk full: cannot create directory ${virtualPath}`);
       }
@@ -697,9 +698,9 @@ export class VirtualFS {
       await fs.rm(homePath, { recursive: true, force: true });
       this.bus.emit('fs.changed', { path: `/home/${uid}`, changeType: 'delete' });
       return true;
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (err.code !== 'ENOENT') {
-        console.error(`[VirtualFS] Failed to remove home for ${uid}:`, err.message);
+        console.error(`[VirtualFS] Failed to remove home for ${uid}:`, errMsg(err));
       }
       return false;
     }

@@ -29,6 +29,7 @@
 
 import * as crypto from 'node:crypto';
 import { EventBus } from './EventBus.js';
+import { errMsg } from './logger.js';
 import { StateStore } from './StateStore.js';
 import type { AgentConfig } from '@aether/shared';
 
@@ -286,7 +287,7 @@ export class WebhookManager {
       // Check filters if any
       if (webhook.filters) {
         const passes = Object.entries(webhook.filters).every(
-          ([key, value]) => (event as any)[key] === value,
+          ([key, value]) => event[key] === value,
         );
         if (!passes) continue;
       }
@@ -584,9 +585,9 @@ export class WebhookManager {
         }
 
         lastError = `HTTP ${response.status}: ${responseBody.slice(0, 200)}`;
-      } catch (err: any) {
+      } catch (err: unknown) {
         const durationMs = Date.now() - startTime;
-        lastError = err.message || String(err);
+        lastError = errMsg(err) || String(err);
         deliveryStatus = 'failed';
 
         this.state.insertWebhookLog({

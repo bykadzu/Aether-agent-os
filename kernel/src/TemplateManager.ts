@@ -43,7 +43,7 @@ export class TemplateManager {
   ) {}
 
   async init(): Promise<void> {
-    const db = (this.state as any).db;
+    const db = this.state.db;
     this.getRatingSums = db.prepare(`
       SELECT COALESCE(SUM(rating), 0) as total, COUNT(*) as count
       FROM template_ratings WHERE template_id = ?

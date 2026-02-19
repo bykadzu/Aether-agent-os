@@ -17,6 +17,7 @@ import { readFileSync, existsSync, readdirSync, mkdirSync, writeFileSync } from 
 import { join, resolve, relative, isAbsolute } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { EventBus } from './EventBus.js';
+import { errMsg } from './logger.js';
 import { PID } from '@aether/shared';
 
 // ---------------------------------------------------------------------------
@@ -117,14 +118,14 @@ export class PluginManager {
             pid,
             name: plugin.manifest.name,
             version: plugin.manifest.version,
-            tools: plugin.manifest.tools.map(t => t.name),
+            tools: plugin.manifest.tools.map((t) => t.name),
           });
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         this.bus.emit('plugin.error', {
           pid,
           plugin: entry,
-          error: err.message,
+          error: errMsg(err),
         });
       }
     }
@@ -153,7 +154,9 @@ export class PluginManager {
 
     for (const tool of manifest.tools) {
       if (!tool.name || !tool.handler) {
-        throw new Error(`Invalid tool definition in plugin ${manifest.name}: missing name or handler`);
+        throw new Error(
+          `Invalid tool definition in plugin ${manifest.name}: missing name or handler`,
+        );
       }
 
       // Security: validate handler path doesn't escape the plugin directory
@@ -161,7 +164,7 @@ export class PluginManager {
       const relPath = relative(pluginDir, handlerPath);
       if (relPath.startsWith('..') || isAbsolute(relPath)) {
         throw new Error(
-          `Security: handler path "${tool.handler}" escapes plugin directory in ${manifest.name}`
+          `Security: handler path "${tool.handler}" escapes plugin directory in ${manifest.name}`,
         );
       }
 
@@ -175,7 +178,9 @@ export class PluginManager {
       const handler = mod.default;
 
       if (typeof handler !== 'function') {
-        throw new Error(`Handler ${tool.handler} in ${manifest.name} does not export a default function`);
+        throw new Error(
+          `Handler ${tool.handler} in ${manifest.name} does not export a default function`,
+        );
       }
 
       handlers.set(tool.name, handler);
@@ -196,11 +201,11 @@ export class PluginManager {
    */
   getPluginInfos(pid: PID): PluginInfo[] {
     const loaded = this.plugins.get(pid) || [];
-    return loaded.map(p => ({
+    return loaded.map((p) => ({
       name: p.manifest.name,
       version: p.manifest.version,
       description: p.manifest.description,
-      tools: p.manifest.tools.map(t => t.name),
+      tools: p.manifest.tools.map((t) => t.name),
     }));
   }
 

@@ -13,6 +13,7 @@ import { Socket } from 'node:net';
 import { createServer as createHttpServer, IncomingMessage, Server as HttpServer } from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { EventBus } from './EventBus.js';
+import { errMsg } from './logger.js';
 import { PID } from '@aether/shared';
 import type { ContainerManager } from './ContainerManager.js';
 
@@ -133,7 +134,7 @@ export class VNCManager {
             retryCount++;
             const delay = Math.min(500 * retryCount, 3000);
             console.log(
-              `[VNCManager] VNC TCP error: ${err.message} (attempt ${retryCount}/${MAX_RETRIES}), retrying in ${delay}ms...`,
+              `[VNCManager] VNC TCP error: ${errMsg(err)} (attempt ${retryCount}/${MAX_RETRIES}), retrying in ${delay}ms...`,
             );
             if (!vncSocket.destroyed) vncSocket.destroy();
             setTimeout(connectVNC, delay);
@@ -176,7 +177,7 @@ export class VNCManager {
       });
 
       httpServer.on('error', (err: Error) => {
-        console.error(`[VNCManager] Failed to start proxy for PID ${pid}:`, err.message);
+        console.error(`[VNCManager] Failed to start proxy for PID ${pid}:`, errMsg(err));
         // Try next port on EADDRINUSE
         this.nextWsPort++;
         reject(err);
@@ -239,8 +240,8 @@ export class VNCManager {
           `xrandr --output default --mode "${modeName}" 2>/dev/null) || true`,
       );
       console.log(`[VNCManager] Display resized to ${modeName} for PID ${pid}`);
-    } catch (err: any) {
-      console.warn(`[VNCManager] Failed to resize display for PID ${pid}: ${err.message}`);
+    } catch (err: unknown) {
+      console.warn(`[VNCManager] Failed to resize display for PID ${pid}: ${errMsg(err)}`);
     }
   }
 

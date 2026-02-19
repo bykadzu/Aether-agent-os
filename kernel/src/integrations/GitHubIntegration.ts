@@ -6,6 +6,7 @@
  */
 
 import type { IIntegration, IntegrationActionDef } from './IIntegration.js';
+import { errMsg } from '../logger.js';
 
 const GITHUB_API = 'https://api.github.com';
 
@@ -129,8 +130,8 @@ export class GitHubIntegration implements IIntegration {
         return { success: true, message: `Connected as ${data.login}` };
       }
       return { success: false, message: `GitHub API returned ${res.status}` };
-    } catch (err: any) {
-      return { success: false, message: err.message || 'Connection failed' };
+    } catch (err: unknown) {
+      return { success: false, message: errMsg(err) || 'Connection failed' };
     }
   }
 

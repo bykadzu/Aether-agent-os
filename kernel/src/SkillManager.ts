@@ -23,6 +23,7 @@ import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { execSync } from 'node:child_process';
 import { EventBus } from './EventBus.js';
+import { errMsg } from './logger.js';
 import { StateStore } from './StateStore.js';
 
 // ---------------------------------------------------------------------------
@@ -226,7 +227,7 @@ function createBuiltinActions(): Record<string, ActionHandler> {
           maxBuffer: 1024 * 1024,
         });
         return { command, exitCode: 0, stdout: stdout.trim(), stderr: '' };
-      } catch (err: any) {
+      } catch (err: unknown) {
         return {
           command,
           exitCode: err.status ?? 1,
@@ -521,7 +522,7 @@ export class SkillManager {
           success: true,
           output,
         });
-      } catch (err: any) {
+      } catch (err: unknown) {
         const duration = Date.now() - stepStart;
         stepResults.push({
           id: step.id,
@@ -532,12 +533,12 @@ export class SkillManager {
         });
 
         const totalDuration = Date.now() - startTime;
-        const error = `Step "${step.id}" (${step.action}) failed: ${err.message}`;
+        const error = `Step "${step.id}" (${step.action}) failed: ${errMsg(err)}`;
 
         this.bus.emit('skill.execution.failed', {
           skillId,
           stepId: step.id,
-          error: err.message,
+          error: errMsg(err),
           agentUid: context.agentUid,
         });
 
@@ -594,11 +595,11 @@ export class SkillManager {
         const skillDef = parseSkillYaml(content);
         this.register(skillDef);
         count++;
-      } catch (err: any) {
-        console.error(`[SkillManager] Failed to load skill from ${filePath}: ${err.message}`);
+      } catch (err: unknown) {
+        console.error(`[SkillManager] Failed to load skill from ${filePath}: ${errMsg(err)}`);
         this.bus.emit('skill.load.error', {
           file: filePath,
-          error: err.message,
+          error: errMsg(err),
         });
       }
     }

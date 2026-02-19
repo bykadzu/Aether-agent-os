@@ -15,8 +15,9 @@
 import * as crypto from 'node:crypto';
 import matter from 'gray-matter';
 import { EventBus } from './EventBus.js';
+import { errMsg } from './logger.js';
 import { StateStore } from './StateStore.js';
-import { PluginRegistryManager } from './PluginRegistryManager.js';
+import { PluginRegistryManager, type PluginRegistryManifest } from './PluginRegistryManager.js';
 import { OpenClawAdapter } from './OpenClawAdapter.js';
 import { ContainerManager } from './ContainerManager.js';
 import type {
@@ -94,7 +95,7 @@ export class SkillForge {
   // -------------------------------------------------------------------------
 
   async init(): Promise<void> {
-    const db = (this.state as any).db;
+    const db = this.state.db;
 
     db.exec(`
       CREATE TABLE IF NOT EXISTS skill_versions (
@@ -241,8 +242,8 @@ export class SkillForge {
       const results = data.skills || [];
       this.setClawHubCache(cacheKey, results);
       return results;
-    } catch (err: any) {
-      console.warn(`[SkillForge] ClawHub search failed: ${err.message}`);
+    } catch (err: unknown) {
+      console.warn(`[SkillForge] ClawHub search failed: ${errMsg(err)}`);
       return [];
     }
   }
@@ -263,8 +264,8 @@ export class SkillForge {
       const content = await response.text();
       this.setClawHubCache(cacheKey, content);
       return content;
-    } catch (err: any) {
-      console.warn(`[SkillForge] ClawHub fetch failed: ${err.message}`);
+    } catch (err: unknown) {
+      console.warn(`[SkillForge] ClawHub fetch failed: ${errMsg(err)}`);
       return null;
     }
   }
@@ -307,9 +308,11 @@ export class SkillForge {
         const result = await this.openClaw.importSkill(skillId);
 
         // Score risk based on any permissions embedded in the skill metadata
-        const permissions = (result.manifest as any).metadata?.openclaw?.permissions as
-          | SkillPermissionManifest
-          | undefined;
+        const permissions = (
+          result.manifest as Record<string, unknown> & {
+            metadata?: { openclaw?: { permissions?: SkillPermissionManifest } };
+          }
+        ).metadata?.openclaw?.permissions;
         const risk = this.scoreRisk(permissions);
 
         // Check enforcement level
@@ -408,12 +411,12 @@ export class SkillForge {
       }
 
       return { success: false, message: `Source "${source}" not yet supported` };
-    } catch (err: any) {
+    } catch (err: unknown) {
       this.bus.emit('skillforge.install.failed', {
         skillId,
-        error: err.message,
+        error: errMsg(err),
       });
-      return { success: false, message: `Install failed: ${err.message}` };
+      return { success: false, message: `Install failed: ${errMsg(err)}` };
     }
   }
 
@@ -443,8 +446,8 @@ export class SkillForge {
         if (!parsed.data.name) {
           return { success: false, message: 'Generated SKILL.md missing required "name" field' };
         }
-      } catch (parseErr: any) {
-        return { success: false, message: `SKILL.md YAML parse error: ${parseErr.message}` };
+      } catch (parseErr: unknown) {
+        return { success: false, message: `SKILL.md YAML parse error: ${errMsg(parseErr)}` };
       }
 
       // 4. Score permissions risk
@@ -522,13 +525,13 @@ export class SkillForge {
       this.computeAndStoreEmbedding(skillId, params.description);
 
       return { success: true, skillId, message: `Skill "${params.name}" created successfully` };
-    } catch (err: any) {
+    } catch (err: unknown) {
       this.bus.emit('skillforge.create.failed', {
         name: params.name,
-        error: err.message,
+        error: errMsg(err),
         agentUid,
       });
-      return { success: false, message: `Create failed: ${err.message}` };
+      return { success: false, message: `Create failed: ${errMsg(err)}` };
     }
   }
 
@@ -597,7 +600,7 @@ export class SkillForge {
 
   async remove(skillId: string): Promise<boolean> {
     // Soft-delete: mark deleted_at in versions table
-    const db = (this.state as any).db;
+    const db = this.state.db;
     const now = Math.floor(Date.now() / 1000);
     db.prepare(
       'UPDATE skill_versions SET deleted_at = ? WHERE skill_id = ? AND deleted_at IS NULL',
@@ -680,8 +683,8 @@ export class SkillForge {
       });
 
       return true;
-    } catch (err: any) {
-      console.error(`[SkillForge] Rollback failed for ${skillId}@v${version}:`, err.message);
+    } catch (err: unknown) {
+      console.error(`[SkillForge] Rollback failed for ${skillId}@v${version}:`, errMsg(err));
       return false;
     }
   }
@@ -886,9 +889,9 @@ export class SkillForge {
       };
 
       try {
-        this.pluginRegistry.install(manifest as any, 'local', agentUid);
-      } catch (err: any) {
-        return { success: false, message: `Failed to register shared skill: ${err.message}` };
+        this.pluginRegistry.install(manifest as PluginRegistryManifest, 'local', agentUid);
+      } catch (err: unknown) {
+        return { success: false, message: `Failed to register shared skill: ${errMsg(err)}` };
       }
 
       this.bus.emit('skillforge.skill.shared', {
@@ -1006,8 +1009,8 @@ export class SkillForge {
       }
 
       return { passed: true, output: 'Basic validation passed' };
-    } catch (err: any) {
-      return { passed: false, output: `Validation error: ${err.message}` };
+    } catch (err: unknown) {
+      return { passed: false, output: `Validation error: ${errMsg(err)}` };
     }
   }
 
@@ -1131,7 +1134,7 @@ export class SkillForge {
     createdBy: string,
     explicitVersion?: number,
   ): void {
-    const db = (this.state as any).db;
+    const db = this.state.db;
 
     // Determine version number
     const existing = this.skillVersions.get(skillId) || [];
@@ -1160,7 +1163,7 @@ export class SkillForge {
   }
 
   private loadVersions(): void {
-    const db = (this.state as any).db;
+    const db = this.state.db;
 
     const rows = db
       .prepare(

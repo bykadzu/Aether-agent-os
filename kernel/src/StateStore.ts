@@ -14,6 +14,7 @@ import Database from 'better-sqlite3';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { EventBus } from './EventBus.js';
+import { errMsg } from './logger.js';
 import {
   PID,
   ProcessRecord,
@@ -35,7 +36,8 @@ import {
 } from '@aether/shared';
 
 export class StateStore {
-  private db: Database.Database;
+  /** @internal Exposed for subsystems that manage their own tables (SkillForge, PluginRegistry, etc.) */
+  db: Database.Database;
   private bus: EventBus;
 
   // Prepared statements - initialized in constructor after db is ready
@@ -267,9 +269,9 @@ export class StateStore {
       this.db = new Database(resolvedPath);
       this.db.pragma('journal_mode = WAL');
       this.db.pragma('synchronous = NORMAL');
-    } catch (err: any) {
+    } catch (err: unknown) {
       // If DB is corrupted or locked, try to recreate it
-      console.error(`[StateStore] Failed to open database at ${resolvedPath}: ${err.message}`);
+      console.error(`[StateStore] Failed to open database at ${resolvedPath}: ${errMsg(err)}`);
       console.warn('[StateStore] Attempting to recreate database...');
       try {
         // Remove corrupt file and try again
@@ -292,8 +294,8 @@ export class StateStore {
         this.db.pragma('journal_mode = WAL');
         this.db.pragma('synchronous = NORMAL');
         console.log('[StateStore] Database recreated successfully');
-      } catch (retryErr: any) {
-        console.error(`[StateStore] Failed to recreate database: ${retryErr.message}`);
+      } catch (retryErr: unknown) {
+        console.error(`[StateStore] Failed to recreate database: ${errMsg(retryErr)}`);
         console.warn('[StateStore] Persistence disabled — kernel will operate in-memory only');
         // Use in-memory database as last resort
         this.db = new Database(':memory:');

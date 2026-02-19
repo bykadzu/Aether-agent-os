@@ -103,7 +103,7 @@ export class PluginRegistryManager {
   ) {}
 
   async init(): Promise<void> {
-    const db = (this.state as any).db;
+    const db = this.state.db;
 
     db.exec(`
       CREATE TABLE IF NOT EXISTS plugin_registry (

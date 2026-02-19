@@ -20,6 +20,7 @@
  */
 
 import { EventBus } from './EventBus.js';
+import { errMsg } from './logger.js';
 import { StateStore } from './StateStore.js';
 import { MemoryManager } from './MemoryManager.js';
 import { SkillForge } from './SkillForge.js';
@@ -125,8 +126,8 @@ export class AetherMCPServer {
 
     try {
       return await tool.execute(args, context);
-    } catch (err: any) {
-      return { content: `Tool error: ${err.message}`, isError: true };
+    } catch (err: unknown) {
+      return { content: `Tool error: ${errMsg(err)}`, isError: true };
     }
   }
 
@@ -462,8 +463,8 @@ export class AetherMCPServer {
           }
           const content = nodefs.readFileSync(filePath, 'utf-8');
           return { content: content.substring(0, 50_000) };
-        } catch (err: any) {
-          return { content: `Error reading file: ${err.message}`, isError: true };
+        } catch (err: unknown) {
+          return { content: `Error reading file: ${errMsg(err)}`, isError: true };
         }
       },
     });
@@ -481,8 +482,8 @@ export class AetherMCPServer {
           const archPath = nodepath.join(repoRoot, 'docs', 'ARCHITECTURE.md');
           const content = nodefs.readFileSync(archPath, 'utf-8');
           return { content: content.substring(0, 50_000) };
-        } catch (err: any) {
-          return { content: `Error: ${err.message}`, isError: true };
+        } catch (err: unknown) {
+          return { content: `Error: ${errMsg(err)}`, isError: true };
         }
       },
     });

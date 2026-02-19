@@ -24,6 +24,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import matter from 'gray-matter';
 import { EventBus } from './EventBus.js';
+import { errMsg } from './logger.js';
 import { StateStore } from './StateStore.js';
 import { PluginRegistryManager } from './PluginRegistryManager.js';
 import type {
@@ -133,9 +134,9 @@ export class OpenClawAdapter {
     // Register in the plugin registry
     try {
       this.pluginRegistry.install(manifest, 'local', 'openclaw-importer');
-    } catch (err: any) {
+    } catch (err: unknown) {
       // If already installed, update instead
-      if (err.message?.includes('already')) {
+      if (errMsg(err)?.includes('already')) {
         // Skip -- already imported
       } else {
         throw err;
@@ -193,8 +194,8 @@ export class OpenClawAdapter {
       try {
         const imported = await this.importSkill(skillMdPath);
         result.imported.push(imported);
-      } catch (err: any) {
-        result.failed.push({ path: skillMdPath, error: err.message });
+      } catch (err: unknown) {
+        result.failed.push({ path: skillMdPath, error: errMsg(err) });
       }
     }
 

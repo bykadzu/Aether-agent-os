@@ -14,6 +14,7 @@ import { execFile, execFileSync, ChildProcess, spawn } from 'node:child_process'
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EventBus } from './EventBus.js';
+import { errMsg } from './logger.js';
 import {
   PID,
   SandboxConfig,
@@ -324,10 +325,10 @@ export class ContainerManager {
           console.log(
             `[ContainerManager] Graphical stack started for PID ${pid} (VNC port ${vncPort})`,
           );
-        } catch (err: any) {
+        } catch (err: unknown) {
           console.error(
             `[ContainerManager] Failed to start graphical stack for PID ${pid}:`,
-            err.message,
+            errMsg(err),
           );
         }
       } else if (graphical && hasEntrypoint) {
@@ -355,8 +356,8 @@ export class ContainerManager {
       }
 
       return info;
-    } catch (err: any) {
-      console.error(`[ContainerManager] Failed to create container for PID ${pid}:`, err.message);
+    } catch (err: unknown) {
+      console.error(`[ContainerManager] Failed to create container for PID ${pid}:`, errMsg(err));
       // Clean up GPU allocation on failure
       if (assignedGpuIds) {
         this.gpuAllocations.delete(pid);
@@ -464,8 +465,8 @@ export class ContainerManager {
       info.status = 'removing';
       await this.dockerExec('docker', ['rm', '-f', info.containerId], 10_000);
       this.bus.emit('container.removed', { pid, containerId: info.containerId });
-    } catch (err: any) {
-      console.error(`[ContainerManager] Failed to remove container for PID ${pid}:`, err.message);
+    } catch (err: unknown) {
+      console.error(`[ContainerManager] Failed to remove container for PID ${pid}:`, errMsg(err));
     }
 
     // Release GPU allocation
@@ -663,7 +664,7 @@ export class ContainerManager {
     return new Promise((resolve, reject) => {
       const child = execFile(cmd, args, { timeout }, (error, stdout, stderr) => {
         if (error) {
-          const isTimeout = (error as any).killed || (error as any).code === 'ETIMEDOUT';
+          const isTimeout = error.killed || error.code === 'ETIMEDOUT';
           const msg = isTimeout
             ? `Docker command timed out after ${timeout}ms: ${cmd} ${args.slice(0, 3).join(' ')}`
             : stderr?.trim() || error.message;

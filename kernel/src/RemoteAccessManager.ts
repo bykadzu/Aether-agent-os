@@ -14,6 +14,7 @@
 import * as crypto from 'node:crypto';
 import { spawn, execSync, type ChildProcess } from 'node:child_process';
 import { EventBus } from './EventBus.js';
+import { errMsg } from './logger.js';
 import { StateStore } from './StateStore.js';
 
 // ---------------------------------------------------------------------------
@@ -335,9 +336,9 @@ export class RemoteAccessManager {
 
       this.bus.emit('remote.tailscale.connected', {});
       return { success: true, message: 'Tailscale connected' };
-    } catch (err: any) {
+    } catch (err: unknown) {
       const message =
-        err.stderr?.toString().trim() || err.message || 'Failed to bring Tailscale up';
+        err.stderr?.toString().trim() || errMsg(err) || 'Failed to bring Tailscale up';
       return { success: false, message };
     }
   }
@@ -358,9 +359,9 @@ export class RemoteAccessManager {
 
       this.bus.emit('remote.tailscale.disconnected', {});
       return { success: true, message: 'Tailscale disconnected' };
-    } catch (err: any) {
+    } catch (err: unknown) {
       const message =
-        err.stderr?.toString().trim() || err.message || 'Failed to bring Tailscale down';
+        err.stderr?.toString().trim() || errMsg(err) || 'Failed to bring Tailscale down';
       return { success: false, message };
     }
   }
@@ -443,8 +444,8 @@ export class RemoteAccessManager {
       const url = tailnet ? `https://${hostname}.${tailnet}` : `https://${hostname}`;
 
       return { success: true, message: `Port ${port} exposed via Tailscale ${subcommand}`, url };
-    } catch (err: any) {
-      const message = err.stderr?.toString().trim() || err.message || 'Failed to expose port';
+    } catch (err: unknown) {
+      const message = err.stderr?.toString().trim() || errMsg(err) || 'Failed to expose port';
       return { success: false, message };
     }
   }
@@ -654,23 +655,23 @@ export class RemoteAccessManager {
       child.on('error', (err) => {
         clearTimeout(connectTimer);
         tunnel.status = 'error';
-        tunnel.error = err.message;
+        tunnel.error = errMsg(err);
         this.tunnelProcesses.delete(tunnel.id);
         tunnel.pid = undefined;
 
         this.bus.emit('remote.tunnel.error', {
           tunnelId: tunnel.id,
           name: config.name,
-          error: err.message,
+          error: errMsg(err),
         });
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       tunnel.status = 'error';
-      tunnel.error = err.message;
+      tunnel.error = errMsg(err);
       this.bus.emit('remote.tunnel.error', {
         tunnelId: tunnel.id,
         name: config.name,
-        error: err.message,
+        error: errMsg(err),
       });
     }
   }
@@ -760,8 +761,8 @@ export class RemoteAccessManager {
           this.authorizedKeys.set(k.id, k);
         }
       }
-    } catch (err: any) {
-      console.warn('[RemoteAccess] Failed to load persisted state:', err.message);
+    } catch (err: unknown) {
+      console.warn('[RemoteAccess] Failed to load persisted state:', errMsg(err));
     }
   }
 
@@ -775,8 +776,8 @@ export class RemoteAccessManager {
 
       const keys = Array.from(this.authorizedKeys.values());
       this.state.setKV('remote_access_keys', JSON.stringify(keys));
-    } catch (err: any) {
-      console.warn('[RemoteAccess] Failed to persist state:', err.message);
+    } catch (err: unknown) {
+      console.warn('[RemoteAccess] Failed to persist state:', errMsg(err));
     }
   }
 

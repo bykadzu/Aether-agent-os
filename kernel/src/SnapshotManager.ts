@@ -23,11 +23,12 @@ import * as crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { EventBus } from './EventBus.js';
+import { errMsg } from './logger.js';
 import { ProcessManager } from './ProcessManager.js';
 import { StateStore } from './StateStore.js';
 import { MemoryManager } from './MemoryManager.js';
 import { ResourceGovernor } from './ResourceGovernor.js';
-import { PID, SnapshotInfo, SnapshotManifest, AETHER_ROOT } from '@aether/shared';
+import { PID, SnapshotInfo, SnapshotManifest, AETHER_ROOT, MemoryLayer } from '@aether/shared';
 
 const execFileAsync = promisify(execFile);
 
@@ -345,8 +346,8 @@ export class SnapshotManager {
       if (errors.length === 0) {
         try {
           await this.verifyTarballIntegrity(record.tarballPath, manifest.fsHash);
-        } catch (err: any) {
-          errors.push(err.message);
+        } catch (err: unknown) {
+          errors.push(errMsg(err));
         }
       }
     }
@@ -510,7 +511,7 @@ export class SnapshotManager {
       try {
         this.memory.store({
           agent_uid: newUid,
-          layer: mem.layer as any,
+          layer: mem.layer as MemoryLayer,
           content: mem.value,
           tags: mem.metadata?.tags || [],
           importance: mem.metadata?.importance ?? 0.5,

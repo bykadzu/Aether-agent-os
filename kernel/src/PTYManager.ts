@@ -18,6 +18,7 @@ import { spawn, ChildProcess } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as pty from 'node-pty';
 import { EventBus } from './EventBus.js';
+import { errMsg } from './logger.js';
 import { ContainerManager } from './ContainerManager.js';
 import { PID, DEFAULT_TTY_COLS, DEFAULT_TTY_ROWS } from '@aether/shared';
 
@@ -120,14 +121,14 @@ export class PTYManager {
     // Use node-pty for local shell
     try {
       return this.setupLocalSession(id, pid, shell, cwd, cols, rows, options.env);
-    } catch (err: any) {
-      console.error(`[PTYManager] Failed to spawn PTY for PID ${pid}:`, err.message);
+    } catch (err: unknown) {
+      console.error(`[PTYManager] Failed to spawn PTY for PID ${pid}:`, errMsg(err));
       this.bus.emit('tty.error', {
         ttyId: id,
         pid,
-        error: `Failed to open terminal: ${err.message}`,
+        error: `Failed to open terminal: ${errMsg(err)}`,
       });
-      throw new Error(`PTY spawn failed for PID ${pid}: ${err.message}`);
+      throw new Error(`PTY spawn failed for PID ${pid}: ${errMsg(err)}`);
     }
   }
 
@@ -243,7 +244,7 @@ export class PTYManager {
       this.bus.emit('tty.output', {
         ttyId: id,
         pid,
-        data: `\r\nShell error: ${err.message}\r\n`,
+        data: `\r\nShell error: ${errMsg(err)}\r\n`,
       });
     });
 
@@ -350,7 +351,7 @@ export class PTYManager {
       // Send resize signal to container shell
       this.containerManager
         .resizeTTY(session.pid, cols, rows)
-        .catch((err: any) => console.warn(`[PTY] Container resize failed: ${err.message}`));
+        .catch((err: unknown) => console.warn(`[PTY] Container resize failed: ${errMsg(err)}`));
     }
 
     return true;
