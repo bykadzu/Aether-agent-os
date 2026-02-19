@@ -39,5 +39,11 @@ jobs:
       - name: Lint
         run: npx eslint .
 
+      - name: Build
+        run: npm run build
+
+      - name: Type check
+        run: npx tsc --noEmit --skipLibCheck
+
       - name: Test
         run: npx vitest run
